@@ -1,0 +1,47 @@
+# Ambiente di sviluppo locale. In produzione Postgres gira self-hosted in
+# Docker su una droplet DigitalOcean dedicata (porta mai pubblicata
+# sull'host) e bot/api/job girano sulla stessa droplet — vedi
+# architettura/stack-tecnologico-mvp.md. Questo compose serve solo a far
+# girare il bot contro un Postgres locale durante lo sviluppo, in
+# alternativa a connettersi all'istanza online via tunnel SSH (vedi README).
+#
+# Postgres non pubblica mai una porta sull'host, nemmeno qui: e' raggiungibile
+# solo dal servizio bot sulla rete Docker interna del compose (regola non
+# negoziabile, vedi CLAUDE.md). Per ispezionarlo da fuori durante lo sviluppo:
+#   docker compose exec postgres psql -U kindling -d kindling
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kindling}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?imposta POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-kindling}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # I file in initdb.d vengono eseguiti automaticamente, in ordine
+      # alfabetico, solo al primo avvio (volume dati vuoto). Applica quindi
+      # 0001_raw_events.sql e ogni migrazione futura numerata di conseguenza.
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kindling} -d ${POSTGRES_DB:-kindling}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Sovrascrive DATABASE_URL dell'.env per puntare al postgres del
+      # compose invece che all'istanza online.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kindling}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-kindling}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
