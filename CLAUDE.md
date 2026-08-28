@@ -12,11 +12,16 @@ per comodità di debug locale).
 Queste regole vengono dalla sezione "Requisiti di hardening di rete" di
 `architettura/stack-tecnologico-mvp.md` e non sono discrezionali:
 
-- **Mai `ports: - "5432:5432"` (o equivalente) su Postgres in nessun
-  `docker-compose.yml`.** Postgres deve essere raggiungibile solo dagli altri
-  container sulla rete Docker interna, o dagli sviluppatori via tunnel SSH.
-  Se un task richiede di far girare Postgres in Docker, per sviluppo locale
-  compreso, questa regola vale comunque: niente port mapping verso l'host.
+- **Mai `ports: - "5432:5432"` (o qualunque forma equivalente a
+  `0.0.0.0:5432:5432`) su Postgres in nessun `docker-compose.yml`.** Quella
+  forma pubblica la porta su tutte le interfacce di rete, raggiungibile da
+  internet — è la causa dell'incidente HeroesAscent, vedi sotto. **Non è
+  invece vietato** `ports: - "127.0.0.1:5432:5432"` (porta pubblicata solo
+  sul loopback dell'host): non è raggiungibile dall'esterno in nessun caso,
+  ma è quello che rende possibile collegarsi da un tunnel SSH aperto sulla
+  stessa macchina (vedi errore #3 sotto — senza questo binding il tunnel SSH
+  documentato in README non ha nulla a cui collegarsi). La regola è "mai su
+  tutte le interfacce", non "mai una sezione `ports:`".
 - **Nessuna credenziale reale o riutilizzabile hardcoded in un file
   committato** (docker-compose.yml, Dockerfile, ecc.), nemmeno per l'ambiente
   di sviluppo locale. Le credenziali vivono in `.env` (mai in git) o vengono
@@ -86,12 +91,41 @@ file toccati e verifica che il diff rifletta solo il cambiamento intenzionale
 intatto è un segnale che qualcosa è andato storto nel modo in cui è stato
 scritto, non nel contenuto.
 
+### 3. Correzione del punto 1 troppo aggressiva: rimossa la sezione `ports`
+per intero invece di limitarla al loopback
+
+Il fix del punto 1 (fatto da Claude, non da Claude Code) ha rimosso la
+sezione `ports:` del tutto, invece di limitarla a
+`"127.0.0.1:5432:5432"`. Conseguenza scoperta solo più tardi, durante il
+setup del tunnel SSH per l'analisi locale (vedi README): senza **nessuna**
+porta pubblicata, nemmeno sul loopback, `localhost:5432` sulla droplet
+stessa non risponde — quindi anche un tunnel SSH (`ssh -L
+5432:localhost:5432 ...`), che si appoggia proprio su `localhost` della
+droplet per raggiungere Postgres, fallisce con `connection refused`, pur
+essendo il tunnel SSH in sé perfettamente funzionante. Ore di debug (fail2ban,
+formato della chiave, `AllowTcpForwarding`, tunnel nativo vs. tunnel di un
+client GUI) prima di arrivare alla causa reale, che non aveva nulla a che
+fare con nessuna di quelle piste.
+
+Lezione: quando si applica una regola di hardening, verificare cosa il resto
+del sistema si aspetta che quella porta faccia (qui: il workflow di tunnel
+SSH già documentato in README) prima di chiuderla del tutto — "più
+restrittivo possibile" non è la stessa cosa di "restrittivo quanto serve
+davvero". La versione corretta pubblica la porta solo sul loopback
+dell'host, non la rimuove.
+
 ## Checklist prima di chiudere un task che tocca Docker/rete/segreti
 
 1. `git diff` sui file toccati: il diff riflette solo l'intento del task?
-2. Nessun `ports:` che esponga Postgres (o altri servizi stateful) all'host.
+2. Postgres (o altri servizi stateful) non è raggiungibile da IP esterni —
+   niente `ports:` senza IP esplicito, o con `0.0.0.0`. Un `ports:` limitato
+   a `127.0.0.1:...` va bene, anzi serve per il tunnel SSH.
 3. Nessuna password/token/secret hardcoded in un file che verrà committato.
 4. Il contenuto coincide con quanto descritto in
    `architettura/stack-tecnologico-mvp.md` per quella parte di stack? In
    caso di dubbio o di conflitto, segnalarlo esplicitamente invece di
    procedere silenziosamente con un'assunzione diversa.
+5. Se la modifica riguarda una porta o un binding di rete già usato da un
+   workflow documentato altrove (es. il tunnel SSH in README), verificare
+   che quel workflow continui a funzionare con la nuova configurazione,
+   non solo che la regola di sicurezza sia rispettata sulla carta.

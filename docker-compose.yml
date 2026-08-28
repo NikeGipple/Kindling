@@ -1,14 +1,16 @@
-# Ambiente di sviluppo locale. In produzione Postgres gira self-hosted in
-# Docker su una droplet DigitalOcean dedicata (porta mai pubblicata
-# sull'host) e bot/api/job girano sulla stessa droplet — vedi
-# architettura/stack-tecnologico-mvp.md. Questo compose serve solo a far
-# girare il bot contro un Postgres locale durante lo sviluppo, in
-# alternativa a connettersi all'istanza online via tunnel SSH (vedi README).
+# Ambiente di sviluppo locale, e configurazione usata anche in produzione
+# sulla droplet DigitalOcean (bot/api/job girano sulla stessa droplet) — vedi
+# architettura/stack-tecnologico-mvp.md.
 #
-# Postgres non pubblica mai una porta sull'host, nemmeno qui: e' raggiungibile
-# solo dal servizio bot sulla rete Docker interna del compose (regola non
-# negoziabile, vedi CLAUDE.md). Per ispezionarlo da fuori durante lo sviluppo:
-#   docker compose exec postgres psql -U kindling -d kindling
+# Postgres non pubblica MAI la porta su tutte le interfacce (niente
+# "5432:5432", che equivale a "0.0.0.0:5432:5432" — raggiungibile da
+# internet, la causa dell'incidente HeroesAscent, vedi CLAUDE.md). E'
+# invece pubblicata SOLO sul loopback dell'host ("127.0.0.1:5432:5432"):
+# non raggiungibile dall'esterno in nessun caso, ma raggiungibile da un
+# tunnel SSH aperto su quella stessa macchina — è quello che rende
+# possibile il workflow "analisi locale via tunnel SSH" descritto nel
+# README, che altrimenti (porta non pubblicata affatto) non avrebbe nulla
+# a cui collegarsi neanche da dentro la droplet stessa.
 
 services:
   postgres:
@@ -18,6 +20,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-kindling}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?imposta POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-kindling}
+    ports:
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       # I file in initdb.d vengono eseguiti automaticamente, in ordine
