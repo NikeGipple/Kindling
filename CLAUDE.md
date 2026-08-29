@@ -1,7 +1,6 @@
 # Kindling — istruzioni per Claude Code
 
-Community Intelligence Platform per la community italiana di Guild Wars 2
-"L'Arco del Leone". Prima di toccare qualunque cosa relativa a hosting,
+Community Intelligence Platform. Prima di toccare qualunque cosa relativa a hosting,
 Docker, rete o storage, leggi `architettura/stack-tecnologico-mvp.md`: è la
 decisione di architettura corrente, motivata, e ha priorità su qualunque
 default "standard" che useresti altrimenti (es. pubblicare una porta Postgres
@@ -114,6 +113,18 @@ restrittivo possibile" non è la stessa cosa di "restrittivo quanto serve
 davvero". La versione corretta pubblica la porta solo sul loopback
 dell'host, non la rimuove.
 
+### 4. Riferimento a hosting sbagliato nel Dockerfile (Fly.io/Railway invece di DigitalOcean)
+
+Il commento in testa a `Dockerfile` citava "l'hosting di riferimento
+(Fly.io/Railway)", in conflitto con `architettura/stack-tecnologico-mvp.md`,
+che descrive una droplet DigitalOcean dedicata (`kindling-app-01`) come
+scelta di hosting — non un PaaS come Fly.io o Railway. Corretto il 28 agosto
+2026: da ora in poi l'unico hosting di riferimento per Kindling è
+**DigitalOcean** (droplet dedicata, piano di deploy a due fasi). Qualunque
+riferimento futuro a Fly.io, Railway o altri PaaS in file di questo repo è
+un refuso da correggere, non un'opzione valida — vedi
+`architettura/stack-tecnologico-mvp.md` per il razionale completo.
+
 ## Checklist prima di chiudere un task che tocca Docker/rete/segreti
 
 1. `git diff` sui file toccati: il diff riflette solo l'intento del task?
@@ -129,3 +140,51 @@ dell'host, non la rimuove.
    workflow documentato altrove (es. il tunnel SSH in README), verificare
    che quel workflow continui a funzionare con la nuova configurazione,
    non solo che la regola di sicurezza sia rispettata sulla carta.
+
+## Tabella `members`
+
+Implementata (`migrations/0002_members.sql`, `bot/db.py`,
+`bot/cogs/admin.py`) — non è più un gap. Anagrafica dello stato corrente di
+ogni membro per server, per calcolare la retention e confrontarla con eventi
+di onboarding (es. numero di connessioni fatte nei primi giorni):
+
+- Chiave primaria composita `(guild_id, author_id)` — non solo `author_id`
+  come nella bozza iniziale: coerente con `raw_events`, e permette allo
+  stesso utente Discord di essere membro di più server Kindling senza che
+  un'iscrizione sovrascriva l'altra.
+- `joined_at` (NOT NULL), `left_at` (nullable — NULL = membro tuttora
+  presente), `forgotten_at` (nullable, stessa semantica GDPR di
+  `raw_events`).
+- `left_at` non è un dettaglio opzionale: senza uscite tracciate non si può
+  mai verificare se l'onboarding rapido (es. Millington, 5 connessioni
+  distinte) correla davvero con la retention — è il termine di paragone
+  altrimenti mancante.
+- Due nuovi tipi di evento coerenti con la filosofia raw-event-come-fonte-
+  di-verità: `member_join` / `member_remove` (`bot/event_types.py`, da
+  `on_member_join` / `on_member_remove` di discord.py).
+- Edge case rientro dopo uscita: per l'MVP si sovrascrivono `joined_at`/
+  `left_at` (nessuno storico multi-rientro). Scelta esplicita, da rivedere
+  se in futuro serve tracciare rientri multipli.
+- **Backfill una tantum**, comando `!backfill_members` (admin only,
+  `bot/cogs/admin.py`): popola `members` con i membri già presenti su un
+  server al momento dell'aggiunta del bot — senza backfill il loro
+  `joined_at` non viene mai osservato via evento. **Da lanciare su ogni
+  server Discord non appena Kindling viene aggiunto**: se un membro esce
+  prima del backfill su quel server, il suo `joined_at` è perso per sempre.
+  Rilanciabile in sicurezza (aggiorna, non duplica — vedi
+  `db.upsert_member_join`).
+
+## Terminologia: `guild_id`
+
+`guild_id` indica **sempre e solo il server Discord**, mai la gilda in-game
+di Guild Wars 2. Sono due entità diverse, con fonti dati diverse:
+
+- `guild_id` → server Discord (fonte: eventi Discord, già presente su
+  `raw_events` e nello schema).
+- Gilda in-game GW2 → fonte dati separata, non ancora integrata. Se in futuro
+  verrà integrata, andrà chiamata esplicitamente `gw2_guild_id` per evitare
+  ambiguità con `guild_id`.
+
+Non usare mai "guild" da solo per riferirsi alla gilda GW2 nel codice o nello
+schema: nel contesto Discord/discord.py "guild" è già un termine riservato
+con un significato preciso (= server).

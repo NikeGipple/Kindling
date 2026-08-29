@@ -34,7 +34,8 @@ class KindlingBot(commands.Bot):
     async def setup_hook(self) -> None:
         await db.init_pool(self.settings.database_url)
         await self.load_extension("bot.cogs.ingestion")
-        logger.info("Cog di ingestion caricato")
+        await self.load_extension("bot.cogs.admin")
+        logger.info("Cog di ingestion e amministrazione caricati")
 
     async def on_ready(self) -> None:
         logger.info("Connesso come %s (guild collegate: %d)", self.user, len(self.guilds))

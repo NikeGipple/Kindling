@@ -89,3 +89,79 @@ async def insert_raw_event(
         # sempre ricostruire da Discord entro i limiti dell'audit log; un bot
         # offline no.
         logger.exception("Scrittura raw_events fallita per event_type=%s", event_type)
+
+
+# ---- members: stato corrente (non append-only, vedi migrations/0002) -------
+
+_UPSERT_MEMBER_JOIN = """
+    INSERT INTO members (guild_id, author_id, joined_at, left_at)
+    VALUES ($1, $2, $3, NULL)
+    ON CONFLICT (guild_id, author_id) DO UPDATE
+        SET joined_at = EXCLUDED.joined_at,
+            left_at = NULL
+"""
+
+_MARK_MEMBER_LEFT = """
+    UPDATE members
+    SET left_at = $3
+    WHERE guild_id = $1 AND author_id = $2
+"""
+
+
+async def upsert_member_join(
+    *, guild_id: int, author_id: int, joined_at: Optional[datetime]
+) -> None:
+    """Registra o aggiorna l'ingresso di un membro in ``members``.
+
+    Usato sia dall'evento ``member_join`` in tempo reale sia dal backfill una
+    tantum (comando ``!backfill_members``, ``bot/cogs/admin.py``) per i
+    membri già presenti quando il bot viene aggiunto a un server. In caso di
+    rientro dopo un'uscita, sovrascrive joined_at/left_at: nessuno storico
+    dei rientri multipli per l'MVP (vedi CLAUDE.md).
+    """
+    if joined_at is None:
+        # In teoria discord.py valorizza sempre joined_at; per sicurezza non
+        # scriviamo mai una riga con la colonna NOT NULL mancante.
+        logger.warning(
+            "joined_at mancante per author_id=%s in guild_id=%s: membro non registrato in members",
+            author_id,
+            guild_id,
+        )
+        return
+
+    pool = get_pool()
+    try:
+        await pool.execute(_UPSERT_MEMBER_JOIN, guild_id, author_id, joined_at)
+    except Exception:
+        logger.exception(
+            "Upsert members (join) fallito per guild_id=%s author_id=%s", guild_id, author_id
+        )
+
+
+async def mark_member_left(
+    *, guild_id: int, author_id: int, left_at: Optional[datetime] = None
+) -> None:
+    """Segna l'uscita di un membro già tracciato in ``members``.
+
+    Se il membro non risulta mai entrato (nessuna riga esistente — tipicamente
+    perché era già presente prima che il backfill fosse lanciato su questo
+    server), non inserisce una riga incompleta: joined_at è NOT NULL e non
+    possiamo inventarlo. Logga solo un warning: è esattamente il buco di dati
+    che il backfill dovrebbe prevenire (vedi CLAUDE.md).
+    """
+    pool = get_pool()
+    try:
+        result = await pool.execute(
+            _MARK_MEMBER_LEFT, guild_id, author_id, left_at or datetime.now(timezone.utc)
+        )
+        if result == "UPDATE 0":
+            logger.warning(
+                "member_remove per author_id=%s in guild_id=%s senza riga members "
+                "corrispondente: il suo joined_at è perso (backfill mai lanciato su questo server?)",
+                author_id,
+                guild_id,
+            )
+    except Exception:
+        logger.exception(
+            "Update members (leave) fallito per guild_id=%s author_id=%s", guild_id, author_id
+        )

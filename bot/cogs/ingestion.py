@@ -2,7 +2,8 @@
 raw_events, senza interpretarli.
 
 Copre il set di eventi elencato in architettura/stack-tecnologico-mvp.md:
-messaggi, reply, reazioni, thread, voice join/leave, eventi/RSVP. Aggiungere
+messaggi, reply, reazioni, thread, voice join/leave, eventi/RSVP, membri
+(join/remove). Aggiungere
 un nuovo tipo di evento significa aggiungere un listener qui e un valore in
 ``bot/event_types.py`` — non richiede modifiche allo schema di raw_events.
 """
@@ -153,6 +154,44 @@ class IngestionCog(commands.Cog):
             message_id=event.id,
             payload={"event_name": event.name},
         )
+
+    # ---- Membri -------------------------------------------------------------
+    #
+    # Oltre a raw_events (fonte di verità, coerente col resto del bot),
+    # aggiornano anche members: quella tabella non è un log ma uno stato
+    # corrente (joined_at/left_at), serve alle metriche di retention. Vedi
+    # CLAUDE.md, sezione "Gap noto: tabella members".
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member) -> None:
+        if member.bot:
+            return
+
+        await db.insert_raw_event(
+            guild_id=member.guild.id,
+            event_type=event_types.MEMBER_JOIN,
+            author_id=member.id,
+            occurred_at=member.joined_at,
+            payload={},
+        )
+        await db.upsert_member_join(
+            guild_id=member.guild.id,
+            author_id=member.id,
+            joined_at=member.joined_at,
+        )
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member) -> None:
+        if member.bot:
+            return
+
+        await db.insert_raw_event(
+            guild_id=member.guild.id,
+            event_type=event_types.MEMBER_REMOVE,
+            author_id=member.id,
+            payload={},
+        )
+        await db.mark_member_left(guild_id=member.guild.id, author_id=member.id)
 
 
 async def setup(bot: commands.Bot) -> None:

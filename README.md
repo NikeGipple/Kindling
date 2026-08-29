@@ -14,11 +14,12 @@ calcolo legge `raw_events` a valle, a batch.
 bot/
   client.py        # classe del bot: intents, pool DB, caricamento cog
   config.py        # configurazione da variabili d'ambiente
-  db.py             # pool asyncpg + insert_raw_event()
+  db.py             # pool asyncpg + insert_raw_event() + stato members
   event_types.py    # tipi di evento canonici
   main.py           # entrypoint (python -m bot.main)
   cogs/
-    ingestion.py    # listener discord.py -> raw_events
+    ingestion.py    # listener discord.py -> raw_events (+ stato members)
+    admin.py        # comandi operativi (es. !backfill_members)
 ```
 
 ### Setup locale
@@ -41,11 +42,20 @@ coerente con la scelta di restare semplici a questa scala):
 
 ```bash
 psql "$DATABASE_URL" -f migrations/0001_raw_events.sql
+psql "$DATABASE_URL" -f migrations/0002_members.sql
 ```
 
 `migrations/0001_raw_events.sql` crea `raw_events`: vedi i commenti nel file
 per il razionale di ogni colonna e indice (incluso il flag `forgotten_at` per
 il diritto all'oblio richiesto dai Discord Developer ToS).
+
+`migrations/0002_members.sql` crea `members` (stato corrente joined_at/left_at
+per calcolare la retention, non append-only come raw_events). Quando Kindling
+viene aggiunto a un nuovo server, lanciare una tantum, in quel server, il
+comando `!backfill_members` (richiede permessi di amministratore): senza
+questo passaggio il `joined_at` dei membri già presenti non viene mai
+osservato via evento, e va perso per sempre se qualcuno esce prima del
+backfill.
 
 ### Avvio del bot
 

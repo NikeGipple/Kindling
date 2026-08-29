@@ -21,6 +21,8 @@ VOICE_JOIN = "voice_join"
 VOICE_LEAVE = "voice_leave"
 EVENT_RSVP_ADD = "event_rsvp_add"
 EVENT_RSVP_REMOVE = "event_rsvp_remove"
+MEMBER_JOIN = "member_join"
+MEMBER_REMOVE = "member_remove"
 
 ALL = frozenset(
     {
@@ -33,5 +35,7 @@ ALL = frozenset(
         VOICE_LEAVE,
         EVENT_RSVP_ADD,
         EVENT_RSVP_REMOVE,
+        MEMBER_JOIN,
+        MEMBER_REMOVE,
     }
 )
