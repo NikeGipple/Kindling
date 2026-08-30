@@ -1,7 +1,7 @@
 # Kindling
 Community intelligence platform for Discord
 
-Architettura e razionale delle scelte tecniche: `architettura/stack-tecnologico-mvp.md`.
+Architettura e razionale delle scelte tecniche: `docs/architettura/stack-tecnologico-mvp.md`.
 
 ## Bot di ingestion (`bot/`)
 
@@ -83,7 +83,7 @@ psql -U kindling -d kindling`.
 
 ### Connettersi al Postgres online (Fase 1: bot + DB sulla droplet)
 
-In Fase 1 (vedi `architettura/stack-tecnologico-mvp.md`) il bot e Postgres
+In Fase 1 (vedi `docs/architettura/stack-tecnologico-mvp.md`) il bot e Postgres
 girano sempre accesi sulla droplet DigitalOcean, senza porte pubblicate: per
 analizzare i dati in locale ci si collega via tunnel SSH invece di far
 girare un Postgres locale:

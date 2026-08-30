@@ -1,7 +1,7 @@
 """Cog di ingestion: cattura gli eventi Discord grezzi e li scrive su
 raw_events, senza interpretarli.
 
-Copre il set di eventi elencato in architettura/stack-tecnologico-mvp.md:
+Copre il set di eventi elencato in docs/architettura/stack-tecnologico-mvp.md:
 messaggi, reply, reazioni, thread, voice join/leave, eventi/RSVP, membri
 (join/remove). Aggiungere
 un nuovo tipo di evento significa aggiungere un listener qui e un valore in

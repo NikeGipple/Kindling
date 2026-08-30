@@ -2,7 +2,7 @@
 
 Nessuna query di lettura/aggregazione qui: questo modulo serve solo
 all'ingestion. Il calcolo del grafo legge raw_events separatamente, a batch
-(vedi architettura/stack-tecnologico-mvp.md).
+(vedi docs/architettura/stack-tecnologico-mvp.md).
 """
 
 from __future__ import annotations

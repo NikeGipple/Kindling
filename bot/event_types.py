@@ -1,7 +1,7 @@
 """Tipi di evento canonici scritti in ``raw_events``.
 
 Questo e' il confine netto tra ingestion source-specific e schema canonico
-degli eventi (architettura/stack-tecnologico-mvp.md, punto 2 di
+degli eventi (docs/architettura/stack-tecnologico-mvp.md, punto 2 di
 "Cosa rende questa architettura davvero future-proof"): un nuovo ingestor,
 anche per una fonte diversa da Discord, deve produrre uno di questi tipi (o
 estendere questa lista) senza toccare il motore di calcolo del grafo.
