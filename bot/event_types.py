@@ -24,6 +24,13 @@ EVENT_RSVP_REMOVE = "event_rsvp_remove"
 MEMBER_JOIN = "member_join"
 MEMBER_REMOVE = "member_remove"
 
+# Marcatore di riavvio del bot: scritto a ogni ``on_ready``, uno per guild
+# collegata. Non e' un'interazione tra membri e non genera archi; serve al job
+# di calcolo per distinguere "e' ancora in canale" da "abbiamo perso il
+# voice_leave mentre il bot era spento" (modello-grafo.md 4.3/4.4). Senza
+# questo marcatore quella distinzione e' impossibile a posteriori.
+BOT_RESTART = "bot_restart"
+
 ALL = frozenset(
     {
         MESSAGE_CREATE,
@@ -37,5 +44,18 @@ ALL = frozenset(
         EVENT_RSVP_REMOVE,
         MEMBER_JOIN,
         MEMBER_REMOVE,
+        BOT_RESTART,
     }
 )
+
+# Chiavi di payload che marcano un evento come *ricostruito* invece che
+# osservato in tempo reale (join/leave sintetici emessi dalla riconciliazione
+# all'avvio, modello-grafo.md 4.4). Vivono qui e non nel cog perche' il job di
+# calcolo deve leggerle per marcare l'arco risultante come ``is_reconciled``:
+# sono parte del contratto tra ingestion e calcolo, non un dettaglio del bot.
+RECONSTRUCTED_KEY = "reconstructed"
+RECONSTRUCTION_REASON_KEY = "reconstruction_reason"
+
+# Valore di RECONSTRUCTION_REASON_KEY per gli eventi emessi dalla
+# riconciliazione all'avvio.
+REASON_BOT_RESTART = "bot_restart"

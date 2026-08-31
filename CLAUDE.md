@@ -6,6 +6,17 @@ decisione di architettura corrente, motivata, e ha priorità su qualunque
 default "standard" che useresti altrimenti (es. pubblicare una porta Postgres
 per comodità di debug locale).
 
+Prima di toccare qualunque cosa relativa al **grafo sociale** — ricostruzione
+delle sessioni vocali, archi, pesi, decadimento, snapshot — leggi
+`docs/architettura/modello-grafo.md`: è la specifica del modello, ed è il
+risultato di decisioni di ricerca prese esplicitamente. Vale la stessa regola
+del doc di architettura, più una: se il codice diverge dalla specifica, è il
+codice a essere sbagliato, oppure è una cosa da discutere **prima**. Non si
+modifica `modello-grafo.md` per farlo combaciare con l'implementazione. Se un
+punto risulta ambiguo o impossibile da implementare come scritto, chiedere
+invece di scegliere: una deviazione silenziosa vanifica la decisione che c'è
+dietro.
+
 ## Regole non negoziabili (violarle ha già causato un incidente reale)
 
 Queste regole vengono dalla sezione "Requisiti di hardening di rete" di
@@ -174,50 +185,27 @@ di onboarding (es. numero di connessioni fatte nei primi giorni):
   Rilanciabile in sicurezza (aggiorna, non duplica — vedi
   `db.upsert_member_join`).
 
-## Gap noto: colonna `referenced_channel_id` su `raw_events`
+## Colonna `referenced_channel_id` su `raw_events`
 
-*Emerso il 30/08/2026 durante l'analisi di risoluzione dell'autore dei
-messaggi target di reply/reazioni (self-join `raw_events.message_id` →
-`author_id`, necessario per costruire gli archi del grafo sociale — vedi
-`docs/architettura/stack-tecnologico-mvp.md` e
-`docs/architettura/metriche-aggregate-admin.md`). Non ancora implementato.*
+Implementata (`migrations/0003_referenced_channel_id.sql`, `bot/db.py`,
+`bot/cogs/ingestion.py`) — non è più un gap. `on_message` valorizza
+`referenced_channel_id` da `message.reference.channel_id` quando il messaggio
+è una reply: Discord permette reply cross-canale, e prima il codice assumeva
+implicitamente che il messaggio target fosse nello stesso canale della reply.
 
-`raw_events` salva `referenced_message_id` per le reply (`on_message` in
-`bot/cogs/ingestion.py`), ma non il canale del messaggio referenziato. Il
-codice attuale assume implicitamente che il messaggio a cui si risponde sia
-nello stesso canale della reply — vero nella stragrande maggioranza dei
-casi, ma Discord permette reply cross-canale (es. messaggi inoltrati), e in
-quei casi l'assunzione porta a cercare l'id nel canale sbagliato.
+Due precisazioni emerse implementandola:
 
-Da fare:
-
-- **Migrazione**: nuova colonna `referenced_channel_id BIGINT` (nullable,
-  come le altre colonne opzionali di `raw_events`) — nuovo file
-  `migrations/0003_referenced_channel_id.sql`, stesso pattern di
-  `0001_raw_events.sql`/`0002_members.sql`.
-- **Ingestion**: in `on_message` (`bot/cogs/ingestion.py`), quando
-  `is_reply`, valorizzare `referenced_channel_id=message.reference.channel_id`
-  (l'oggetto `message.reference` lo espone già, non serve una chiamata API
-  aggiuntiva) — richiede il parametro corrispondente anche in
-  `db.insert_raw_event`.
-- **Controllo e riempimento una tantum sulle righe già ingerite**: dato che
-  la colonna non esiste ancora, tutte le reply già in `raw_events` ne sono
-  prive. Per ciascuna, il canale del messaggio referenziato si può
-  recuperare rifacendo `channel.fetch_message(message_id)` sulla **reply
-  stessa** (non sul messaggio target), usando `channel_id`/`message_id` già
-  presenti sulla riga: l'oggetto restituito, se la reply è ancora presente,
-  porta con sé `.reference.channel_id` da scrivere nella nuova colonna. Se
-  la reply nel frattempo è stata cancellata, il dato per quella riga non è
-  più recuperabile: lasciare `referenced_channel_id` a `NULL` in quel caso.
-  `NULL` va trattato a valle come "assumi stesso canale della reply", che è
-  comunque il comportamento attuale prima di questa modifica — nessuna
-  regressione, solo un dato più preciso quando disponibile.
-- Non serve nessun intent privilegiato aggiuntivo per questo controllo:
-  `author.id` e i campi di `message_reference` sono sempre presenti nella
-  risposta dell'API indipendentemente dal Message Content Intent (verificato
-  sulla documentazione Discord corrente, 30/08/2026) — la stessa cosa vale
-  per il resolver che risolve l'autore dei messaggi target (vedi nota
-  separata sul self-join reply/reazioni).
+- **Il job di calcolo non ne ha bisogno.** Risolve l'autore di un messaggio
+  target per `message_id` (tabella `message_authors`), e gli id dei messaggi
+  Discord sono globalmente univoci: il canale non serve al join. La colonna
+  serve al **backfill lato bot** che recupera via API gli autori mancanti, dove
+  `channel.fetch_message` vuole il canale giusto. Quel backfill è ancora da
+  scrivere ed è dichiarato opzionale in `modello-grafo.md` §6.
+- **Le reply già ingerite restano a `NULL`**, e `NULL` va trattato a valle come
+  "stesso canale della reply" — cioè il comportamento precedente. Nessuna
+  regressione, solo un dato più preciso da qui in avanti. Il riempimento una
+  tantum delle righe vecchie (rifacendo `channel.fetch_message` sulla reply
+  stessa, non sul target) resta possibile ma non è stato fatto.
 
 ## Terminologia: `guild_id`
 

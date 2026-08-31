@@ -1,14 +1,12 @@
 # Catalogo metriche aggregate per l'admin — Kindling
 
-*Bozza di lavoro — 30 agosto 2026. Nasce come sviluppo diretto del principio
-"nessun profilo individuale esposto agli amministratori" già fissato in
-`stack-tecnologico-mvp.md`: qui si elencano gli indici e i
-valori aggregati concreti che quel principio permette comunque di mostrare,
-in modo che il sistema possa "sapere" a livello di singolo nodo (centralità,
-ruolo di bridge, community di appartenenza, velocità di integrazione del
-singolo) senza che nessuna di queste informazioni raggiunga mai l'admin come
-tale. Da rivedere e affinare quando si comincerà a scrivere il job di
-calcolo e le tabelle di snapshot.
+*Bozza di lavoro — 30 agosto 2026. Elenca gli indici e i valori aggregati concreti
+permessi dal principio "nessun profilo individuale esposto agli amministratori"
+(vedi `architettura.md`): il sistema può "sapere" a livello di singolo nodo
+(centralità, ruolo di bridge, community di appartenenza, velocità di
+integrazione del singolo) senza che nessuna di queste informazioni raggiunga
+mai l'admin come tale. Da rivedere e affinare quando si comincerà a scrivere
+il job di calcolo e le tabelle di snapshot.*
 
 ## Principio di riferimento
 
@@ -111,9 +109,8 @@ questo catalogo, non solo a quelle di conteggio:
   join, o "iscritti durante un evento" vs organici); incrociato con
   retention/abbandono della stessa coorte.
 - **Perché conta**: è la metrica che permette di verificare se
-  l'integrazione rapida correla davvero con la permanenza — collegata al
-  gap già chiuso sulla tabella `members` (`joined_at`/`left_at`) descritto
-  in `note-claude-md.md`.
+  l'integrazione rapida correla davvero con la permanenza — usa il
+  join/leave dei membri (tabella `members`, vedi `architettura.md`).
 - **Dato sorgente**: tabella `members` (join/leave) + grafo delle
   interazioni per calcolare il raggiungimento di *k* connessioni.
 - **Cadenza**: per coorte, aggiornata a ogni snapshot.

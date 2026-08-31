@@ -1,8 +1,10 @@
 """Accesso a Postgres: pool di connessioni e scrittura append-only su raw_events.
 
-Nessuna query di lettura/aggregazione qui: questo modulo serve solo
+Nessuna query di aggregazione o di metrica qui: questo modulo serve solo
 all'ingestion. Il calcolo del grafo legge raw_events separatamente, a batch
-(vedi docs/architettura/stack-tecnologico-mvp.md).
+(package job/, vedi docs/architettura/architettura.md). Le uniche letture
+presenti sono quelle che servono all'ingestion stessa per riconciliare il
+proprio stato all'avvio (modello-grafo.md 4.4).
 """
 
 from __future__ import annotations
@@ -13,6 +15,8 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 import asyncpg
+
+from . import event_types
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +48,10 @@ def get_pool() -> asyncpg.Pool:
 _INSERT_RAW_EVENT = """
     INSERT INTO raw_events (
         guild_id, event_type, author_id, channel_id,
-        message_id, referenced_message_id, dedup_key,
+        message_id, referenced_message_id, referenced_channel_id, dedup_key,
         payload, occurred_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
     ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING
 """
 
@@ -61,6 +65,7 @@ async def insert_raw_event(
     channel_id: Optional[int] = None,
     message_id: Optional[int] = None,
     referenced_message_id: Optional[int] = None,
+    referenced_channel_id: Optional[int] = None,
     dedup_key: Optional[str] = None,
     occurred_at: Optional[datetime] = None,
 ) -> None:
@@ -80,6 +85,7 @@ async def insert_raw_event(
             channel_id,
             message_id,
             referenced_message_id,
+            referenced_channel_id,
             dedup_key,
             json.dumps(payload, default=str),
             occurred_at or datetime.now(timezone.utc),
@@ -89,6 +95,70 @@ async def insert_raw_event(
         # sempre ricostruire da Discord entro i limiti dell'audit log; un bot
         # offline no.
         logger.exception("Scrittura raw_events fallita per event_type=%s", event_type)
+
+
+# ---- letture per la riconciliazione all'avvio (modello-grafo.md 4.4) ------
+
+_LAST_EVENT_AT = """
+    SELECT max(occurred_at) FROM raw_events WHERE guild_id = $1
+"""
+
+_OPEN_VOICE_SESSIONS = """
+    SELECT author_id, channel_id, occurred_at
+    FROM (
+        SELECT DISTINCT ON (author_id, channel_id)
+               author_id, channel_id, event_type, occurred_at
+        FROM raw_events
+        WHERE guild_id = $1
+          AND event_type IN ($2, $3)
+          AND author_id IS NOT NULL
+          AND channel_id IS NOT NULL
+          AND forgotten_at IS NULL
+        ORDER BY author_id, channel_id, occurred_at DESC, id DESC
+    ) AS ultimo
+    WHERE event_type = $2
+"""
+
+
+async def last_event_at(*, guild_id: int) -> Optional[datetime]:
+    """Timestamp dell'ultimo evento noto per questa guild.
+
+    E' la migliore approssimazione disponibile dell'istante in cui il bot era
+    ancora vivo prima di fermarsi: modello-grafo.md 4.3 chiede di chiudere le
+    sessioni orfane "all'inizio del downtime del bot se noto", e questo e' il
+    solo dato che lo rende noto senza introdurre un heartbeat. Va letto
+    *prima* di scrivere il marcatore di riavvio, altrimenti restituisce il
+    marcatore stesso.
+    """
+    pool = get_pool()
+    try:
+        return await pool.fetchval(_LAST_EVENT_AT, guild_id)
+    except Exception:
+        logger.exception("Lettura ultimo evento fallita per guild_id=%s", guild_id)
+        return None
+
+
+async def fetch_open_voice_sessions(
+    *, guild_id: int
+) -> list[tuple[int, int, datetime]]:
+    """Sessioni vocali rimaste aperte nel DB: (author_id, channel_id, joined_at).
+
+    "Aperta" = per quella coppia (membro, canale) l'ultimo evento vocale
+    registrato e' un ``voice_join`` senza ``voice_leave`` successivo. Al
+    riavvio alcune di queste sono reali (la persona e' tuttora in canale) e
+    altre no (il leave e' andato perso durante il downtime): distinguerle
+    confrontandole con lo stato vocale corrente e' il lavoro della
+    riconciliazione in bot/cogs/ingestion.py.
+    """
+    pool = get_pool()
+    try:
+        rows = await pool.fetch(
+            _OPEN_VOICE_SESSIONS, guild_id, event_types.VOICE_JOIN, event_types.VOICE_LEAVE
+        )
+    except Exception:
+        logger.exception("Lettura sessioni vocali aperte fallita per guild_id=%s", guild_id)
+        return []
+    return [(r["author_id"], r["channel_id"], r["occurred_at"]) for r in rows]
 
 
 # ---- members: stato corrente (non append-only, vedi migrations/0002) -------

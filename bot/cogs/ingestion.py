@@ -11,6 +11,8 @@ un nuovo tipo di evento significa aggiungere un listener qui e un valore in
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
+from typing import Optional
 
 import discord
 from discord.ext import commands
@@ -39,6 +41,12 @@ class IngestionCog(commands.Cog):
             channel_id=message.channel.id,
             message_id=message.id,
             referenced_message_id=message.reference.message_id if is_reply else None,
+            # Il canale del messaggio a cui si risponde non coincide sempre
+            # con quello della reply (Discord permette reply cross-canale):
+            # senza questa colonna il recupero via API del messaggio target
+            # cercherebbe l'id nel canale sbagliato. message.reference lo
+            # espone gia', non serve una chiamata API in piu'.
+            referenced_channel_id=message.reference.channel_id if is_reply else None,
             occurred_at=message.created_at,
             payload={
                 # Deliberatamente NON il testo del messaggio: per l'MVP alle
@@ -108,26 +116,200 @@ class IngestionCog(commands.Cog):
         if member.bot:
             return
 
-        if before.channel is None and after.channel is not None:
-            await db.insert_raw_event(
+        if before.channel == after.channel:
+            # Mute, deafen, avvio di uno streaming: cambia lo stato del
+            # membro, non la sua presenza in canale. La co-presenza vocale,
+            # unica cosa che il grafo ricostruisce da qui, non e' toccata.
+            return
+
+        # Uno spostamento tra canali e' "a tutti gli effetti un leave dal
+        # canale precedente e un join nel nuovo" (modello-grafo.md 3.1): non
+        # emetterlo lasciava chi si sposta aperto per sempre nel canale
+        # sbagliato. I due eventi condividono lo stesso timestamp, calcolato
+        # una volta sola qui: se differissero, la ricostruzione degli
+        # intervalli vedrebbe tra i due canali un buco (o una
+        # sovrapposizione) che nella realta' non esiste.
+        occurred_at = datetime.now(timezone.utc)
+
+        if before.channel is not None:
+            await self._emit_voice_event(
                 guild_id=member.guild.id,
-                event_type=event_types.VOICE_JOIN,
-                author_id=member.id,
-                channel_id=after.channel.id,
-                payload={"channel_name": after.channel.name},
-            )
-        elif before.channel is not None and after.channel is None:
-            await db.insert_raw_event(
-                guild_id=member.guild.id,
-                event_type=event_types.VOICE_LEAVE,
                 author_id=member.id,
                 channel_id=before.channel.id,
-                payload={"channel_name": before.channel.name},
+                channel_name=before.channel.name,
+                event_type=event_types.VOICE_LEAVE,
+                occurred_at=occurred_at,
             )
-        # TODO: spostamento tra canali voice (before.channel e after.channel
-        # entrambi valorizzati ma diversi). Per ora non modellato: decidere
-        # se trattarlo come leave+join o come evento dedicato "voice_move"
-        # quando servirà alle metriche di presenza.
+        if after.channel is not None:
+            await self._emit_voice_event(
+                guild_id=member.guild.id,
+                author_id=member.id,
+                channel_id=after.channel.id,
+                channel_name=after.channel.name,
+                event_type=event_types.VOICE_JOIN,
+                occurred_at=occurred_at,
+            )
+
+    async def _emit_voice_event(
+        self,
+        *,
+        guild_id: int,
+        author_id: int,
+        channel_id: int,
+        channel_name: Optional[str],
+        event_type: str,
+        occurred_at: datetime,
+        reconstruction_reason: Optional[str] = None,
+    ) -> None:
+        """Scrive un voice_join/voice_leave.
+
+        Prende id e non oggetti discord.py perche' la riconciliazione
+        all'avvio deve poter chiudere la sessione di un membro che nel
+        frattempo ha lasciato il server, o in un canale che nel frattempo e'
+        stato cancellato: in quei casi un oggetto ``Member``/``VoiceChannel``
+        non esiste piu', ma gli id letti dal DB si.
+        """
+        payload: dict[str, object] = {"channel_name": channel_name}
+        dedup_key = None
+        if reconstruction_reason is not None:
+            # Marcato come ricostruito, non osservato: il job di calcolo legge
+            # questa chiave per marcare gli archi risultanti come
+            # is_reconciled ed escluderli dalle verifiche di sensibilita'
+            # (modello-grafo.md 4.3).
+            payload[event_types.RECONSTRUCTED_KEY] = True
+            payload[event_types.RECONSTRUCTION_REASON_KEY] = reconstruction_reason
+            dedup_key = (
+                f"{event_type}:reconstructed:{guild_id}:{author_id}:"
+                f"{channel_id}:{occurred_at.isoformat()}"
+            )
+
+        await db.insert_raw_event(
+            guild_id=guild_id,
+            event_type=event_type,
+            author_id=author_id,
+            channel_id=channel_id,
+            occurred_at=occurred_at,
+            dedup_key=dedup_key,
+            payload=payload,
+        )
+
+    # ---- Riconciliazione all'avvio (modello-grafo.md 4.4) -------------------
+    #
+    # Senza sapere quando il bot era spento non si distingue "e' ancora in
+    # canale" da "abbiamo perso il leave": e' il prerequisito della
+    # riconciliazione delle sessioni orfane. E' l'equivalente vocale di
+    # !backfill_members, ma automatico, perche' un downtime non e' un evento
+    # che qualcuno si ricorda di annunciare.
+    #
+    # on_ready si ripete a ogni riconnessione al gateway, non solo al primo
+    # avvio del processo: va bene, perche' anche una riconnessione lunga
+    # apre un buco. La seconda esecuzione di fila e' naturalmente un no-op
+    # (nessuna sessione risulta disallineata), quindi non serve un flag.
+
+    @commands.Cog.listener()
+    async def on_ready(self) -> None:
+        for guild in self.bot.guilds:
+            try:
+                await self._reconcile_voice_state(guild)
+            except Exception:
+                # Una riconciliazione fallita degrada i dati di una guild;
+                # un'eccezione non gestita fermerebbe anche le altre.
+                logger.exception(
+                    "Riconciliazione vocale all'avvio fallita per guild_id=%s", guild.id
+                )
+
+    async def _reconcile_voice_state(self, guild: discord.Guild) -> None:
+        now = datetime.now(timezone.utc)
+
+        # Da leggere prima di scrivere il marcatore, altrimenti l'ultimo
+        # evento risulta essere il marcatore stesso.
+        last_event = await db.last_event_at(guild_id=guild.id)
+        downtime_start = last_event or now
+
+        await db.insert_raw_event(
+            guild_id=guild.id,
+            event_type=event_types.BOT_RESTART,
+            occurred_at=now,
+            dedup_key=f"{event_types.BOT_RESTART}:{guild.id}:{now.isoformat()}",
+            payload={
+                # Il job non puo' dedurre il downtime dall'assenza di righe:
+                # un'ora senza eventi puo' essere silenzio della community
+                # o bot spento. Il marcatore rende esplicita la differenza.
+                "downtime_start": downtime_start.isoformat(),
+                "restarted_at": now.isoformat(),
+            },
+        )
+
+        # Stato vocale corrente: chi e' in canale adesso, e dove.
+        current: dict[int, discord.abc.GuildChannel] = {}
+        for channel in [*guild.voice_channels, *guild.stage_channels]:
+            for occupant in channel.members:
+                if not occupant.bot:
+                    current[occupant.id] = channel
+
+        open_sessions = await db.fetch_open_voice_sessions(guild_id=guild.id)
+
+        closed = 0
+        still_open: set[int] = set()
+        for author_id, channel_id, joined_at in open_sessions:
+            channel = current.get(author_id)
+            if channel is not None and channel.id == channel_id:
+                # Presente adesso nello stesso canale: la sessione non si e'
+                # mai interrotta. Lasciarla aperta invece di chiuderla e
+                # riaprirla preserva la continuita' attraverso un riavvio
+                # breve, che e' il caso normale di un deploy.
+                still_open.add(author_id)
+                continue
+
+            # Il leave e' andato perso. Non sappiamo quando sia avvenuto: il
+            # confine noto piu' stretto e' l'ultimo istante in cui il bot era
+            # vivo. Chiudere all'ora del riavvio gonfierebbe la sessione di
+            # tutto il downtime. max() perche' il join stesso puo' essere
+            # l'ultimo evento registrato.
+            await self._emit_voice_event(
+                guild_id=guild.id,
+                author_id=author_id,
+                channel_id=channel_id,
+                channel_name=self._channel_name(guild, channel_id),
+                event_type=event_types.VOICE_LEAVE,
+                occurred_at=max(downtime_start, joined_at),
+                reconstruction_reason=event_types.REASON_BOT_RESTART,
+            )
+            closed += 1
+
+        opened = 0
+        for author_id, channel in current.items():
+            if author_id in still_open:
+                continue
+            # In canale adesso senza sessione aperta nel DB: il join e'
+            # avvenuto durante il downtime. Da quando sia li' non e'
+            # osservabile, quindi la sessione parte adesso: sottostima la
+            # durata reale, che e' il verso giusto in cui sbagliare.
+            await self._emit_voice_event(
+                guild_id=guild.id,
+                author_id=author_id,
+                channel_id=channel.id,
+                channel_name=channel.name,
+                event_type=event_types.VOICE_JOIN,
+                occurred_at=now,
+                reconstruction_reason=event_types.REASON_BOT_RESTART,
+            )
+            opened += 1
+
+        logger.info(
+            "Riconciliazione vocale guild_id=%s: %d sessioni chiuse, %d join sintetici, "
+            "%d gia' allineate (downtime a partire da %s)",
+            guild.id,
+            closed,
+            opened,
+            len(still_open),
+            downtime_start.isoformat(),
+        )
+
+    @staticmethod
+    def _channel_name(guild: discord.Guild, channel_id: int) -> Optional[str]:
+        channel = guild.get_channel(channel_id)
+        return getattr(channel, "name", None)
 
     # ---- Eventi / RSVP -----------------------------------------------------------
 

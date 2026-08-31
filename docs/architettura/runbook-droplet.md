@@ -1,15 +1,16 @@
-# Runbook Fase 1 — bot + Postgres sulla droplet
+# Runbook operativo — droplet `kindling-app-01`
 
-*Checklist operativa per il deploy della droplet `kindling-app-01` (FRA1),
-secondo il piano a due fasi di `stack-tecnologico-mvp.md`. Versione
-formattata con comandi copiabili: artifact pubblicato "Kindling Fase 1".*
+*Checklist per il provisioning e il deploy della droplet `kindling-app-01`
+(FRA1), la macchina unica su cui gira l'intera vertical slice. Le scelte di
+architettura e il criterio per cambiare taglia sono in `architettura.md`.
+Versione formattata con comandi copiabili: artifact pubblicato "Kindling Fase 1".*
 
 ## Già pronto (verificato 28/08/2026)
 
 - Droplet creata: `kindling-app-01`, progetto DO separato "Kindling", non condivisa con HeroesAscent.
 - Chiave SSH dedicata a Kindling (distinta da HeroesAscent).
 - fail2ban attivo su SSH.
-- Cloud Firewall verificato: solo SSH/22 in ingresso da tutti gli IP, nient'altro — coerente con la regola non negoziabile per la Fase 1.
+- Cloud Firewall verificato: solo SSH/22 in ingresso da tutti gli IP, nient'altro — finché non ci sono servizi pubblici da esporre.
 
 ## Da fare, in ordine
 
@@ -17,22 +18,41 @@ formattata con comandi copiabili: artifact pubblicato "Kindling Fase 1".*
 2. **Docker Engine + plugin Compose** dal repository ufficiale Docker (non `docker.io` di Ubuntu).
 3. **Codice sulla droplet** via deploy key GitHub di sola lettura dedicata (mai la chiave personale), poi `git clone`.
 4. **`.env` con credenziali reali** sulla droplet (mai committato): `DISCORD_TOKEN` reale, `POSTGRES_PASSWORD` generata con `openssl rand -base64 24`.
-5. **Avvio**: `docker compose up -d --build` — solo `postgres` e `bot` partono in questa fase.
+5. **Avvio**: `docker compose up -d --build` — oggi il compose definisce `postgres` e `bot`; `api`, `job` e dashboard si aggiungono a questo stesso file quando vengono sviluppati.
 6. **Verifica**: dall'esterno `nc -zv <ip-droplet> 5432` deve fallire (porta non raggiungibile); dentro il container, controllare che `raw_events` riceva righe.
 7. **Backup dal giorno 1**: snapshot droplet settimanali dal pannello DO (Backups & Snapshots) + `pg_dump` giornaliero via cron verso un DO Space (con `rclone`, chiavi mai in git).
 
-## Riferimento — analisi locale
+## Riferimento — esplorazione dei dati dal laptop
 
 Nessun Postgres locale necessario per esplorare i dati: tunnel SSH verso la
 droplet (`ssh -L 5432:localhost:5432 <utente>@<ip-droplet>`), poi `psql`/client
 SQL puntato su `localhost:5432`. Dettagli in `README.md`.
 
-## Trigger Fase 2
+## Aggiungere API, job e dashboard sulla stessa droplet
 
-Non è una scadenza a calendario: scatta quando API/dashboard deve essere
-raggiungibile da altri (in primis il community manager) senza dipendere dal
-laptop di chi sviluppa, o quando il job di calcolo deve girare su schedule
-automatico. Vedi `stack-tecnologico-mvp.md`.
+Restano sulla macchina attuale (6 $/mese): i consumi misurati lasciano ~630 MB
+liberi, vedi `architettura.md`. Punti di attenzione al momento del deploy:
+
+1. **Stesso `docker-compose.yml`**, non un file separato: si aggiungono i
+   servizi `api`, `job` e dashboard a quello esistente.
+2. **`mem_limit` per servizio**, così un picco del job non fa scegliere all'OOM
+   killer il processo più grosso (Postgres) — deve morire il job.
+3. **Job schedulato** in orario di bassa attività, con `nice`: su 1 vCPU non
+   deve rubare tempo all'heartbeat del gateway Discord del bot.
+4. **Reverse proxy Caddy** davanti ad API e dashboard: HTTPS automatico +
+   autenticazione (basic auth come minimo) prima di renderli raggiungibili.
+5. **Cloud Firewall**: aprire 443/80 solo in quel momento, mai la 5432.
+6. **Riverificare i consumi** dopo il deploy: `free -h` e
+   `docker stats --no-stream`.
+
+## Quando cambiare macchina
+
+Non è una scadenza né una fase: si resize quando i numeri lo impongono (job in
+OOM, `available` stabilmente sotto ~150 MB, dashboard in swap), quando si
+aggiungono altre community o quando serve un grafo live invece degli snapshot
+settimanali. Usare l'opzione **"CPU and RAM only"** (reversibile, disco
+invariato), non il resize del disco che è irreversibile. Criteri completi in
+`architettura.md`.
 
 ## Applicare una nuova migration in produzione senza perdere `raw_events` (29/08/2026)
 

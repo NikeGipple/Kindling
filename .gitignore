@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Export del grafo (job/main.py export). Anche pseudonimizzato, un export e'
+# una mappa delle relazioni della community: non finisce in git nemmeno per
+# sbaglio. Con --identified contiene id Discord reali.
+exports/
+*.graphml

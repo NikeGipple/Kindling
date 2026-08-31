@@ -9,3 +9,7 @@ __pycache__
 migrations
 README.md
 LICENSE
+tests
+exports
+pytest.ini
+requirements-dev.txt

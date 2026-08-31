@@ -47,5 +47,29 @@ services:
       postgres:
         condition: service_healthy
 
+  # Il job non e' un servizio sempre acceso: si lancia a mano o da cron con
+  # `docker compose run --rm job ...`. E' definito qui, nello stesso compose di
+  # postgres e bot, perche' l'ambiente di riferimento e' la droplet e non
+  # esiste una "fase locale" separata da promuovere (vedi architettura.md).
+  job:
+    build: .
+    profiles: ["tools"]
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kindling}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-kindling}
+    # Se qualcosa deve morire per esaurimento memoria su una macchina da 1 GB,
+    # deve morire il job, non il bot o Postgres: senza un limite esplicito
+    # l'OOM killer sceglie il processo con piu' RSS, che e' il database.
+    mem_limit: 400m
+    volumes:
+      # Gli export GraphML restano sull'host: sono file da aprire in Gephi, non
+      # dati del servizio. La cartella e' in .gitignore.
+      - ./exports:/app/exports
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["python", "-m", "job.main", "snapshot"]
+
 volumes:
   pgdata:

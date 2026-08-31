@@ -1,0 +1,5 @@
+# Dipendenze di sviluppo, NON installate nell'immagine Docker: il bot e il
+# job girano su una droplet da 1 GB e non hanno motivo di portarsi dietro un
+# framework di test.
+-r requirements.txt
+pytest>=7.4,<9
