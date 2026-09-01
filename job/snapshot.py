@@ -10,9 +10,9 @@ silenzio e la piu' importante da poter testare senza un Postgres a portata.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 from .config import GraphParams
 from .edges import (
@@ -47,6 +47,26 @@ class SnapshotResult:
     sessions_out_of_window: int = 0
     interval_stats: IntervalStats = field(default_factory=IntervalStats)
     coverage: dict[str, LayerCoverage] = field(default_factory=dict)
+
+    def as_snapshot_stats(self) -> dict[str, Any]:
+        """I contatori da salvare in ``graph_snapshots.stats``.
+
+        Stessa logica di ``GraphParams.as_snapshot_params``: cio' che serve a
+        interpretare uno snapshot viaggia dentro lo snapshot. Qui sono gli
+        scarti — intervalli ancora aperti, join duplicati, target non risolti
+        — che altrimenti resterebbero in una riga di log, invisibili al
+        confronto tra un'esecuzione e la successiva.
+        """
+        return {
+            "intervals": asdict(self.interval_stats),
+            "sessions": {
+                "in_window": len(self.sessions),
+                "out_of_window": self.sessions_out_of_window,
+            },
+            "coverage": {
+                layer: asdict(cov) for layer, cov in sorted(self.coverage.items())
+            },
+        }
 
 
 def build_snapshot(

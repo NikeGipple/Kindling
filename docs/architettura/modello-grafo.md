@@ -105,12 +105,43 @@ reali. Regole:
    viene marcato come ricostruito (`is_reconciled`), per poterlo escludere nelle
    verifiche di sensibilità. Un intervallo che risulterebbe più lungo di un tetto
    massimo (default **12 ore**) è implausibile: viene scartato, non troncato.
+
+   Un **secondo join** dello stesso membro nello stesso canale, senza leave in
+   mezzo, è di per sé la prova che il leave è andato perso: chiude l'intervallo
+   precedente — che è quindi ricostruito, e soggetto al tetto come ogni altro
+   intervallo ricostruito — e ne apre uno nuovo. Il buco tra i due non è
+   coperto da nulla. Lasciar sopravvivere il primo join allungherebbe invece
+   l'intervallo fino al leave successivo: non una perdita ma un'**inflazione**
+   della co-presenza, per giunta indistinguibile da un dato osservato.
 4. **Rilevare il downtime è un prerequisito**: senza sapere quando il bot era
    spento non si distingue "è ancora in canale" da "abbiamo perso il leave".
    L'ingestion deve quindi, all'avvio, (a) scrivere un evento marcatore di
    riavvio e (b) fotografare gli stati vocali correnti, emettendo join sintetici
    per chi è già in canale e chiudendo le sessioni rimaste aperte nel DB per chi
    non c'è più. È l'equivalente vocale di `!backfill_members`.
+
+   **Presenze confermate.** C'è un terzo caso oltre a quei due: chi al riavvio
+   è ancora nello stesso canale in cui risultava. La sua sessione non si è
+   interrotta e va lasciata aperta — ma "lasciata aperta" è un **non-evento**,
+   e a valle un non-evento è indistinguibile da un leave perso nel downtime.
+   Il marcatore di riavvio deve quindi portare con sé anche l'elenco delle
+   coppie (membro, canale) che quel riavvio ha visto ancora in corso.
+
+   Il job usa quell'elenco così: cercando dove chiudere un join rimasto
+   aperto, **salta i riavvii che confermano quella coppia** e prosegue al
+   successivo; se dopo averli saltati non resta nessun riavvio, il caso è
+   quello del punto 2 — sessione ancora in corso, esclusa da questo snapshot e
+   recuperata al prossimo. Un riavvio che conferma è anche un **pavimento**:
+   la presenza non può essere chiusa prima di un istante in cui il bot l'ha
+   vista con i propri occhi.
+
+   Senza questo, una sessione in corso viene troncata al primo riavvio
+   successivo, e la co-presenza condivisa con chiunque altro fosse in canale
+   risulta più breve di quanto è stata. Non è un caso raro: la riconciliazione
+   scatta a ogni riconnessione al gateway, non solo ai deploy. Un marcatore
+   scritto prima che questo campo esistesse semplicemente non ne ha, e vale
+   come "nessuna conferma": il comportamento precedente, nessuna migrazione
+   dei dati.
 
 ## 5. Decadimento del legame
 
@@ -173,9 +204,16 @@ Tutte derivate e ricostruibili; nessuna è la fonte di verità.
 
 **`graph_snapshots`** — una riga per esecuzione del job
 `id`, `guild_id`, `as_of`, `window_start`, `window_end`, `params` (JSONB: H, C,
-soglie, finestra di sessione usate), `code_version`, `created_at`.
+soglie, finestra di sessione usate), `stats` (JSONB: contatori diagnostici
+della ricostruzione degli intervalli e della risoluzione dei target),
+`code_version`, `created_at`.
 I parametri sono salvati **dentro** lo snapshot: due snapshot calcolati con
 parametri diversi non sono confrontabili e devono poterlo dichiarare.
+I contatori diagnostici sono persistiti e non solo scritti a log: vanno
+confrontati di snapshot in snapshot — un `duplicate_joins` o un
+`unmatched_leaves` che cresce segnala un problema nell'ingestion — e un
+confronto è impossibile su un numero che vive solo in una riga di log destinata
+a scorrere via.
 
 **`graph_edges`** — archi per snapshot e layer
 `snapshot_id`, `layer`, `src_author_id`, `dst_author_id`, `weight` (normalizzato

@@ -108,7 +108,9 @@ async def fetch_restart_markers(
 ) -> list[RestartMarker]:
     rows = await conn.fetch(
         """
-        SELECT occurred_at, payload ->> 'downtime_start' AS downtime_start
+        SELECT occurred_at,
+               payload ->> 'downtime_start' AS downtime_start,
+               payload ->> 'voice_confirmed' AS voice_confirmed
         FROM raw_events
         WHERE guild_id = $1
           AND event_type = $4
@@ -127,9 +129,36 @@ async def fetch_restart_markers(
         if row["downtime_start"]:
             downtime_start = datetime.fromisoformat(row["downtime_start"])
         markers.append(
-            RestartMarker(restarted_at=row["occurred_at"], downtime_start=downtime_start)
+            RestartMarker(
+                restarted_at=row["occurred_at"],
+                downtime_start=downtime_start,
+                voice_confirmed=_parse_voice_confirmed(row["voice_confirmed"]),
+            )
         )
     return markers
+
+
+def _parse_voice_confirmed(raw: Optional[str]) -> frozenset[tuple[int, int]]:
+    """Le presenze che quel riavvio ha visto ancora in corso.
+
+    Chiave assente = marcatore vecchio, scritto prima che l'ingestion la
+    registrasse: nessuna conferma, cioe' esattamente il comportamento di
+    allora. Nessuna migrazione dei marcatori gia' in produzione.
+    """
+    if not raw:
+        return frozenset()
+    try:
+        entries = json.loads(raw) or []
+    except (TypeError, ValueError):
+        logger.warning("voice_confirmed non decodificabile, marcatore trattato senza conferme")
+        return frozenset()
+    confirmed = set()
+    for entry in entries:
+        try:
+            confirmed.add((int(entry["author_id"]), int(entry["channel_id"])))
+        except (KeyError, TypeError, ValueError):
+            logger.warning("voce di voice_confirmed malformata, ignorata")
+    return frozenset(confirmed)
 
 
 async def fetch_member_activity(
@@ -312,6 +341,7 @@ async def write_snapshot(
     window_start: datetime,
     window_end: datetime,
     params: dict[str, Any],
+    stats: dict[str, Any],
     code_version: Optional[str],
     edges: Iterable[Edge],
     sessions: Iterable[VoiceSession],
@@ -326,10 +356,11 @@ async def write_snapshot(
         snapshot_id = await conn.fetchval(
             """
             INSERT INTO graph_snapshots
-                (guild_id, as_of, window_start, window_end, params, code_version)
-            VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+                (guild_id, as_of, window_start, window_end, params, stats, code_version)
+            VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7)
             ON CONFLICT (guild_id, as_of, window_start, window_end) DO UPDATE
                 SET params = EXCLUDED.params,
+                    stats = EXCLUDED.stats,
                     code_version = EXCLUDED.code_version,
                     created_at = now()
             RETURNING id
@@ -339,6 +370,7 @@ async def write_snapshot(
             window_start,
             window_end,
             json.dumps(params, default=str),
+            json.dumps(stats, default=str),
             code_version,
         )
 

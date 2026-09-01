@@ -1,7 +1,7 @@
 """Tipi di evento canonici scritti in ``raw_events``.
 
 Questo e' il confine netto tra ingestion source-specific e schema canonico
-degli eventi (docs/architettura/stack-tecnologico-mvp.md, punto 2 di
+degli eventi (docs/architettura/architettura.md, punto 2 di
 "Cosa rende questa architettura davvero future-proof"): un nuovo ingestor,
 anche per una fonte diversa da Discord, deve produrre uno di questi tipi (o
 estendere questa lista) senza toccare il motore di calcolo del grafo.
@@ -59,3 +59,11 @@ RECONSTRUCTION_REASON_KEY = "reconstruction_reason"
 # Valore di RECONSTRUCTION_REASON_KEY per gli eventi emessi dalla
 # riconciliazione all'avvio.
 REASON_BOT_RESTART = "bot_restart"
+
+# Chiave di payload di BOT_RESTART: le coppie (author_id, channel_id) che a
+# quel riavvio erano *ancora in canale*, cioe' le sessioni che il bot ha
+# deliberatamente lasciato aperte perche' non si erano interrotte. Sta qui,
+# accanto agli altri termini del contratto tra ingestion e calcolo, perche'
+# senza di essa una presenza confermata resta un non-evento e il job non puo'
+# distinguerla da un voice_leave perso nel downtime (modello-grafo.md 4.4).
+VOICE_CONFIRMED_KEY = "voice_confirmed"

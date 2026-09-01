@@ -50,6 +50,16 @@ class RestartMarker:
     # Ultimo istante in cui il bot risulta essere stato vivo prima del
     # riavvio. None se ignoto (marcatore scritto senza il campo).
     downtime_start: Optional[datetime] = None
+    # Coppie (author_id, channel_id) che a questo riavvio erano ancora in
+    # canale: la riconciliazione le ha viste e ha lasciato la sessione aperta
+    # apposta. Vuoto anche per i marcatori vecchi, scritti prima che
+    # l'ingestion registrasse il campo: "nessuna conferma" e' esattamente il
+    # comportamento che avevano allora.
+    voice_confirmed: frozenset[tuple[int, int]] = frozenset()
+
+    def confirms(self, author_id: int, channel_id: int) -> bool:
+        """Questo riavvio ha visto quella presenza ancora in corso."""
+        return (author_id, channel_id) in self.voice_confirmed
 
 
 @dataclass(frozen=True)
@@ -70,11 +80,12 @@ class PresenceInterval:
 
 @dataclass
 class IntervalStats:
-    """Contabilita' della ricostruzione, per il log del job.
+    """Contabilita' della ricostruzione.
 
-    Non finisce nel database: e' diagnostica di esecuzione. Se
-    ``still_open`` o ``discarded_over_cap`` crescono di snapshot in snapshot,
-    il problema e' nell'ingestion, non nel calcolo.
+    Finisce nel log del job *e* in ``graph_snapshots.stats``: guardarla "di
+    snapshot in snapshot" — se ``still_open``, ``duplicate_joins`` o
+    ``discarded_over_cap`` crescono, il problema e' nell'ingestion e non nel
+    calcolo — richiede una serie storica, e una riga di log non la e'.
     """
 
     closed_observed: int = 0
@@ -108,19 +119,26 @@ def build_intervals(
 
     def emit(
         author_id: int, channel_id: int, start: datetime, end: datetime, reconciled: bool
-    ) -> None:
+    ) -> bool:
+        """Aggiunge un intervallo, o lo scarta contandolo. True se aggiunto.
+
+        Chi chiama deve guardare il valore di ritorno prima di incrementare i
+        contatori di chiusura: un intervallo scartato non e' un intervallo
+        chiuso, e contarlo in entrambi renderebbe la diagnostica incoerente
+        proprio nei casi in cui serve leggerla.
+        """
         if end <= start:
             # Puo' succedere quando l'inizio del downtime coincide con il join
             # stesso: la persona era in canale, ma di quel tempo non sappiamo
             # nulla. Zero minuti osservati, non minuti da indovinare.
             stats.discarded_non_positive += 1
-            return
+            return False
         if reconciled and (end - start) > params.orphan_max_duration:
             # Implausibile: scartato, non troncato. Troncare significherebbe
             # produrre una durata verosimile a partire da un dato che non c'e',
             # e quel numero finirebbe indistinguibile da uno misurato.
             stats.discarded_over_cap += 1
-            return
+            return False
         intervals.append(
             PresenceInterval(
                 author_id=author_id,
@@ -130,6 +148,7 @@ def build_intervals(
                 is_reconciled=reconciled,
             )
         )
+        return True
 
     # Un membro puo' essere in un solo canale vocale per volta, ma tenere gli
     # stream separati per canale rende lo spostamento tra canali (leave + join
@@ -147,11 +166,21 @@ def build_intervals(
         for event in stream:
             if event.event_type == join_type:
                 if open_start is not None:
-                    # Due join di fila senza leave: il primo resta valido, il
-                    # secondo non aggiunge informazione (non puo' essere
-                    # entrato due volte senza uscire).
+                    # Due join di fila senza leave: quello in mezzo e' andato
+                    # perso (tipicamente uno spostamento tra canali ingerito
+                    # prima del fix di voice_move). Il primo intervallo si
+                    # chiude qui, marcato come ricostruito. Lasciare invece
+                    # sopravvivere il primo open_start allungherebbe
+                    # l'intervallo fino al leave successivo — chi entra alle
+                    # 10, rientra alle 14 ed esce alle 15 varrebbe cinque ore
+                    # invece di una, e per giunta con is_reconciled False.
+                    # Non e' una perdita, e' un'inflazione della co-presenza:
+                    # fabbrica esattamente il legame forte che non c'e'.
                     stats.duplicate_joins += 1
-                    continue
+                    if emit(
+                        author_id, channel_id, open_start, event.occurred_at, True
+                    ):
+                        stats.closed_reconciled += 1
                 open_start = event.occurred_at
                 open_reconstructed = event.is_reconstructed
             else:
@@ -160,19 +189,14 @@ def build_intervals(
                     # finestra letta. Nessun intervallo da aprire.
                     stats.unmatched_leaves += 1
                     continue
-                emit(
-                    author_id,
-                    channel_id,
-                    open_start,
-                    event.occurred_at,
-                    open_reconstructed or event.is_reconstructed,
-                )
-                stats.closed_reconciled += (
-                    1 if (open_reconstructed or event.is_reconstructed) else 0
-                )
-                stats.closed_observed += (
-                    0 if (open_reconstructed or event.is_reconstructed) else 1
-                )
+                reconciled = open_reconstructed or event.is_reconstructed
+                if emit(
+                    author_id, channel_id, open_start, event.occurred_at, reconciled
+                ):
+                    if reconciled:
+                        stats.closed_reconciled += 1
+                    else:
+                        stats.closed_observed += 1
                 open_start = None
                 open_reconstructed = False
 
@@ -182,32 +206,51 @@ def build_intervals(
         # Join rimasto aperto. Due casi diversissimi tra loro, e distinguerli e'
         # esattamente il motivo per cui l'ingestion scrive un marcatore di
         # riavvio (modello-grafo.md 4.4).
+        #
+        # Un riavvio che ha *confermato* questa presenza non chiude nulla: il
+        # bot ha visto la persona ancora in quel canale, quindi la sessione
+        # proseguiva oltre il riavvio e il leave non e' andato perso li'. Si
+        # salta e si cerca il riavvio successivo.
+        marker = None
+        # Ultimo istante in cui la presenza risulta *confermata* da un
+        # riavvio. Diventa il pavimento della ricerca del confine: chiudere
+        # prima di una conferma significherebbe tagliare via del tempo che il
+        # bot ha visto con i propri occhi.
+        confirmed_until = open_start
         idx = bisect_right(restart_keys, open_start)
-        if idx >= len(restart_keys):
-            # Nessun riavvio dopo il join: il bot e' rimasto acceso, quindi il
-            # leave non e' andato perso — semplicemente non e' ancora
-            # avvenuto. La sessione e' ancora in corso: esclusa da questo
-            # snapshot, verra' contata in quello successivo. Nessun dato
-            # perso e nessun doppio conteggio, perche' ogni snapshot
-            # ricalcola tutto da raw_events.
+        while idx < len(restart_keys):
+            if restart_times[idx].confirms(author_id, channel_id):
+                confirmed_until = restart_times[idx].restarted_at
+                idx += 1
+                continue
+            marker = restart_times[idx]
+            break
+
+        if marker is None:
+            # Nessun riavvio utile dopo il join: o il bot e' rimasto acceso, o
+            # tutti i riavvii successivi hanno confermato che quella persona
+            # era ancora in canale. In entrambi i casi il leave non e' andato
+            # perso — semplicemente non e' ancora avvenuto. La sessione e'
+            # ancora in corso: esclusa da questo snapshot, verra' contata in
+            # quello successivo. Nessun dato perso e nessun doppio conteggio,
+            # perche' ogni snapshot ricalcola tutto da raw_events.
             stats.still_open += 1
             continue
 
-        marker = restart_times[idx]
         candidates = [c for c in (marker.downtime_start, marker.restarted_at) if c is not None]
         if next_activity is not None:
-            following = next_activity(author_id, open_start)
+            following = next_activity(author_id, confirmed_until)
             if following is not None:
                 candidates.append(following)
         # Il piu' stretto dei confini noti: sia l'inizio del downtime sia il
         # primo evento successivo del membro sono momenti in cui quella
         # sessione o era gia' finita o non e' piu' osservabile. Prendere il
         # piu' tardi gonfierebbe la presenza con tempo mai visto.
-        later = [c for c in candidates if c > open_start]
-        close_at = min(later) if later else open_start
+        later = [c for c in candidates if c > confirmed_until]
+        close_at = min(later) if later else confirmed_until
 
-        emit(author_id, channel_id, open_start, close_at, True)
-        stats.closed_reconciled += 1
+        if emit(author_id, channel_id, open_start, close_at, True):
+            stats.closed_reconciled += 1
 
     intervals.sort(key=lambda i: (i.channel_id, i.start, i.author_id))
     return intervals, stats

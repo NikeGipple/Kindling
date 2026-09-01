@@ -1,6 +1,6 @@
 # Ambiente di sviluppo locale, e configurazione usata anche in produzione
 # sulla droplet DigitalOcean (bot/api/job girano sulla stessa droplet) — vedi
-# docs/architettura/stack-tecnologico-mvp.md.
+# docs/architettura/architettura.md.
 #
 # Postgres non pubblica MAI la porta su tutte le interfacce (niente
 # "5432:5432", che equivale a "0.0.0.0:5432:5432" — raggiungibile da

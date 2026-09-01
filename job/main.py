@@ -130,10 +130,16 @@ async def run_snapshot(args: argparse.Namespace, params: GraphParams) -> None:
             )
 
             stats = result.interval_stats
+            # Tutti e sette i contatori, non solo i quattro "buoni": gli
+            # scarti silenziosi (join duplicati, leave spaiati, durate non
+            # positive) sono proprio quelli che nessuno andrebbe a cercare, e
+            # che segnalano un problema di ingestion prima che diventi un peso
+            # sbagliato in tabella.
             logger.info(
                 "guild_id=%s: %d sessioni in finestra (%d fuori finestra), "
                 "intervalli: %d osservati, %d ricostruiti, %d ancora aperti, "
-                "%d scartati oltre il tetto",
+                "%d scartati oltre il tetto, %d scartati di durata non positiva, "
+                "%d join duplicati, %d leave senza join",
                 guild_id,
                 len(result.sessions),
                 result.sessions_out_of_window,
@@ -141,6 +147,9 @@ async def run_snapshot(args: argparse.Namespace, params: GraphParams) -> None:
                 stats.closed_reconciled,
                 stats.still_open,
                 stats.discarded_over_cap,
+                stats.discarded_non_positive,
+                stats.duplicate_joins,
+                stats.unmatched_leaves,
             )
             for layer, coverage in sorted(result.coverage.items()):
                 logger.info(
@@ -168,6 +177,7 @@ async def run_snapshot(args: argparse.Namespace, params: GraphParams) -> None:
                 window_start=window_start,
                 window_end=window_end,
                 params=params.as_snapshot_params(),
+                stats=result.as_snapshot_stats(),
                 code_version=_code_version(),
                 edges=result.edges,
                 sessions=result.sessions,

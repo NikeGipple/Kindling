@@ -4,7 +4,7 @@
 -- ingestor (bot Discord, e in futuro altre fonti). E' la fonte di verita':
 -- qualunque metrica si ricalcola da qui, senza mai dover re-ingerire nulla.
 --
--- Vedi docs/architettura/stack-tecnologico-mvp.md.
+-- Vedi docs/architettura/architettura.md.
 
 CREATE TABLE IF NOT EXISTS raw_events (
     id                      BIGSERIAL PRIMARY KEY,

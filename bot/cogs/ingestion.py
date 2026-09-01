@@ -1,7 +1,7 @@
 """Cog di ingestion: cattura gli eventi Discord grezzi e li scrive su
 raw_events, senza interpretarli.
 
-Copre il set di eventi elencato in docs/architettura/stack-tecnologico-mvp.md:
+Copre il set di eventi elencato in docs/architettura/architettura.md:
 messaggi, reply, reazioni, thread, voice join/leave, eventi/RSVP, membri
 (join/remove). Aggiungere
 un nuovo tipo di evento significa aggiungere un listener qui e un valore in
@@ -221,10 +221,38 @@ class IngestionCog(commands.Cog):
     async def _reconcile_voice_state(self, guild: discord.Guild) -> None:
         now = datetime.now(timezone.utc)
 
-        # Da leggere prima di scrivere il marcatore, altrimenti l'ultimo
+        # Da leggere prima di scrivere qualunque cosa, altrimenti l'ultimo
         # evento risulta essere il marcatore stesso.
         last_event = await db.last_event_at(guild_id=guild.id)
         downtime_start = last_event or now
+
+        # Stato vocale corrente: chi e' in canale adesso, e dove.
+        current: dict[int, discord.abc.GuildChannel] = {}
+        for channel in [*guild.voice_channels, *guild.stage_channels]:
+            for occupant in channel.members:
+                if not occupant.bot:
+                    current[occupant.id] = channel
+
+        open_sessions = await db.fetch_open_voice_sessions(guild_id=guild.id)
+
+        # Lo stato si calcola prima di scrivere il marcatore, perche' il
+        # marcatore deve gia' contenere le presenze confermate: e' l'unico
+        # posto in cui "questa sessione era ancora in corso" diventa un dato
+        # osservabile a valle. Lasciarla semplicemente aperta e' un
+        # non-evento, e il job la scambierebbe per un leave perso nel
+        # downtime, chiudendola al riavvio (modello-grafo.md 4.4).
+        to_close: list[tuple[int, int, datetime]] = []
+        confirmed: list[tuple[int, int]] = []
+        for author_id, channel_id, joined_at in open_sessions:
+            channel = current.get(author_id)
+            if channel is not None and channel.id == channel_id:
+                # Presente adesso nello stesso canale: la sessione non si e'
+                # mai interrotta. Lasciarla aperta invece di chiuderla e
+                # riaprirla preserva la continuita' attraverso un riavvio
+                # breve, che e' il caso normale di un deploy.
+                confirmed.append((author_id, channel_id))
+                continue
+            to_close.append((author_id, channel_id, joined_at))
 
         await db.insert_raw_event(
             guild_id=guild.id,
@@ -237,30 +265,19 @@ class IngestionCog(commands.Cog):
                 # o bot spento. Il marcatore rende esplicita la differenza.
                 "downtime_start": downtime_start.isoformat(),
                 "restarted_at": now.isoformat(),
+                # Le sessioni che a questo riavvio erano ancora in corso. Il
+                # job salta questo marcatore quando cerca dove chiudere il
+                # join corrispondente: la co-presenza prosegue oltre, invece
+                # di essere troncata a un riavvio che non l'ha interrotta.
+                event_types.VOICE_CONFIRMED_KEY: [
+                    {"author_id": author_id, "channel_id": channel_id}
+                    for author_id, channel_id in confirmed
+                ],
             },
         )
 
-        # Stato vocale corrente: chi e' in canale adesso, e dove.
-        current: dict[int, discord.abc.GuildChannel] = {}
-        for channel in [*guild.voice_channels, *guild.stage_channels]:
-            for occupant in channel.members:
-                if not occupant.bot:
-                    current[occupant.id] = channel
-
-        open_sessions = await db.fetch_open_voice_sessions(guild_id=guild.id)
-
         closed = 0
-        still_open: set[int] = set()
-        for author_id, channel_id, joined_at in open_sessions:
-            channel = current.get(author_id)
-            if channel is not None and channel.id == channel_id:
-                # Presente adesso nello stesso canale: la sessione non si e'
-                # mai interrotta. Lasciarla aperta invece di chiuderla e
-                # riaprirla preserva la continuita' attraverso un riavvio
-                # breve, che e' il caso normale di un deploy.
-                still_open.add(author_id)
-                continue
-
+        for author_id, channel_id, joined_at in to_close:
             # Il leave e' andato perso. Non sappiamo quando sia avvenuto: il
             # confine noto piu' stretto e' l'ultimo istante in cui il bot era
             # vivo. Chiudere all'ora del riavvio gonfierebbe la sessione di
@@ -277,9 +294,10 @@ class IngestionCog(commands.Cog):
             )
             closed += 1
 
+        confirmed_authors = {author_id for author_id, _ in confirmed}
         opened = 0
         for author_id, channel in current.items():
-            if author_id in still_open:
+            if author_id in confirmed_authors:
                 continue
             # In canale adesso senza sessione aperta nel DB: il join e'
             # avvenuto durante il downtime. Da quando sia li' non e'
@@ -298,11 +316,11 @@ class IngestionCog(commands.Cog):
 
         logger.info(
             "Riconciliazione vocale guild_id=%s: %d sessioni chiuse, %d join sintetici, "
-            "%d gia' allineate (downtime a partire da %s)",
+            "%d presenze confermate nel marcatore (downtime a partire da %s)",
             guild.id,
             closed,
             opened,
-            len(still_open),
+            len(confirmed),
             downtime_start.isoformat(),
         )
 

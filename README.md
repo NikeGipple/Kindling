@@ -1,7 +1,7 @@
 # Kindling
 Community intelligence platform for Discord
 
-Architettura e razionale delle scelte tecniche: `docs/architettura/stack-tecnologico-mvp.md`.
+Architettura e razionale delle scelte tecniche: `docs/architettura/architettura.md`.
 
 ## Bot di ingestion (`bot/`)
 
@@ -45,6 +45,7 @@ psql "$DATABASE_URL" -f migrations/0001_raw_events.sql
 psql "$DATABASE_URL" -f migrations/0002_members.sql
 psql "$DATABASE_URL" -f migrations/0003_referenced_channel_id.sql
 psql "$DATABASE_URL" -f migrations/0004_graph_snapshots.sql
+psql "$DATABASE_URL" -f migrations/0005_snapshot_stats.sql
 ```
 
 `migrations/0001_raw_events.sql` crea `raw_events`: vedi i commenti nel file
@@ -67,6 +68,13 @@ del messaggio a cui una reply risponde (Discord permette reply cross-canale).
 `voice_session_participants`, `message_authors`). Sono tutte derivate e
 ricostruibili da `raw_events`, e tutte **interne**: non vengono mai esposte da
 un endpoint API.
+
+`migrations/0005_snapshot_stats.sql` aggiunge a `graph_snapshots` la colonna
+`stats` (JSONB) con i contatori diagnostici dell'esecuzione che ha prodotto lo
+snapshot: ricostruzione degli intervalli e copertura della risoluzione dei
+layer direzionali. Servono confrontati tra snapshot successivi — è la loro
+variazione a dire se un problema è nell'ingestion o nel calcolo — e in una
+riga di log quella serie storica non esiste.
 
 Le migrazioni vengono applicate automaticamente solo al **primo** avvio di un
 volume Postgres vuoto (`docker-entrypoint-initdb.d`). Su un database già
@@ -100,7 +108,7 @@ stessa macchina — vedi `CLAUDE.md`. Dall'interno del compose resta comodo
 
 ### Connettersi al Postgres online (Fase 1: bot + DB sulla droplet)
 
-In Fase 1 (vedi `docs/architettura/stack-tecnologico-mvp.md`) il bot e Postgres
+In Fase 1 (vedi `docs/architettura/architettura.md`) il bot e Postgres
 girano sempre accesi sulla droplet DigitalOcean, senza porte pubblicate: per
 analizzare i dati in locale ci si collega via tunnel SSH invece di far
 girare un Postgres locale:
