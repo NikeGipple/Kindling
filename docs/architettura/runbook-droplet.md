@@ -1,16 +1,17 @@
 # Runbook operativo — droplet `kindling-app-01`
 
-*Checklist per il provisioning e il deploy della droplet `kindling-app-01`
-(FRA1), la macchina unica su cui gira l'intera vertical slice. Le scelte di
+*Checklist per il provisioning e il deploy della droplet `kindling-app-01`,
+la macchina unica su cui gira l'intera vertical slice. Le scelte di
 architettura e il criterio per cambiare taglia sono in `architettura.md`.
 Versione formattata con comandi copiabili: artifact pubblicato "Kindling Fase 1".*
 
-## Già pronto (verificato 28/08/2026)
+## Già pronto (verificato 28/08/2026, backup aggiunti il 02/09/2026)
 
-- Droplet creata: `kindling-app-01`, progetto DO separato "Kindling", non condivisa con HeroesAscent.
-- Chiave SSH dedicata a Kindling (distinta da HeroesAscent).
+- Droplet creata: `kindling-app-01`, progetto DO separato "Kindling", non condivisa con altri progetti del team.
+- Chiave SSH dedicata a Kindling (distinta da quelle di altri progetti del team).
 - fail2ban attivo su SSH.
 - Cloud Firewall verificato: solo SSH/22 in ingresso da tutti gli IP, nient'altro — finché non ci sono servizi pubblici da esporre.
+- **Automated Backups di DigitalOcean attivi** (verificato 02/09/2026): snapshot dell'intera droplet, **settimanali, la domenica tra le 4:00 e le 8:00 UTC**, retention ~4 settimane. Comprendono il volume `pgdata`, quindi `raw_events` e `members`. **Il tema backup è chiuso**: niente `pg_dump` verso DO Spaces da costruire. Unico limite noto, accettato: finestra di perdita massima di 7 giorni (razionale in `architettura.md`, sezione Storage).
 
 ## Da fare, in ordine
 
@@ -20,7 +21,8 @@ Versione formattata con comandi copiabili: artifact pubblicato "Kindling Fase 1"
 4. **`.env` con credenziali reali** sulla droplet (mai committato): `DISCORD_TOKEN` reale, `POSTGRES_PASSWORD` generata con `openssl rand -base64 24`.
 5. **Avvio**: `docker compose up -d --build` — oggi il compose definisce `postgres` e `bot`; `api`, `job` e dashboard si aggiungono a questo stesso file quando vengono sviluppati.
 6. **Verifica**: dall'esterno `nc -zv <ip-droplet> 5432` deve fallire (porta non raggiungibile); dentro il container, controllare che `raw_events` riceva righe.
-7. **Backup dal giorno 1**: snapshot droplet settimanali dal pannello DO (Backups & Snapshots) + `pg_dump` giornaliero via cron verso un DO Space (con `rclone`, chiavi mai in git).
+
+*(Il punto "backup dal giorno 1" che stava qui è stato completato il 02/09/2026 — vedi "Già pronto" sopra.)*
 
 ## Riferimento — esplorazione dei dati dal laptop
 

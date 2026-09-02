@@ -4,7 +4,7 @@
 #
 # Postgres non pubblica MAI la porta su tutte le interfacce (niente
 # "5432:5432", che equivale a "0.0.0.0:5432:5432" — raggiungibile da
-# internet, la causa dell'incidente HeroesAscent, vedi CLAUDE.md). E'
+# internet, la causa di un incidente reale, vedi CLAUDE.md). E'
 # invece pubblicata SOLO sul loopback dell'host ("127.0.0.1:5432:5432"):
 # non raggiungibile dall'esterno in nessun caso, ma raggiungibile da un
 # tunnel SSH aperto su quella stessa macchina — è quello che rende

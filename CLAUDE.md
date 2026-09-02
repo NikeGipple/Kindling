@@ -25,7 +25,7 @@ Queste regole vengono dalla sezione "Requisiti di hardening di rete" di
 - **Mai `ports: - "5432:5432"` (o qualunque forma equivalente a
   `0.0.0.0:5432:5432`) su Postgres in nessun `docker-compose.yml`.** Quella
   forma pubblica la porta su tutte le interfacce di rete, raggiungibile da
-  internet — è la causa dell'incidente HeroesAscent, vedi sotto. **Non è
+  internet — è la causa dell'incidente descritto sotto. **Non è
   invece vietato** `ports: - "127.0.0.1:5432:5432"` (porta pubblicata solo
   sul loopback dell'host): non è raggiungibile dall'esterno in nessun caso,
   ma è quello che rende possibile collegarsi da un tunnel SSH aperto sulla
@@ -43,7 +43,7 @@ Queste regole vengono dalla sezione "Requisiti di hardening di rete" di
 
 ### Perché queste regole esistono (non toglierle "perché sembrano eccessive per il dev locale")
 
-Su un altro progetto dello stesso team (HeroesAscent) un container MySQL è
+Su un altro progetto dello stesso team un container MySQL è
 stato compromesso e i dati cancellati da un attacco ransomware automatizzato.
 La causa diagnosticata non è stata Docker in sé, ma la combinazione di due
 scelte enterprise-costose-da-ignorare-mai:
