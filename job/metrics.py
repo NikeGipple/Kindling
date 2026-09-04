@@ -139,6 +139,8 @@ def build_metrics(
     edges: Iterable[Edge],
     members: Iterable[CohortMember] = (),
     reached_at: Optional[dict[str, dict[int, datetime]]] = None,
+    observability_anchor: Optional[datetime] = None,
+    snapshot_windows: Iterable[tuple[datetime, datetime]] = (),
     previous: Optional[PreviousPartition] = None,
     stability_unavailable_reason: Optional[str] = None,
     cohort_stats: Optional[dict[str, Any]] = None,
@@ -171,6 +173,8 @@ def build_metrics(
         members=list(members),
         reached_at=reached_at or {},
         as_of=as_of,
+        observability_anchor=observability_anchor,
+        snapshot_windows=list(snapshot_windows),
         cohort_stats=cohort_stats or {},
     )
     durations["cohorts_ms"] = (time.monotonic() - started) * 1000.0
@@ -321,6 +325,8 @@ def _cohort_metrics(
     members: list[CohortMember],
     reached_at: dict[str, dict[int, datetime]],
     as_of: datetime,
+    observability_anchor: Optional[datetime],
+    snapshot_windows: list[tuple[datetime, datetime]],
     cohort_stats: dict[str, Any],
 ) -> None:
     cohorts, excluded = split_cohorts(members, params=params)
@@ -338,6 +344,8 @@ def _cohort_metrics(
                 excluded_rejoins=excluded_count,
                 as_of=as_of,
                 params=params,
+                observability_anchor=observability_anchor,
+                snapshot_windows=snapshot_windows,
                 details=_cohort_details(cohort_stats),
             )
             apply_threshold(
@@ -352,6 +360,7 @@ def _cohort_metrics(
                 members=cohort_members,
                 excluded_rejoins=excluded_count,
                 as_of=as_of,
+                observability_anchor=observability_anchor,
             )
             # Stessa soglia e stessa popolazione di metric_cohorts: due
             # denominatori diversi per la stessa coorte in due tabelle

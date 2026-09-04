@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 import subprocess
@@ -340,6 +341,7 @@ async def _metrics_for_snapshot(
     members = await db.fetch_cohort_members(
         conn, guild_id=guild_id, as_of=as_of, since=since
     )
+    anchor = await db.fetch_observability_anchor(conn, guild_id=guild_id)
     comparable, skipped = await db.fetch_comparable_snapshots(
         conn,
         guild_id=guild_id,
@@ -363,6 +365,10 @@ async def _metrics_for_snapshot(
         edges=edges,
         members=members,
         reached_at=reached_at,
+        observability_anchor=anchor,
+        snapshot_windows=[
+            (row["window_start"], row["window_end"]) for row in comparable
+        ],
         previous=previous,
         stability_unavailable_reason=unavailable,
         cohort_stats={
@@ -455,11 +461,19 @@ def _describe(row) -> str:
     if row.is_suppressed:
         return f"SOPPRESSA ({row.suppression_reason})"
     values = as_public_dict(row)
-    for key in (*row.KEY_FIELDS, "is_suppressed", "suppression_reason", "details"):
+    for key in (*row.KEY_FIELDS, "is_suppressed", "suppression_reason"):
         values.pop(key, None)
-    return ", ".join(
+    # details fa parte della riga, e le sue diagnostiche — copertura di
+    # snapshot, cadenza della serie, motivo per cui la stabilita' manca — sono
+    # proprio quelle che rendono leggibile un numero che altrimenti sembra un
+    # risultato. Ometterle dal --dry-run significava doverle dedurre.
+    details = values.pop("details", None)
+    rendered = ", ".join(
         f"{key}={value!r}" for key, value in values.items() if value is not None
     )
+    if details:
+        rendered += f", details={json.dumps(details, default=str, sort_keys=True)}"
+    return rendered
 
 
 def build_parser() -> argparse.ArgumentParser:

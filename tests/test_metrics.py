@@ -343,6 +343,108 @@ def test_diagnostica_delle_coorti_sempre_presente_anche_quando_nulla():
     assert row.details["snapshots_skipped_params"] is None
 
 
+def test_coorte_anteriore_allancora_non_produce_retention_calcolabile():
+    # members e' stata popolata da !backfill_members e contiene chi era presente
+    # QUEL giorno: chi e' entrato a marzo e uscito ad aprile non ha un left_at,
+    # non e' mai stato scritto. Una coorte anteriore all'inizio
+    # dell'osservazione e' composta per costruzione dai soli sopravvissuti —
+    # sbagliato il numeratore E il denominatore.
+    ancora = T0 + timedelta(days=100)
+    as_of = ancora + timedelta(days=60)
+    members = [member(i, joined_days=0) for i in range(1, 7)]
+
+    row = compute_retention(
+        cohort_start=T0.date(),
+        horizon_days=28,
+        members=members,
+        excluded_rejoins=0,
+        as_of=as_of,
+        observability_anchor=ancora,
+    )
+
+    assert row.is_survivors_only is True
+    assert row.is_computable is False
+    assert row.not_computable_reason == "before_observability_anchor"
+    # Mai 1.0: sarebbe il 100% di sopravvivenza di una coorte fatta di soli
+    # sopravvissuti, cioe' una tautologia travestita da risultato.
+    assert row.retained_fraction is None
+
+
+def test_coorte_successiva_allancora_resta_calcolabile():
+    # Il contrappeso: dopo l'ancora le uscite sono osservabili e il numero c'e'.
+    ancora = T0 - timedelta(days=10)
+    as_of = T0 + timedelta(days=60)
+    members = [member(i, joined_days=0) for i in range(1, 7)]
+    members[0] = member(1, joined_days=0, left_days=3)
+
+    row = compute_retention(
+        cohort_start=T0.date(),
+        horizon_days=28,
+        members=members,
+        excluded_rejoins=0,
+        as_of=as_of,
+        observability_anchor=ancora,
+    )
+
+    assert row.is_survivors_only is False
+    assert row.is_computable is True
+    assert row.retained_fraction == pytest.approx(5 / 6)
+
+
+def test_coorte_senza_snapshot_nella_sua_finestra_non_e_significativa():
+    # 170 giorni di calendario ma un solo snapshot, di sei mesi dopo: per la
+    # finestra della coorte non esiste dato di grafo, nessuno POTEVA raggiungere
+    # k, e quello zero misura l'assenza di osservazione. Letto da un admin
+    # direbbe "a marzo nessuno costruiva connessioni".
+    as_of = T0 + timedelta(days=170)
+    finestra_unica = [(as_of - timedelta(days=7), as_of)]
+    members = [member(i, joined_days=0) for i in range(1, 7)]
+
+    row = compute_cohort(
+        cohort_start=T0.date(),
+        layer_scope=SCOPE_ANY,
+        members=members,
+        reached_at={},
+        excluded_rejoins=0,
+        as_of=as_of,
+        params=SMALL,
+        observability_anchor=T0 - timedelta(days=30),
+        snapshot_windows=finestra_unica,
+    )
+
+    assert row.observation_days == 170
+    assert row.is_mature is True, "il tempo di calendario e' passato davvero"
+    # ...ma la copertura di grafo no: sono due cose diverse, ed e' la seconda a
+    # decidere se il numero vuol dire qualcosa.
+    assert row.has_snapshot_coverage is False
+    assert row.is_significant is False
+    assert "no_snapshot_coverage" in row.details["not_significant_because"]
+
+
+def test_coorte_con_snapshot_nella_finestra_e_significativa():
+    as_of = T0 + timedelta(days=170)
+    coprenti = [
+        (T0 + timedelta(days=d), T0 + timedelta(days=d + 7)) for d in (0, 7, 14)
+    ]
+    members = [member(i, joined_days=0) for i in range(1, 7)]
+
+    row = compute_cohort(
+        cohort_start=T0.date(),
+        layer_scope=SCOPE_ANY,
+        members=members,
+        reached_at={i: T0 + timedelta(days=7) for i in range(1, 5)},
+        excluded_rejoins=0,
+        as_of=as_of,
+        params=SMALL,
+        observability_anchor=T0 - timedelta(days=30),
+        snapshot_windows=coprenti,
+    )
+
+    assert row.has_snapshot_coverage is True
+    assert row.is_survivors_only is False
+    assert row.is_significant is True
+
+
 # --- soppressione ----------------------------------------------------------
 
 

@@ -18,7 +18,7 @@ dentro questo modulo: escono solo aggregati per coorte.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Iterable, Optional
 
 from .admission import admitted_pairs
@@ -62,6 +62,13 @@ class CohortResult:
     reached_by_14d: Optional[float] = None
     reached_by_28d: Optional[float] = None
     excluded_rejoins: Optional[int] = None
+    # La coorte precede l'istante da cui le uscite sono osservabili: e' composta
+    # per costruzione dai soli sopravvissuti, quindi n_effective non e' "quanti
+    # sono entrati" ma "quanti erano ancora presenti al backfill".
+    is_survivors_only: Optional[bool] = None
+    # Esiste almeno uno snapshot confrontabile che copre i primi
+    # min_observation_days della coorte. Senza, nessuno POTEVA raggiungere k.
+    has_snapshot_coverage: Optional[bool] = None
     is_suppressed: bool = False
     suppression_reason: Optional[str] = None
     is_significant: Optional[bool] = None
@@ -78,8 +85,10 @@ class RetentionResult:
     horizon_days: int
     n_effective: Optional[int] = None
     excluded_rejoins: Optional[int] = None
+    is_survivors_only: Optional[bool] = None
     retained_fraction: Optional[float] = None
     is_computable: Optional[bool] = None
+    not_computable_reason: Optional[str] = None
     is_suppressed: bool = False
     suppression_reason: Optional[str] = None
 
@@ -136,6 +145,52 @@ def _median(values: list[float]) -> float:
     if len(ordered) % 2:
         return ordered[middle]
     return (ordered[middle - 1] + ordered[middle]) / 2.0
+
+
+def is_survivors_only(
+    cohort_start: date, *, observability_anchor: Optional[datetime]
+) -> bool:
+    """La coorte precede l'istante da cui le uscite sono osservabili?
+
+    ``members`` non e' un log: e' stata popolata da ``!backfill_members``, e
+    contiene chi era presente **quel giorno**. Chi e' entrato prima e uscito
+    prima del backfill non ha un ``left_at`` — non e' mai stato scritto. Una
+    coorte anteriore all'ancora e' quindi composta per costruzione dai soli
+    sopravvissuti: sbagliato il numeratore E il denominatore, e ``n_effective``
+    non significa "quanti sono entrati" ma "quanti erano ancora presenti".
+
+    Senza ancora (nessun evento noto) la risposta e' ``True``: non poter
+    stabilire da quando si osserva non e' una prova che si osservasse da sempre,
+    e l'errore conservativo e' dichiarare il limite.
+    """
+    if observability_anchor is None:
+        return True
+    return cohort_start < observability_anchor.date()
+
+
+def has_snapshot_coverage(
+    cohort_start: date,
+    windows: Iterable[tuple[datetime, datetime]],
+    *,
+    params: MetricParams,
+) -> bool:
+    """Esiste uno snapshot che copre i primi giorni di osservazione della coorte?
+
+    Il tempo trascorso e la copertura di grafo sono due cose diverse, e solo la
+    seconda dice se il numero vuol dire qualcosa: una coorte di marzo con un
+    solo snapshot ad agosto ha 170 giorni di calendario alle spalle e **zero**
+    dato di grafo sulla propria finestra. In quel caso ``reached_by_14d = 0.0``
+    non misura l'integrazione, misura l'assenza di osservazione — e letto da un
+    admin direbbe "a marzo nessuno costruiva connessioni".
+
+    Copertura = almeno una finestra di snapshot che interseca
+    ``[cohort_start, cohort_start + min_observation_days)``.
+    """
+    start = datetime.combine(cohort_start, time.min, tzinfo=timezone.utc)
+    end = start + timedelta(days=params.min_observation_days)
+    return any(
+        window_start < end and window_end > start for window_start, window_end in windows
+    )
 
 
 def cohort_start_of(moment: datetime) -> date:
@@ -425,6 +480,8 @@ def compute_cohort(
     excluded_rejoins: int,
     as_of: datetime,
     params: MetricParams,
+    observability_anchor: Optional[datetime] = None,
+    snapshot_windows: Iterable[tuple[datetime, datetime]] = (),
     details: Optional[dict[str, Any]] = None,
 ) -> CohortResult:
     """Una riga di onboarding per coorte, ambito e k."""
@@ -439,6 +496,10 @@ def compute_cohort(
     else:
         observation_days = 0
     is_mature = observation_days >= params.min_observation_days
+    survivors_only = is_survivors_only(
+        cohort_start, observability_anchor=observability_anchor
+    )
+    coverage = has_snapshot_coverage(cohort_start, snapshot_windows, params=params)
 
     median = curve.quantile(0.5)
     reach = {
@@ -447,8 +508,19 @@ def compute_cohort(
     }
 
     result_details: dict[str, Any] = dict(details or {})
+    reasons: list[str] = []
     if not is_mature:
-        result_details["not_significant_because"] = ["cohort_not_mature"]
+        reasons.append("cohort_not_mature")
+    if not coverage:
+        # Il tempo e' passato ma il grafo non c'era: nessuno POTEVA raggiungere
+        # k, e uno zero qui misura l'assenza di osservazione.
+        reasons.append("no_snapshot_coverage")
+    if survivors_only:
+        # I numeri si calcolano, ma su una popolazione che non e' quella che
+        # sembra: una stima su soli sopravvissuti non e' affidabile.
+        reasons.append("survivors_only_cohort")
+    if reasons:
+        result_details["not_significant_because"] = reasons
 
     return CohortResult(
         cohort_start=cohort_start,
@@ -467,7 +539,9 @@ def compute_cohort(
         reached_by_14d=reach.get(14),
         reached_by_28d=reach.get(28),
         excluded_rejoins=excluded_rejoins,
-        is_significant=is_mature,
+        is_survivors_only=survivors_only,
+        has_snapshot_coverage=coverage,
+        is_significant=not reasons,
         details=result_details,
     )
 
@@ -479,6 +553,7 @@ def compute_retention(
     members: list[CohortMember],
     excluded_rejoins: int,
     as_of: datetime,
+    observability_anchor: Optional[datetime] = None,
 ) -> RetentionResult:
     """Retention della coorte a un orizzonte fisso.
 
@@ -493,9 +568,21 @@ def compute_retention(
     di restare un numero plausibile.
     """
     horizon = timedelta(days=horizon_days)
-    computable = bool(members) and all(
-        member.joined_at + horizon <= as_of for member in members
+    survivors_only = is_survivors_only(
+        cohort_start, observability_anchor=observability_anchor
     )
+
+    reason: Optional[str] = None
+    if survivors_only:
+        # Su una coorte fatta di soli sopravvissuti la retention e' 1.0 per
+        # costruzione: e' una tautologia, non un risultato, ed e' esattamente il
+        # tipo di numero che sembra buono.
+        reason = "before_observability_anchor"
+    elif not members:
+        reason = "empty_cohort"
+    elif not all(member.joined_at + horizon <= as_of for member in members):
+        reason = "horizon_not_reached"
+    computable = reason is None
 
     retained: Optional[float] = None
     if computable:
@@ -511,6 +598,8 @@ def compute_retention(
         horizon_days=horizon_days,
         n_effective=len(members),
         excluded_rejoins=excluded_rejoins,
+        is_survivors_only=survivors_only,
         retained_fraction=retained,
         is_computable=computable,
+        not_computable_reason=reason,
     )

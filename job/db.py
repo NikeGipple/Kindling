@@ -564,6 +564,36 @@ def identity_of(snapshot: asyncpg.Record) -> SnapshotIdentity:
     )
 
 
+async def fetch_observability_anchor(
+    conn: asyncpg.Connection, *, guild_id: int
+) -> Optional[datetime]:
+    """L'istante da cui le uscite dei membri sono osservabili.
+
+    ``members`` non e' un log: viene popolata da ``!backfill_members`` e
+    contiene chi era presente quel giorno, quindi chi e' uscito prima non ha
+    lasciato traccia. Prima di questo istante ogni coorte e' fatta per
+    costruzione dai soli sopravvissuti (modello-metriche.md 5.5).
+
+    L'ancora e' il primo evento noto della guild — i marcatori di riavvio del
+    bot sono essi stessi ``raw_events``, quindi il minimo li comprende: e' il
+    primo istante in cui c'e' prova che il bot stava ingerendo, e da li' un
+    ``member_remove`` sarebbe stato catturato.
+
+    Le righe con ``forgotten_at`` sono escluse come ovunque nel job: puo' solo
+    spostare l'ancora in avanti, cioe' verso "non calcolabile", che e' il verso
+    prudente.
+    """
+    return await conn.fetchval(
+        """
+        SELECT MIN(occurred_at)
+        FROM raw_events
+        WHERE guild_id = $1
+          AND forgotten_at IS NULL
+        """,
+        guild_id,
+    )
+
+
 async def fetch_cohort_members(
     conn: asyncpg.Connection, *, guild_id: int, as_of: datetime, since: datetime
 ) -> list[CohortMember]:
@@ -876,10 +906,11 @@ async def write_metrics(
                 event_count, censored_count, censored_by_leave,
                 median_days_to_k, median_reached, p25_days_to_k, p75_days_to_k,
                 reached_by_14d, reached_by_28d, excluded_rejoins,
+                is_survivors_only, has_snapshot_coverage,
                 is_suppressed, suppression_reason, is_significant, details
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                    $14, $15, $16, $17, $18, $19, $20, $21::jsonb)
+                    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23::jsonb)
             """,
             [
                 (
@@ -900,6 +931,8 @@ async def write_metrics(
                     c.reached_by_14d,
                     c.reached_by_28d,
                     c.excluded_rejoins,
+                    c.is_survivors_only,
+                    c.has_snapshot_coverage,
                     c.is_suppressed,
                     c.suppression_reason,
                     c.is_significant,
@@ -913,10 +946,11 @@ async def write_metrics(
             """
             INSERT INTO metric_cohort_retention (
                 snapshot_id, cohort_start, horizon_days,
-                n_effective, excluded_rejoins, retained_fraction,
-                is_computable, is_suppressed, suppression_reason
+                n_effective, excluded_rejoins, is_survivors_only,
+                retained_fraction, is_computable, not_computable_reason,
+                is_suppressed, suppression_reason
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             """,
             [
                 (
@@ -925,8 +959,10 @@ async def write_metrics(
                     r.horizon_days,
                     r.n_effective,
                     r.excluded_rejoins,
+                    r.is_survivors_only,
                     r.retained_fraction,
                     r.is_computable,
+                    r.not_computable_reason,
                     r.is_suppressed,
                     r.suppression_reason,
                 )

@@ -577,6 +577,17 @@ Conseguenze da dichiarare, tutte e tre:
    parametri *e* stessa ampiezza di finestra, esattamente la regola di §4.6, che
    è una sola e vale per entrambi gli usi. Uno snapshot non confrontabile è un
    buco, contato come tale, non un dato da mescolare.
+4. **Se nessuno snapshot copre la finestra della coorte, il conteggio non è
+   basso: è assente.** Una coorte di marzo con un solo snapshot ad agosto ha 170
+   giorni di calendario alle spalle e zero dato di grafo sulla propria finestra:
+   nessuno *poteva* raggiungere `k`, e un `reached_by_14d = 0.0` misura
+   l'assenza di osservazione. Letto da un admin direbbe "a marzo nessuno
+   costruiva connessioni".
+
+   `has_snapshot_coverage` è vero quando almeno una finestra di snapshot
+   confrontabile interseca `[cohort_start, cohort_start + min_observation_days)`.
+   Con un solo snapshot in tutto il database, la risposta onesta è che **nessuna
+   coorte è significativa**: è il risultato atteso, non un sintomo.
 
 Il partner conta come connessione fatta anche se in seguito l'arco decade: la
 domanda è "quanto ci mette a farne k", e l'evento è averle fatte. Il
@@ -650,7 +661,13 @@ gradini sono di ampiezza `1/n_i` e su una coorte piccola raccontano quante
 persone hanno fatto cosa e quando, con una granularità che le colonne sopra non
 hanno. È calcolata internamente e buttata.
 
-**Maturità della coorte.** Anche con Kaplan–Meier, una coorte osservata per tre
+**Maturità della coorte — necessaria, non sufficiente.** `is_mature` misura solo
+il tempo di calendario trascorso, e da solo non dice niente sul fatto che in
+quel tempo esistesse un grafo: una coorte può essere matura di sei mesi e non
+avere un solo snapshot sulla propria finestra (§5.3 punto 4). Le due condizioni
+si leggono insieme, e `is_significant` le riassume entrambe (§7.3).
+
+Anche con Kaplan–Meier, una coorte osservata per tre
 giorni produce una curva su cui quasi tutto è NULL. La coorte viene **comunque
 scritta**, con `observation_days` e `is_mature` (osservazione ≥
 `min_observation_days`, default 14): sopprimere le coorti giovani nasconderebbe
@@ -679,6 +696,33 @@ il valore è NULL con `is_computable = false`. Senza questa regola una coorte
 entrata ieri risulterebbe con "100% di retention a 28 giorni", che è il modo
 più diretto di trasformare l'assenza di dati in un ottimo risultato.
 
+**E non basta: serve un'ancora di osservabilità.** `members` non è un log — è
+popolata da `!backfill_members` e contiene chi era presente **quel giorno**. Chi
+è entrato a marzo e uscito ad aprile non ha un `left_at`: non è mai stato
+scritto. Ogni coorte anteriore all'inizio dell'osservazione è quindi composta
+per costruzione dai **soli sopravvissuti**, e la sua retention vale 1.0 a
+qualunque orizzonte. Non è un risultato, è una tautologia — ed è la forma
+peggiore di errore, perché il numero è alto, plausibile e ha
+`is_computable = true` accanto.
+
+L'**ancora di osservabilità** è il primo istante in cui c'è prova che il bot
+stava ingerendo eventi per quella guild: il primo `raw_event`, che comprende i
+marcatori di riavvio del bot perché sono anch'essi `raw_events`. Da lì in poi un
+`member_remove` sarebbe stato catturato; prima, no.
+
+- Se `cohort_start` precede l'ancora, la retention **non è calcolabile**:
+  `is_computable = false` e `not_computable_reason = 'before_observability_anchor'`.
+- Se l'ancora non è determinabile (nessun evento noto), la coorte è trattata
+  come anteriore. Non poter stabilire da quando si osserva non è una prova che
+  si osservasse da sempre, e l'errore prudente è dichiarare il limite.
+
+Il problema **non riguarda solo la retention**: anche `n_effective`
+dell'onboarding è distorto allo stesso modo, perché conta i sopravvissuti e non
+gli entrati. Per questo la colonna `is_survivors_only` sta su **entrambe** le
+tabelle, e su `metric_cohorts` non blocca il calcolo ma lo marca — i numeri di
+onboarding esistono, ma sono su una popolazione che non è quella che sembra
+(vedi §7.3).
+
 ### 5.6 Rientri: cosa comporta l'overwrite di `members`
 
 `members` sovrascrive `joined_at`/`left_at` quando un membro rientra dopo
@@ -698,6 +742,17 @@ finale:
    cui è finito.
 4. I bias (2) e (3) vanno in **direzioni opposte** e non si compensano: colpiscono
    coorti diverse.
+
+**Un quinto effetto, che non viene dai rientri ma dalla stessa causa: il
+backfill.** `members` è stata popolata una tantum al momento dell'aggiunta del
+bot, quindi non contiene solo uno stato *corrente* — contiene uno stato corrente
+**a quella data**, e tutto ciò che è successo prima non ha lasciato traccia. Chi
+era entrato e già uscito non c'è affatto. È un limite strutturale del backfill,
+non un caso limite: rende ogni coorte anteriore all'ancora di osservabilità
+(§5.5) una coorte di soli sopravvissuti, con `n_effective` che significa "quanti
+erano ancora presenti" invece di "quanti sono entrati". Non è recuperabile — il
+dato non esiste — e per questo si dichiara con `is_survivors_only` invece di
+essere corretto.
 
 **Mitigazione applicata in v0.** Un rientrante è riconoscibile senza cambiare
 `members`: se esiste attività della persona in quella guild **antecedente al suo
@@ -947,10 +1002,40 @@ La stabilità ha in più le condizioni di §4.6.
 
 ### 7.3 Coorti
 
-`is_significant = false` se `is_mature = false` (osservazione <
-`min_observation_days`). Le singole colonne hanno inoltre i propri flag
-puntuali (`median_reached`, `is_computable` della retention), perché una coorte
-matura può comunque avere una mediana non raggiunta.
+`is_significant = false` se **una qualunque** di queste tre condizioni è vera,
+con la ragione in `details.not_significant_because`:
+
+- `cohort_not_mature` — osservazione < `min_observation_days`;
+- `no_snapshot_coverage` — nessuno snapshot confrontabile copre i primi
+  `min_observation_days` dopo `cohort_start` (§5.3);
+- `survivors_only_cohort` — la coorte precede l'ancora di osservabilità (§5.5).
+
+Le singole colonne hanno inoltre i propri flag puntuali (`median_reached`,
+`is_computable` della retention), perché una coorte per il resto buona può
+comunque avere una mediana non raggiunta.
+
+**Perché la copertura di snapshot estende `is_significant` invece di essere un
+terzo flag.** `is_mature` misura il tempo di calendario trascorso; la copertura
+misura se in quel tempo esisteva un grafo. Sono due cose diverse — e la coppia
+`is_mature = true, is_significant = false` lo dice già senza bisogno di un terzo
+booleano da controllare: *il tempo è passato, i dati no*. La domanda a cui
+`is_significant` risponde è sempre la stessa, "questo numero vuol dire
+qualcosa", e l'assenza di grafo è una risposta a quella domanda quanto la
+scarsità di tempo. Il *motivo* vive dove vivono tutti i motivi, in `details`.
+`has_snapshot_coverage` resta comunque una colonna perché è un fatto sulla
+disponibilità dei dati che si vorrà interrogare direttamente (`WHERE NOT
+has_snapshot_coverage`), non solo leggere caso per caso.
+
+**Perché `is_survivors_only` è invece una colonna a sé e non solo un motivo.**
+`is_suppressed` riguarda l'anonimato, `is_significant` l'affidabilità del
+numero: `is_survivors_only` riguarda una terza cosa ancora, **chi sono le
+persone contate**. I numeri di quella coorte sono calcolati correttamente su una
+popolazione che non è quella che il nome della riga promette — non "poco
+affidabili", ma riferiti ad altro. Collassarlo dentro `is_significant`
+perderebbe proprio la distinzione che serve a chi legge: "non fidarti" e "questo
+non è il gruppo che pensi" portano a due azioni diverse. Fa comunque scattare
+`is_significant = false`, perché una stima su una popolazione distorta non è
+affidabile — ma il *perché* resta leggibile senza aprire `details`.
 
 ## 8. Dove muoiono gli output per-nodo
 
@@ -1187,6 +1272,8 @@ metric_cohorts
   reached_by_14d     DOUBLE PRECISION
   reached_by_28d     DOUBLE PRECISION
   excluded_rejoins   INTEGER
+  is_survivors_only  BOOLEAN           -- coorte anteriore all'ancora (5.5)
+  has_snapshot_coverage BOOLEAN        -- esiste grafo sulla sua finestra (5.3)
   is_suppressed      BOOLEAN NOT NULL DEFAULT FALSE
   suppression_reason TEXT
   is_significant     BOOLEAN           -- NULL = non valutata (riga soppressa)
@@ -1202,8 +1289,10 @@ metric_cohort_retention
 
   n_effective        INTEGER           -- stessa popolazione di metric_cohorts (§5.5)
   excluded_rejoins   INTEGER           -- ripetuto qui apposta: rende verificabile che il denominatore coincida
+  is_survivors_only  BOOLEAN           -- ripetuto qui per la stessa ragione
   retained_fraction  DOUBLE PRECISION  -- NULL se non calcolabile
   is_computable      BOOLEAN           -- NULL = non valutata (riga soppressa)
+  not_computable_reason TEXT           -- before_observability_anchor | horizon_not_reached | empty_cohort
   is_suppressed      BOOLEAN NOT NULL DEFAULT FALSE
   suppression_reason TEXT
 ```

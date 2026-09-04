@@ -165,6 +165,19 @@ docker compose exec postgres psql -U kindling -d kindling \
   -f /docker-entrypoint-initdb.d/0006_metrics.sql
 ```
 
+```bash
+docker compose exec postgres psql -U kindling -d kindling \
+  -f /docker-entrypoint-initdb.d/0007_metrics_observability.sql
+```
+
+`0007` aggiunge le colonne che dichiarano i due limiti scoperti alla prima
+esecuzione in produzione: `is_survivors_only` (coorti anteriori all'inizio
+dell'osservazione, la cui retention sarebbe 1.00 per costruzione) e
+`has_snapshot_coverage` (coorti senza dato di grafo sulla propria finestra). È
+additiva e non tocca le righe già scritte: su quelle le colonne nuove restano
+`NULL`, che è il valore giusto — sono state calcolate senza conoscere né
+l'ancora né la copertura.
+
 `0006` crea anche una funzione di trigger condivisa dalle cinque tabelle di
 metrica, che rifiuta una riga soppressa contenente un valore. È il vincolo su
 cui poggia la regola "le tabelle lette dall'API contengono già solo aggregati
@@ -196,6 +209,13 @@ Cosa aspettarsi oggi, con circa tre giorni di dati e un grafo di nove nodi:
   a `NULL`): con pochi ingressi a settimana le coorti stanno sotto la soglia
   N = 5. Anche questo è corretto — una tabella quasi tutta soppressa in questa
   fase è il segno che la regola funziona, non che la soglia è sbagliata;
+- **nessuna coorte significativa**, e le coorti anteriori all'arrivo del bot
+  marcate `is_survivors_only = true` con retention non calcolabile
+  (`not_computable_reason = 'before_observability_anchor'`). Con un solo
+  snapshot nessuna coorte ha copertura di grafo sulla propria finestra, e
+  `members` non contiene chi era già uscito al momento del backfill. Se invece
+  compare una retention del 100% con `is_computable = true` su coorti vecchie,
+  la migration `0007` non è stata applicata o il codice è vecchio: fermarsi;
 - `stability_jaccard` a `NULL` finché non esistono **due** snapshot consecutivi
   confrontabili — stessi parametri del grafo *e* stessa ampiezza di finestra. Il
   primo snapshot copre ~3 giorni e i successivi 7, quindi il confronto tra
