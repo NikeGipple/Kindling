@@ -177,6 +177,14 @@ docker compose exec postgres psql -U kindling -d kindling \
   -f /docker-entrypoint-initdb.d/0008_guilds.sql
 ```
 
+```bash
+docker compose exec postgres psql -U kindling -d kindling \
+  -f /docker-entrypoint-initdb.d/0009_guild_rejoined_at.sql
+```
+
+`0009` aggiunge `guilds.rejoined_at`, che con `left_at` delimita il buco di
+osservazione quando il bot viene rimosso e riaggiunto a un server.
+
 ### Migrazione dati una tantum: `guilds` per L'Arco del Leone
 
 `0008` crea la tabella `guilds` vuota. Per un server nuovo il bot la popola da
@@ -185,7 +193,19 @@ solo al primo avvio; **L'Arco no**, perché è già stato backfillato a mano il
 coorte come anteriore all'osservazione, e il backfill automatico ripartirebbe su
 un server già osservato.
 
-Da eseguire **una volta sola**, dopo `0008` e prima di riavviare il bot:
+> **L'ordine non è una preferenza: invertirlo costa un dato permanente.** Questa
+> `INSERT` va eseguita **prima** di ricostruire il container `bot`. Appena il
+> codice nuovo parte, `on_ready` chiama `register_guild` con
+> `first_seen_at = now()` — e quel valore, per progetto, **non viene mai
+> riscritto**: spostare l'ancora dopo averla fissata cancellerebbe osservazioni
+> valide o ne inventerebbe di mai fatte. Se il bot parte per primo, la data del
+> riavvio resta lì per sempre al posto di quella reale, ogni coorte precedente
+> risulta anteriore all'osservazione, e l'unico rimedio è un `UPDATE` a mano
+> sulla produzione — cioè esattamente la cosa che questo runbook esiste per
+> evitare. Nell'ordine dei passi di deploy: questa `INSERT` sta con le
+> migration (passo 5), non con i passi applicativi (passo 7).
+
+Da eseguire **una volta sola**, dopo `0008` e prima di ricostruire il bot:
 
 ```sql
 INSERT INTO guilds (guild_id, first_seen_at, backfilled_at)
@@ -213,10 +233,11 @@ I due valori, e da dove vengono:
 Verifica:
 
 ```sql
-SELECT guild_id, first_seen_at, backfilled_at, left_at FROM guilds;
+SELECT guild_id, first_seen_at, backfilled_at, left_at, rejoined_at FROM guilds;
 ```
 
-Una riga per server, `backfilled_at` valorizzato, `left_at` nullo. Se
+Una riga per server, `backfilled_at` valorizzato, `left_at` e `rejoined_at`
+nulli (nessun buco di osservazione). Se
 `backfilled_at` risultasse `NULL`, al riavvio il bot rifarebbe il backfill:
 non corromperebbe niente (il percorso inserisce e non aggiorna), ma è una
 chiamata inutile all'API Discord su tutta la member list.

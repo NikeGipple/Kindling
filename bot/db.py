@@ -230,25 +230,43 @@ class GuildRecord:
     guild_id: int
     first_seen_at: datetime
     backfilled_at: Optional[datetime]
+    # Buco di osservazione piu' recente: entrambi valorizzati significa che
+    # l'ancora di questa guild non e' piu' un istante solo (5.6).
+    left_at: Optional[datetime] = None
+    rejoined_at: Optional[datetime] = None
 
 
 # first_seen_at non viene MAI riscritto: e' l'ancora di osservabilita' del job,
-# e spostarla in avanti cancellerebbe osservazioni valide. Su una guild gia'
-# nota l'INSERT non fa nulla se non azzerare left_at, perche' il bot c'e' di
-# nuovo.
+# e spostarla in avanti cancellerebbe osservazioni valide.
+#
+# left_at non viene MAI azzerato. Registra l'inizio di un buco di osservazione,
+# e il riaggancio e' l'unico momento in cui quel fatto conta: cancellarlo qui
+# distruggerebbe il dato proprio quando diventa interessante. Che il bot sia
+# presente adesso si sa a runtime, non da quella colonna.
+#
+# rejoined_at chiude il buco, e si scrive una volta sola: COALESCE lo lascia
+# fermo ai riavvii successivi, e il CASE evita di segnare un rientro su una
+# guild da cui non si e' mai usciti.
 _REGISTER_GUILD = """
     INSERT INTO guilds (guild_id, first_seen_at)
     VALUES ($1, $2)
-    ON CONFLICT (guild_id) DO UPDATE SET left_at = NULL
-    RETURNING first_seen_at, backfilled_at
+    ON CONFLICT (guild_id) DO UPDATE
+        SET rejoined_at = COALESCE(
+                guilds.rejoined_at,
+                CASE WHEN guilds.left_at IS NOT NULL THEN $2 END
+            )
+    RETURNING first_seen_at, backfilled_at, left_at, rejoined_at
 """
 
 _MARK_GUILD_BACKFILLED = """
     UPDATE guilds SET backfilled_at = $2 WHERE guild_id = $1
 """
 
+# rejoined_at torna NULL: comincia un buco nuovo, e la coppia deve descrivere
+# quello piu' recente invece di mescolarne due. Le interruzioni precedenti non
+# vengono conservate — e' il limite dichiarato in modello-metriche.md 5.6.
 _MARK_GUILD_LEFT = """
-    UPDATE guilds SET left_at = $2 WHERE guild_id = $1
+    UPDATE guilds SET left_at = $2, rejoined_at = NULL WHERE guild_id = $1
 """
 
 
@@ -258,15 +276,28 @@ async def register_guild(
     """Registra la guild se non c'e', e ne ritorna lo stato di osservazione.
 
     ``first_seen_at`` viene usato solo alla prima registrazione: da li' in poi
-    e' l'ancora, e non si tocca.
+    e' l'ancora, e non si tocca. Su una guild da cui il bot era stato rimosso,
+    questa chiamata chiude il buco valorizzando ``rejoined_at`` — ma non
+    cancella ``left_at``, che e' il dato per cui il buco esiste.
     """
     pool = get_pool()
     row = await pool.fetchrow(_REGISTER_GUILD, guild_id, first_seen_at)
-    return GuildRecord(
+    record = GuildRecord(
         guild_id=guild_id,
         first_seen_at=row["first_seen_at"],
         backfilled_at=row["backfilled_at"],
+        left_at=row["left_at"],
+        rejoined_at=row["rejoined_at"],
     )
+    if record.left_at is not None:
+        logger.warning(
+            "guild_id=%s ha un buco di osservazione [%s, %s]: le uscite avvenute "
+            "in quel periodo non sono state osservate",
+            guild_id,
+            record.left_at,
+            record.rejoined_at,
+        )
+    return record
 
 
 async def mark_guild_backfilled(*, guild_id: int) -> None:

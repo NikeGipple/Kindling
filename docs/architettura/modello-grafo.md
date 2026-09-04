@@ -118,7 +118,9 @@ reali. Regole:
    L'ingestion deve quindi, all'avvio, (a) scrivere un evento marcatore di
    riavvio e (b) fotografare gli stati vocali correnti, emettendo join sintetici
    per chi è già in canale e chiudendo le sessioni rimaste aperte nel DB per chi
-   non c'è più. È l'equivalente vocale di `!backfill_members`.
+   non c'è più. È, per il vocale, l'equivalente del backfill dei membri: in
+   entrambi i casi all'avvio non ci si fida di aver visto gli eventi, si guarda
+   lo stato.
 
    **Presenze confermate.** C'è un terzo caso oltre a quei due: chi al riavvio
    è ancora nello stesso canale in cui risultava. La sua sessione non si è

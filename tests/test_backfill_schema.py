@@ -115,6 +115,62 @@ def test_first_seen_at_non_viene_mai_riscritto():
     asyncio.run(_with_schema(body))
 
 
+def test_left_at_sopravvive_al_riaggancio_e_rejoined_at_chiude_il_buco():
+    async def body(conn):
+        from bot import db as bot_db
+
+        # Prima registrazione: nessun buco.
+        row = await conn.fetchrow(bot_db._REGISTER_GUILD, GUILD, OSSERVATO)
+        assert row["left_at"] is None and row["rejoined_at"] is None
+
+        # Il bot viene rimosso: comincia il buco di osservazione.
+        uscita = OSSERVATO + timedelta(days=10)
+        await conn.execute(bot_db._MARK_GUILD_LEFT, GUILD, uscita)
+
+        # Riaggancio. E' l'UNICO momento in cui left_at conta: azzerarlo qui
+        # distruggerebbe il fatto proprio quando diventa interessante.
+        rientro = uscita + timedelta(days=5)
+        row = await conn.fetchrow(bot_db._REGISTER_GUILD, GUILD, rientro)
+        assert row["first_seen_at"] == OSSERVATO, "l'ancora non si sposta"
+        assert row["left_at"] == uscita, "left_at deve sopravvivere al riaggancio"
+        assert row["rejoined_at"] == rientro
+
+        # Un riavvio successivo non sposta rejoined_at: il buco e' uno solo e
+        # si e' gia' chiuso.
+        row = await conn.fetchrow(
+            bot_db._REGISTER_GUILD, GUILD, rientro + timedelta(days=3)
+        )
+        assert row["rejoined_at"] == rientro
+
+    asyncio.run(_with_schema(body))
+
+
+def test_una_nuova_uscita_riapre_il_buco():
+    async def body(conn):
+        from bot import db as bot_db
+
+        await conn.fetchrow(bot_db._REGISTER_GUILD, GUILD, OSSERVATO)
+        await conn.execute(
+            bot_db._MARK_GUILD_LEFT, GUILD, OSSERVATO + timedelta(days=10)
+        )
+        await conn.fetchrow(
+            bot_db._REGISTER_GUILD, GUILD, OSSERVATO + timedelta(days=15)
+        )
+
+        # Seconda uscita: rejoined_at torna NULL, cosi' la coppia descrive
+        # sempre il buco piu' recente invece di mescolare due interruzioni.
+        seconda_uscita = OSSERVATO + timedelta(days=40)
+        await conn.execute(bot_db._MARK_GUILD_LEFT, GUILD, seconda_uscita)
+
+        row = await conn.fetchrow(
+            "SELECT left_at, rejoined_at FROM guilds WHERE guild_id = $1", GUILD
+        )
+        assert row["left_at"] == seconda_uscita
+        assert row["rejoined_at"] is None
+
+    asyncio.run(_with_schema(body))
+
+
 def test_lancora_di_osservabilita_viene_da_guilds_non_da_raw_events():
     async def body(conn):
         # raw_events ha un evento MOLTO piu' vecchio dell'arrivo dichiarato:

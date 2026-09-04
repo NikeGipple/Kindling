@@ -767,9 +767,33 @@ dell'ancora, ma `first_seen_at` continua a dire che quella community è osservat
 da sempre. Chiuderlo davvero richiede di sostituire l'ancora con una **lista di
 intervalli di osservazione**, ed è fuori da v0 (§12).
 
-Non è però lasciato senza appigli: il bot registra `guilds.left_at` quando viene
-rimosso, proprio perché quel momento non sia da indovinare a posteriori. La
-mitigazione parziale che c'è già è che al rientro il backfill reinserisce i
+Non è però lasciato senza appigli. Il bot registra **`guilds.left_at`** quando
+viene rimosso e **`guilds.rejoined_at`** quando torna, così il buco è delimitato
+da entrambi i lati: `[left_at, rejoined_at]`. **Entrambi non nulli sono il
+segnale che l'ancora di quella guild non è più un istante solo** — `first_seen_at`
+continua a dire da quando l'osservazione è cominciata, ma non è più vero che da
+lì in poi sia stata continua, e qualunque lettura di quella community va fatta
+sapendolo.
+
+`left_at` non viene mai azzerato al rientro: il riaggancio è precisamente il
+momento in cui quel dato conta, e cancellarlo lì distruggerebbe il fatto proprio
+quando diventa interessante. Che il bot sia presente adesso si sa a runtime, non
+da quella colonna.
+
+Due limiti di questa coppia, entrambi dichiarati:
+
+- **Descrive solo l'interruzione più recente.** Una nuova uscita riazzera
+  `rejoined_at`, perché due colonne non possono delimitare N buchi e fingere di
+  sì sarebbe peggio che dire dove si fermano. Le interruzioni precedenti non
+  vengono conservate: è quello il punto in cui serve davvero la lista di
+  intervalli di §12.
+- **Una rimozione avvenuta mentre il bot era spento non viene osservata**:
+  `on_guild_remove` non scatta, e al riavvio quella guild semplicemente non è
+  più tra quelle collegate. Il buco esiste e nessuna colonna lo registra. È la
+  stessa famiglia di problemi che l'ancora chiude a monte, ristretta a un caso
+  raro.
+
+La mitigazione parziale che c'è già è che al rientro il backfill reinserisce i
 membri assenti con il loro `joined_at` reale, quindi chi è entrato durante il
 buco **ed è ancora presente** viene recuperato; chi è entrato e uscito dentro il
 buco no. È lo stesso survivorship bias, ristretto a una finestra.
@@ -1456,8 +1480,9 @@ Deliberatamente non in questa specifica:
 - **Storico dei rientri multipli** in `members`, che è la sola correzione vera
   ai bias di §5.6.
 - **Intervalli di osservazione** al posto della singola `guilds.first_seen_at`:
-  è ciò che serve per chiudere il caso del bot rimosso e riaggiunto (§5.6).
-  `guilds.left_at` viene già registrato in vista di questo.
+  è ciò che serve per chiudere il caso del bot rimosso e riaggiunto più di una
+  volta (§5.6). La coppia `left_at`/`rejoined_at` copre già l'interruzione
+  singola, che è il caso realistico; la lista serve quando ne servono N.
 - **Segmentazione per canale, ruolo o tipo di evento**: è il punto aperto del
   catalogo su cui l'incrocio di più dimensioni pubbliche ricrea una cella a
   cardinalità 1. Va progettata con la regola di soppressione degli incroci già
