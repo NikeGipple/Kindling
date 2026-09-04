@@ -18,7 +18,8 @@ from typing import Callable, Iterable, Optional
 
 import igraph
 
-from .config import UNDIRECTED_LAYERS
+from .admission import admitted_pairs
+from .config import MetricParams, UNDIRECTED_LAYERS
 from .edges import Edge
 
 NodeLabeller = Callable[[int], str]
@@ -68,3 +69,64 @@ def build_layer_graph(
 def write_graphml(graph: igraph.Graph, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     graph.write_graphml(str(path))
+
+
+def build_metric_graph(
+    edges: Iterable[Edge],
+    *,
+    layer: str,
+    params: MetricParams,
+    include_reconciled: bool = True,
+) -> igraph.Graph:
+    """Grafo di un layer per le metriche strutturali (modello-metriche.md 2).
+
+    Tre differenze rispetto a ``build_layer_graph``, tutte volute:
+
+    - **Sempre non diretto.** I layer direzionali entrano come proiezione: i due
+      orientamenti della stessa coppia diventano un arco solo, con peso pari
+      alla somma dei due. Robustezza e Leiden sono domande sulla connettivita',
+      che si legge sul grafo non orientato. La somma avviene DENTRO un layer,
+      tra due orientamenti della stessa relazione, non tra relazioni di tipo
+      diverso: non e' la fusione che modello-grafo.md 1 vieta.
+    - **Ammissione condivisa.** Proiezione e soglia vengono da
+      ``admission.admitted_pairs``, la stessa funzione che usa il conteggio dei
+      partner delle coorti: due regole separate coinciderebbero solo finche'
+      ``min_edge_weight`` vale 0.0. Un arco di peso nullo — o quasi — tiene
+      comunque insieme due componenti, perche' le componenti connesse i pesi
+      non li guardano: lasciarlo dentro falserebbe proprio le grandezze della
+      robustezza.
+    - **Ordinamento deterministico dei nodi**, per author_id crescente. Il
+      risultato di Leiden dipende dall'ordine in cui i nodi sono visitati: se
+      quell'ordine dipendesse dall'ordine di lettura degli archi da Postgres,
+      il seed da solo non basterebbe a rendere il calcolo riproducibile — e la
+      riproducibilita' e' cio' che permette di ricostruire la partizione dello
+      snapshot precedente invece di persisterla.
+
+    Il grafo e' indotto dai suoi archi: un membro senza archi in questo layer
+    non e' un nodo. ``author_id`` resta come attributo di vertice ed e' un dato
+    interno al calcolo, che non esce mai da questo modulo (modello-metriche.md
+    8).
+    """
+    combined = {
+        (pair.low, pair.high): entry.weight
+        for pair, entry in admitted_pairs(
+            edges,
+            params=params,
+            layer=layer,
+            include_reconciled=include_reconciled,
+        ).items()
+    }
+
+    author_ids = sorted({author for pair in combined for author in pair})
+    index = {author_id: position for position, author_id in enumerate(author_ids)}
+
+    graph = igraph.Graph(directed=False)
+    graph.add_vertices(len(author_ids))
+    graph.vs["author_id"] = author_ids
+
+    pairs = sorted(combined)
+    graph.add_edges([(index[src], index[dst]) for src, dst in pairs])
+    graph.es["weight"] = [combined[pair] for pair in pairs]
+
+    graph["layer"] = layer
+    return graph

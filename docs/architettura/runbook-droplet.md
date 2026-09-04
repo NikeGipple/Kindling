@@ -154,6 +154,77 @@ con `scp`. Sono file per Gephi, non dati del servizio, e la cartella è in
 `.gitignore`. Di default i nodi sono pseudonimi: un export identificato è una
 mappa sociale nominativa della community e richiede un flag esplicito.
 
+## Lanciare il calcolo delle metriche aggregate
+
+**Prima serve la migration `0006_metrics.sql`**, applicata come tutte le altre
+(passo 5 della procedura di deploy) e **in ordine, dopo `0005`**. Senza, il
+sottocomando fallisce alla prima scrittura: le tabelle `metric_*` non esistono.
+
+```bash
+docker compose exec postgres psql -U kindling -d kindling \
+  -f /docker-entrypoint-initdb.d/0006_metrics.sql
+```
+
+`0006` crea anche una funzione di trigger condivisa dalle cinque tabelle di
+metrica, che rifiuta una riga soppressa contenente un valore. È il vincolo su
+cui poggia la regola "le tabelle lette dall'API contengono già solo aggregati
+sopra soglia": se `psql` segnala un errore su quella funzione, la migration non
+è andata a fondo e le metriche non vanno scritte finché non si capisce perché.
+
+Poi, come il resto del job (profilo `tools`, non parte con `docker compose up`):
+
+```bash
+docker compose run --rm job python -m job.main metrics --dry-run   # verifica
+docker compose run --rm job python -m job.main metrics             # scrive
+```
+
+Il sottocomando **legge uno snapshot già scritto** invece di ricalcolare il
+grafo: va lanciato dopo `snapshot`. Senza argomenti processa **tutte** le guild
+con almeno uno snapshot, prendendo l'ultimo di ciascuna — lo stesso contratto di
+`snapshot`; `--guild-id` e `--snapshot-id` restringono, e sono mutuamente
+esclusivi. Ricalcolare sullo stesso snapshot **riscrive** le righe invece di
+duplicarle.
+
+Cosa aspettarsi oggi, con circa tre giorni di dati e un grafo di nove nodi:
+
+- **righe strutturali scritte ma `is_significant = false`.** Su nove nodi
+  betweenness e modularità producono numeri formalmente validi e
+  sostanzialmente casuali: la riga esiste, i valori ci sono, e dichiara di non
+  essere affidabile. Non è un errore da correggere, ed è uno stato diverso da
+  "soppressa";
+- **quasi tutte le righe di coorte soppresse** (`is_suppressed = true`, valori
+  a `NULL`): con pochi ingressi a settimana le coorti stanno sotto la soglia
+  N = 5. Anche questo è corretto — una tabella quasi tutta soppressa in questa
+  fase è il segno che la regola funziona, non che la soglia è sbagliata;
+- `stability_jaccard` a `NULL` finché non esistono **due** snapshot consecutivi
+  confrontabili — stessi parametri del grafo *e* stessa ampiezza di finestra. Il
+  primo snapshot copre ~3 giorni e i successivi 7, quindi il confronto tra
+  quei due non è disponibile per costruzione: comparirà dal terzo snapshot in
+  poi, quando ci saranno due finestre settimanali di fila. Il motivo è in
+  `details.stability_unavailable`;
+- righe solo per il layer `voice`: sugli altri il traffico non basta a produrre
+  archi.
+
+Un valore che **non** deve mai comparire: uno zero al posto di una cella
+soppressa. Se una riga con `is_suppressed = true` porta numeri invece di
+`NULL`, il trigger della migration non è attivo.
+
+Verifica dopo la prima esecuzione:
+
+```sql
+SELECT layer, removal_fraction, n_effective, is_significant, is_suppressed
+FROM metric_robustness ORDER BY layer, removal_fraction;
+
+SELECT stats -> 'durations_ms' FROM metric_runs ORDER BY created_at DESC LIMIT 1;
+```
+
+Le durate per metrica vanno confrontate **di esecuzione in esecuzione**: sono
+l'unico modo per vedere arrivare il problema di budget descritto in
+`modello-metriche.md` §11.1 — il baseline è fino a ~400 esecuzioni di Leiden per
+snapshot su 1 vCPU condiviso con l'heartbeat del gateway Discord — invece di
+scoprirlo da un OOM. Sopra 500 nodi le ripetizioni si riducono da sole, e la
+riga lo dichiara in `details.baseline_degraded`.
+
 ## Esito del primo deploy completo (31/08/2026)
 
 Riferimento di cosa aspettarsi, non un obiettivo da riprodurre: serve a

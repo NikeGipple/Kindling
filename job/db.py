@@ -19,9 +19,19 @@ from typing import Any, Iterable, Optional
 
 import asyncpg
 
-from .config import LAYER_MENTION, LAYER_REACTION, LAYER_REPLY
+from .cohorts import (
+    CohortMember,
+    CohortResult,
+    PartnerEdge,
+    PartnerTracker,
+    RetentionResult,
+)
+from .communities import CommunityResult, CommunitySize
+from .config import LAYER_MENTION, LAYER_REACTION, LAYER_REPLY, MetricParams
 from .edges import DirectedInteraction, Edge
 from .intervals import RestartMarker, VoiceEvent
+from .metrics import SnapshotIdentity, snapshot_comparability
+from .robustness import RobustnessResult
 from .sessions import VoiceSession
 
 logger = logging.getLogger(__name__)
@@ -493,3 +503,433 @@ async def fetch_snapshot_edges(
         )
         for r in rows
     ]
+
+
+# ---- letture per il layer di metriche -------------------------------------
+
+
+async def list_snapshot_guilds(conn: asyncpg.Connection) -> list[int]:
+    """Le guild che hanno almeno uno snapshot del grafo.
+
+    Serve al sottocomando ``metrics`` per lavorare su tutte le community, come
+    fa ``snapshot``: non e' list_guilds, che guarda raw_events in una finestra —
+    qui la domanda e' "di chi esiste un grafo gia' calcolato".
+    """
+    rows = await conn.fetch(
+        "SELECT DISTINCT guild_id FROM graph_snapshots ORDER BY guild_id"
+    )
+    return [r["guild_id"] for r in rows]
+
+
+async def fetch_previous_snapshot(
+    conn: asyncpg.Connection, *, snapshot: asyncpg.Record
+) -> tuple[Optional[asyncpg.Record], Optional[str]]:
+    """Lo snapshot immediatamente precedente della stessa guild, se confrontabile.
+
+    Ritorna anche il motivo per cui non lo e', da salvare in ``details``: uno
+    snapshot precedente "vicino ma non identico" nei parametri non viene
+    adattato ne' riscalato, perche' la differenza tra le due partizioni
+    conterrebbe il cambio di parametri e attribuirla alla community sarebbe
+    falso (modello-metriche.md 4.6).
+    """
+    row = await conn.fetchrow(
+        """
+        SELECT * FROM graph_snapshots
+        WHERE guild_id = $1
+          AND as_of < $2
+        ORDER BY as_of DESC, id DESC
+        LIMIT 1
+        """,
+        snapshot["guild_id"],
+        snapshot["as_of"],
+    )
+    if row is None:
+        return None, "no_previous_snapshot"
+    reason = snapshot_comparability(identity_of(snapshot), identity_of(row))
+    if reason is not None:
+        return None, f"previous_snapshot_{reason}"
+    return row, None
+
+
+def identity_of(snapshot: asyncpg.Record) -> SnapshotIdentity:
+    """Cio' che rende due snapshot confrontabili: parametri E ampiezza finestra.
+
+    L'ampiezza non e' un parametro e non sta in ``params``, ma due finestre
+    diverse danno grafi di densita' diversa — e non e' un caso teorico: il primo
+    snapshot copre ~3 giorni e i successivi 7.
+    """
+    return SnapshotIdentity(
+        params=json.loads(snapshot["params"]),
+        window=snapshot["window_end"] - snapshot["window_start"],
+    )
+
+
+async def fetch_cohort_members(
+    conn: asyncpg.Connection, *, guild_id: int, as_of: datetime, since: datetime
+) -> list[CohortMember]:
+    """Membri entrati da ``since`` in poi, con il flag di rientro sospetto.
+
+    ``has_prior_activity`` viene da un EXISTS su raw_events: se una persona ha
+    attivita' in questa guild anteriore al proprio ``joined_at``, o e' un
+    rientro o e' un dato incoerente — e ``members`` sovrascrive
+    ``joined_at``/``left_at`` sui rientri, quindi senza questo controllo un
+    rientrante sarebbe indistinguibile da un nuovo arrivato che raggiunge k
+    connessioni in un giorno grazie a relazioni che aveva gia'.
+
+    Nessun falso positivo dai membri caricati con ``!backfill_members``: quel
+    comando scrive la data di join reale, che precede la loro attivita'.
+    """
+    rows = await conn.fetch(
+        """
+        SELECT m.author_id,
+               m.joined_at,
+               m.left_at,
+               EXISTS (
+                   SELECT 1
+                   FROM raw_events e
+                   WHERE e.guild_id = m.guild_id
+                     AND e.author_id = m.author_id
+                     AND e.forgotten_at IS NULL
+                     AND e.occurred_at < m.joined_at
+               ) AS has_prior_activity
+        FROM members m
+        WHERE m.guild_id = $1
+          AND m.forgotten_at IS NULL
+          AND m.joined_at >= $2
+          AND m.joined_at <= $3
+        ORDER BY m.joined_at, m.author_id
+        """,
+        guild_id,
+        since,
+        as_of,
+    )
+    return [
+        CohortMember(
+            author_id=r["author_id"],
+            joined_at=r["joined_at"],
+            left_at=r["left_at"],
+            has_prior_activity=r["has_prior_activity"],
+        )
+        for r in rows
+    ]
+
+
+async def fetch_comparable_snapshots(
+    conn: asyncpg.Connection,
+    *,
+    guild_id: int,
+    reference: SnapshotIdentity,
+    since: datetime,
+    until: datetime,
+) -> tuple[list[asyncpg.Record], int]:
+    """Serie di snapshot confrontabili con quello di riferimento, per as_of.
+
+    Stessa regola di ``fetch_previous_snapshot``, e deve esserlo: parametri
+    identici e stessa ampiezza di finestra. Gli altri non vengono mescolati —
+    sono un buco nella serie, cioe' censura intervallare, e il loro numero va in
+    diagnostica invece di sparire: due coorti sono confrontabili solo se la
+    serie di snapshot sotto di loro ha la stessa cadenza.
+    """
+    rows = await conn.fetch(
+        """
+        SELECT id, as_of, params, window_start, window_end
+        FROM graph_snapshots
+        WHERE guild_id = $1
+          AND as_of >= $2
+          AND as_of <= $3
+        ORDER BY as_of, id
+        """,
+        guild_id,
+        since,
+        until,
+    )
+    comparable = [
+        row for row in rows if snapshot_comparability(reference, identity_of(row)) is None
+    ]
+    return comparable, len(rows) - len(comparable)
+
+
+async def scan_partner_growth(
+    conn: asyncpg.Connection,
+    *,
+    snapshots: Iterable[asyncpg.Record],
+    members: Iterable[CohortMember],
+    params: MetricParams,
+) -> tuple[dict[str, dict[int, datetime]], dict[str, Any]]:
+    """Istante in cui ogni membro raggiunge k partner distinti, per ambito.
+
+    Il vincolo di memoria di modello-metriche.md 11.1 e' implementato qui, ed e'
+    vincolante e non un suggerimento: si legge **uno snapshot alla volta**, si
+    filtrano gli archi a quelli incidenti ai membri delle coorti ancora aperte,
+    e si accumulano insiemi di partner — mai archi. Con 180 giorni di storico
+    sono ~26 snapshot, e caricarne gli archi tutti insieme e' il modo di far
+    esplodere il picco di memoria del job sulla droplet.
+
+    Questa funzione fa solo il SQL: cosa conta come partner e quando l'evento e'
+    avvenuto lo decide ``PartnerTracker``, che e' logica e sta in cohorts.py.
+    """
+    tracker = PartnerTracker(members, params=params)
+
+    for snapshot in snapshots:
+        pending = tracker.pending(snapshot["as_of"])
+        if not pending:
+            continue
+        # Nessun filtro sul peso qui: l'ammissione somma i due orientamenti
+        # PRIMA di applicare la soglia, quindi filtrare riga per riga
+        # escluderebbe coppie che la regola condivisa ammette. Il SQL restringe
+        # solo ai membri ancora aperti — il vincolo di memoria — e la regola la
+        # applica PartnerTracker.
+        rows = await conn.fetch(
+            """
+            SELECT layer, src_author_id, dst_author_id, weight, interaction_count
+            FROM graph_edges
+            WHERE snapshot_id = $1
+              AND (src_author_id = ANY($2::bigint[]) OR dst_author_id = ANY($2::bigint[]))
+            """,
+            snapshot["id"],
+            pending,
+        )
+        tracker.observe(
+            snapshot["as_of"],
+            (
+                PartnerEdge(
+                    layer=r["layer"],
+                    src_author_id=r["src_author_id"],
+                    dst_author_id=r["dst_author_id"],
+                    weight=r["weight"],
+                    interaction_count=r["interaction_count"],
+                )
+                for r in rows
+            ),
+        )
+
+    return tracker.reached, {"snapshots_used": tracker.snapshots_used}
+
+
+async def fetch_snapshot_by_id(
+    conn: asyncpg.Connection, *, snapshot_id: int
+) -> Optional[asyncpg.Record]:
+    return await conn.fetchrow("SELECT * FROM graph_snapshots WHERE id = $1", snapshot_id)
+
+
+# ---- scritture del layer di metriche --------------------------------------
+
+
+async def write_metrics(
+    conn: asyncpg.Connection,
+    *,
+    snapshot_id: int,
+    guild_id: int,
+    as_of: datetime,
+    params: dict[str, Any],
+    stats: dict[str, Any],
+    code_version: Optional[str],
+    robustness: Iterable[RobustnessResult],
+    communities: Iterable[CommunityResult],
+    community_sizes: Iterable[CommunitySize],
+    cohorts: Iterable[CohortResult],
+    cohort_retention: Iterable[RetentionResult],
+) -> None:
+    """Scrive tutte le tabelle di metrica in un'unica transazione.
+
+    DELETE + INSERT e non UPSERT riga per riga, come per ``graph_edges`` e per
+    la stessa ragione: un ricalcolo con ``k`` o ``X`` diversi puo' far SPARIRE
+    righe, e un UPSERT lascerebbe in tabella il fantasma di quelle vecchie —
+    con l'aggravante che sarebbero indistinguibili dalle nuove.
+    """
+    async with conn.transaction():
+        await conn.execute(
+            """
+            INSERT INTO metric_runs
+                (snapshot_id, guild_id, as_of, params, stats, code_version)
+            VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6)
+            ON CONFLICT (snapshot_id) DO UPDATE
+                SET params = EXCLUDED.params,
+                    stats = EXCLUDED.stats,
+                    code_version = EXCLUDED.code_version,
+                    created_at = now()
+            """,
+            snapshot_id,
+            guild_id,
+            as_of,
+            json.dumps(params, default=str),
+            json.dumps(stats, default=str),
+            code_version,
+        )
+
+        for table in (
+            "metric_robustness",
+            "metric_communities",
+            "metric_community_sizes",
+            "metric_cohorts",
+            "metric_cohort_retention",
+        ):
+            await conn.execute(
+                "DELETE FROM " + table + " WHERE snapshot_id = $1", snapshot_id
+            )
+
+        await conn.executemany(
+            """
+            INSERT INTO metric_robustness (
+                snapshot_id, layer, removal_fraction,
+                n_effective, nodes_removed, giant_before, giant_after_targeted,
+                components_after_targeted, giant_after_random_mean,
+                giant_after_random_sd, components_after_random_mean,
+                targeted_excess, targeted_z,
+                is_suppressed, suppression_reason, is_significant, details
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                    $14, $15, $16, $17::jsonb)
+            """,
+            [
+                (
+                    snapshot_id,
+                    r.layer,
+                    r.removal_fraction,
+                    r.n_effective,
+                    r.nodes_removed,
+                    r.giant_before,
+                    r.giant_after_targeted,
+                    r.components_after_targeted,
+                    r.giant_after_random_mean,
+                    r.giant_after_random_sd,
+                    r.components_after_random_mean,
+                    r.targeted_excess,
+                    r.targeted_z,
+                    r.is_suppressed,
+                    r.suppression_reason,
+                    r.is_significant,
+                    json.dumps(r.details, default=str),
+                )
+                for r in robustness
+            ],
+        )
+
+        await conn.executemany(
+            """
+            INSERT INTO metric_communities (
+                snapshot_id, layer,
+                n_effective, community_count, modularity,
+                modularity_random_mean, modularity_random_sd, modularity_z,
+                previous_snapshot_id, node_overlap, stability_jaccard,
+                communities_born, communities_dissolved,
+                communities_merged, communities_split,
+                is_suppressed, suppression_reason, is_significant, details
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                    $14, $15, $16, $17, $18, $19::jsonb)
+            """,
+            [
+                (
+                    snapshot_id,
+                    c.layer,
+                    c.n_effective,
+                    c.community_count,
+                    c.modularity,
+                    c.modularity_random_mean,
+                    c.modularity_random_sd,
+                    c.modularity_z,
+                    c.previous_snapshot_id,
+                    c.node_overlap,
+                    c.stability_jaccard,
+                    c.communities_born,
+                    c.communities_dissolved,
+                    c.communities_merged,
+                    c.communities_split,
+                    c.is_suppressed,
+                    c.suppression_reason,
+                    c.is_significant,
+                    json.dumps(c.details, default=str),
+                )
+                for c in communities
+            ],
+        )
+
+        await conn.executemany(
+            """
+            INSERT INTO metric_community_sizes (
+                snapshot_id, layer, bucket,
+                community_count, member_count,
+                is_suppressed, suppression_reason
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            """,
+            [
+                (
+                    snapshot_id,
+                    s.layer,
+                    s.bucket,
+                    s.community_count,
+                    s.member_count,
+                    s.is_suppressed,
+                    s.suppression_reason,
+                )
+                for s in community_sizes
+            ],
+        )
+
+        await conn.executemany(
+            """
+            INSERT INTO metric_cohorts (
+                snapshot_id, cohort_start, layer_scope, k,
+                n_effective, observation_days, is_mature,
+                event_count, censored_count, censored_by_leave,
+                median_days_to_k, median_reached, p25_days_to_k, p75_days_to_k,
+                reached_by_14d, reached_by_28d, excluded_rejoins,
+                is_suppressed, suppression_reason, is_significant, details
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                    $14, $15, $16, $17, $18, $19, $20, $21::jsonb)
+            """,
+            [
+                (
+                    snapshot_id,
+                    c.cohort_start,
+                    c.layer_scope,
+                    c.k,
+                    c.n_effective,
+                    c.observation_days,
+                    c.is_mature,
+                    c.event_count,
+                    c.censored_count,
+                    c.censored_by_leave,
+                    c.median_days_to_k,
+                    c.median_reached,
+                    c.p25_days_to_k,
+                    c.p75_days_to_k,
+                    c.reached_by_14d,
+                    c.reached_by_28d,
+                    c.excluded_rejoins,
+                    c.is_suppressed,
+                    c.suppression_reason,
+                    c.is_significant,
+                    json.dumps(c.details, default=str),
+                )
+                for c in cohorts
+            ],
+        )
+
+        await conn.executemany(
+            """
+            INSERT INTO metric_cohort_retention (
+                snapshot_id, cohort_start, horizon_days,
+                n_effective, excluded_rejoins, retained_fraction,
+                is_computable, is_suppressed, suppression_reason
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            """,
+            [
+                (
+                    snapshot_id,
+                    r.cohort_start,
+                    r.horizon_days,
+                    r.n_effective,
+                    r.excluded_rejoins,
+                    r.retained_fraction,
+                    r.is_computable,
+                    r.is_suppressed,
+                    r.suppression_reason,
+                )
+                for r in cohort_retention
+            ],
+        )

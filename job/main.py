@@ -3,6 +3,7 @@
 Uso:
     python -m job.main snapshot [--guild-id N] [--window-days 7] [--as-of ISO]
     python -m job.main export --snapshot-id N [--out-dir exports] [--identified]
+    python -m job.main metrics [--snapshot-id N | --guild-id N] [--dry-run]
 
 Il job non e' un servizio: parte, calcola, scrive e muore. Nessun processo
 sempre acceso in piu' sulla droplet oltre a bot e Postgres.
@@ -15,18 +16,28 @@ import asyncio
 import logging
 import os
 import subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
 
 from . import db
-from .config import ALL_LAYERS, DEFAULT_PARAMS, GraphParams
-from .graph import build_layer_graph, write_graphml
+from .cohorts import series_spacing
+from .communities import partition_of
+from .config import (
+    ALL_LAYERS,
+    DEFAULT_METRIC_PARAMS,
+    DEFAULT_PARAMS,
+    GraphParams,
+    MetricParams,
+)
+from .graph import build_layer_graph, build_metric_graph, write_graphml
 from .intervals import activity_lookup
+from .metrics import PreviousPartition, build_metrics, cohort_window_start
 from .pseudonyms import load_salt, pseudonymize
 from .snapshot import build_snapshot
+from .suppression import as_public_dict
 
 logger = logging.getLogger(__name__)
 
@@ -237,6 +248,220 @@ async def run_export(args: argparse.Namespace) -> None:
         await conn.close()
 
 
+async def run_metrics(args: argparse.Namespace, params: MetricParams) -> None:
+    """Calcola le metriche aggregate di snapshot gia' scritti.
+
+    Legge uno snapshot invece di ricalcolare il grafo: permette di ricalcolare
+    le metriche con parametri nuovi senza rifare la ricostruzione delle
+    sessioni, che e' la parte costosa e delicata, e rende la riesecuzione del
+    layer metriche un'operazione senza conseguenze sul grafo.
+
+    Senza argomenti lavora su **tutte** le guild, una per una, come fa
+    ``snapshot``: due sottocomandi dello stesso job non possono avere contratti
+    diversi su cosa significa "senza argomenti", perche' e' il tipo di
+    asimmetria che nessuno si ricorda e che si scopre quando arriva la seconda
+    community — lo scenario di crescita dichiarato in architettura.md.
+    """
+    conn = await db.connect(_database_url())
+    try:
+        if args.snapshot_id is not None:
+            snapshot = await db.fetch_snapshot_by_id(conn, snapshot_id=args.snapshot_id)
+            if snapshot is None:
+                raise RuntimeError(f"Nessuno snapshot con id {args.snapshot_id}.")
+            snapshots = [snapshot]
+        else:
+            guild_ids = (
+                [args.guild_id]
+                if args.guild_id is not None
+                else await db.list_snapshot_guilds(conn)
+            )
+            snapshots = []
+            for guild_id in guild_ids:
+                snapshot = await db.fetch_snapshot(conn, guild_id=guild_id)
+                if snapshot is None:
+                    logger.warning("guild_id=%s: nessuno snapshot, saltata.", guild_id)
+                    continue
+                snapshots.append(snapshot)
+
+        if not snapshots:
+            logger.warning("Nessuno snapshot su cui calcolare le metriche.")
+            return
+
+        for snapshot in snapshots:
+            await _metrics_for_snapshot(conn, snapshot, params=params, args=args)
+    finally:
+        await conn.close()
+
+
+async def _previous_partition(
+    conn, snapshot, *, params: MetricParams
+) -> tuple[Optional[PreviousPartition], Optional[str]]:
+    """Ricostruisce la partizione dello snapshot precedente, se confrontabile.
+
+    Ricostruita e non letta: l'appartenenza alla community e' un dato per-nodo e
+    non e' salvata da nessuna parte, ed e' il seed fissato a rendere esatta la
+    ricostruzione (modello-metriche.md 4.2, 8).
+
+    Sta in una funzione a se' anche per una ragione di memoria: gli archi dello
+    snapshot precedente servono solo qui, e cosi' escono di scope appena la
+    partizione e' pronta invece di restare referenziati per tutto il calcolo.
+    Su una droplet da 1 GB e' margine che non costa niente recuperare.
+    """
+    previous_row, unavailable = await db.fetch_previous_snapshot(conn, snapshot=snapshot)
+    if previous_row is None:
+        return None, unavailable
+
+    previous_edges = await db.fetch_snapshot_edges(conn, snapshot_id=previous_row["id"])
+    membership = {
+        layer: partition_of(
+            build_metric_graph(previous_edges, layer=layer, params=params),
+            params=params,
+        )
+        for layer in ALL_LAYERS
+    }
+    return PreviousPartition(
+        snapshot_id=previous_row["id"], membership_by_layer=membership
+    ), None
+
+
+async def _metrics_for_snapshot(
+    conn, snapshot, *, params: MetricParams, args: argparse.Namespace
+) -> None:
+    snapshot_id = snapshot["id"]
+    guild_id = snapshot["guild_id"]
+    as_of = snapshot["as_of"]
+
+    edges = await db.fetch_snapshot_edges(conn, snapshot_id=snapshot_id)
+    previous, unavailable = await _previous_partition(conn, snapshot, params=params)
+
+    since = datetime.combine(
+        cohort_window_start(as_of, params=params), time.min, tzinfo=timezone.utc
+    )
+    members = await db.fetch_cohort_members(
+        conn, guild_id=guild_id, as_of=as_of, since=since
+    )
+    comparable, skipped = await db.fetch_comparable_snapshots(
+        conn,
+        guild_id=guild_id,
+        reference=db.identity_of(snapshot),
+        since=since,
+        until=as_of,
+    )
+    reached_at, scan_stats = await db.scan_partner_growth(
+        conn, snapshots=comparable, members=members, params=params
+    )
+    # La cadenza della serie di snapshot: una settimana senza job e' censura
+    # intervallare, e non e' la stessa cosa di uno snapshot che esiste ma non e'
+    # confrontabile (quello e' snapshots_skipped_params).
+    gaps = series_spacing(row["as_of"] for row in comparable)
+
+    result = build_metrics(
+        snapshot_id=snapshot_id,
+        guild_id=guild_id,
+        as_of=as_of,
+        params=params,
+        edges=edges,
+        members=members,
+        reached_at=reached_at,
+        previous=previous,
+        stability_unavailable_reason=unavailable,
+        cohort_stats={
+            **scan_stats,
+            "snapshots_skipped_params": skipped,
+            "snapshot_gaps": gaps,
+        },
+    )
+
+    _log_metrics(result, snapshot_id=snapshot_id, guild_id=guild_id)
+
+    if args.dry_run:
+        logger.info("--dry-run: nessuna scrittura su Postgres.")
+        return
+
+    await db.write_metrics(
+        conn,
+        snapshot_id=snapshot_id,
+        guild_id=guild_id,
+        as_of=as_of,
+        params=params.as_run_params(),
+        stats=result.stats,
+        code_version=_code_version(),
+        robustness=result.robustness,
+        communities=result.communities,
+        community_sizes=result.community_sizes,
+        cohorts=result.cohorts,
+        cohort_retention=result.cohort_retention,
+    )
+    logger.info("snapshot %d: metriche scritte.", snapshot_id)
+
+
+def _log_metrics(result, *, snapshot_id: int, guild_id: int) -> None:
+    """Riepilogo dell'esecuzione, con gli stessi aggregati che andranno in tabella.
+
+    Nessun ``author_id``, nessun elenco di nodi rimossi, nessuna composizione
+    delle community, a nessun livello di log: i log del job finiscono su stdout
+    del container, quindi in journald, quindi persistiti — e un livello di log
+    non e' un confine di sicurezza, perche' e' una variabile d'ambiente
+    (modello-metriche.md 8).
+    """
+    logger.info(
+        "snapshot=%d guild_id=%s: %d righe robustezza, %d community, %d bucket, "
+        "%d coorti, %d righe di retention",
+        snapshot_id,
+        guild_id,
+        len(result.robustness),
+        len(result.communities),
+        len(result.community_sizes),
+        len(result.cohorts),
+        len(result.cohort_retention),
+    )
+    for row in result.robustness:
+        logger.info(
+            "  robustezza layer=%s X=%.2f: %s",
+            row.layer,
+            row.removal_fraction,
+            _describe(row),
+        )
+    for row in result.communities:
+        logger.info("  community layer=%s: %s", row.layer, _describe(row))
+    for row in result.community_sizes:
+        logger.info(
+            "  dimensioni layer=%s bucket=%s: %s", row.layer, row.bucket, _describe(row)
+        )
+    for row in result.cohorts:
+        logger.info(
+            "  coorte %s scope=%s k=%s: %s",
+            row.cohort_start,
+            row.layer_scope,
+            row.k,
+            _describe(row),
+        )
+    for row in result.cohort_retention:
+        logger.info(
+            "  retention %s a %d giorni: %s",
+            row.cohort_start,
+            row.horizon_days,
+            _describe(row),
+        )
+
+
+def _describe(row) -> str:
+    """Una riga come finira' in tabella, soppressione inclusa.
+
+    ``--dry-run`` non e' una scorciatoia per guardare i dati per-nodo senza
+    scriverli: stampa esattamente gli stessi aggregati che scriverebbe, con le
+    celle soppresse gia' a NULL.
+    """
+    if row.is_suppressed:
+        return f"SOPPRESSA ({row.suppression_reason})"
+    values = as_public_dict(row)
+    for key in (*row.KEY_FIELDS, "is_suppressed", "suppression_reason", "details"):
+        values.pop(key, None)
+    return ", ".join(
+        f"{key}={value!r}" for key, value in values.items() if value is not None
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="job", description=__doc__)
     parser.add_argument("--log-level", default=os.environ.get("LOG_LEVEL", "INFO"))
@@ -263,6 +488,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="calcola e logga senza scrivere nulla"
     )
 
+    metrics = sub.add_parser(
+        "metrics", help="calcola le metriche aggregate di uno snapshot gia' scritto"
+    )
+    # Mutuamente esclusivi: uno snapshot preciso E una guild insieme sono una
+    # richiesta contraddittoria, e l'errore deve arrivare dall'interfaccia
+    # invece che da un comportamento silenzioso.
+    target = metrics.add_mutually_exclusive_group()
+    target.add_argument("--snapshot-id", type=int, default=None)
+    target.add_argument(
+        "--guild-id",
+        type=int,
+        default=None,
+        help="ultimo snapshot di questa guild (default: tutte le guild)",
+    )
+    metrics.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="calcola e stampa gli aggregati (soppressione inclusa) senza scrivere nulla",
+    )
+
     export = sub.add_parser("export", help="esporta uno snapshot in GraphML, un file per layer")
     export.add_argument("--snapshot-id", type=int, default=None)
     export.add_argument(
@@ -286,6 +531,8 @@ def main() -> None:
 
     if args.command == "snapshot":
         asyncio.run(run_snapshot(args, DEFAULT_PARAMS))
+    elif args.command == "metrics":
+        asyncio.run(run_metrics(args, DEFAULT_METRIC_PARAMS))
     else:
         asyncio.run(run_export(args))
 

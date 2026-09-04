@@ -124,10 +124,10 @@ allo stesso modo puntare a `localhost:5432` finché il tunnel resta aperto.
 
 ## Job di calcolo del grafo (`job/`)
 
-Costruisce il grafo sociale dagli eventi grezzi e ne salva uno snapshot. Si
-ferma agli archi: nessuna metrica SNA, nessun endpoint. La specifica del
-modello è `docs/architettura/modello-grafo.md` — è quella la fonte di verità,
-non questo codice.
+Costruisce il grafo sociale dagli eventi grezzi, ne salva uno snapshot, e da
+quello calcola le metriche aggregate destinate all'API. Due specifiche, ed è
+quella la fonte di verità, non questo codice: `modello-grafo.md` per la
+costruzione degli archi, `modello-metriche.md` per le metriche.
 
 Quattro layer, calcolati separatamente e **mai sommati tra loro**:
 
@@ -147,9 +147,15 @@ job/
   edges.py       # sessioni e interazioni -> archi pesati per layer
   snapshot.py    # orchestrazione e attribuzione temporale (funzione pura)
   graph.py       # grafo igraph + export GraphML
+  admission.py   # quali coppie entrano in una metrica: una regola, tutti i percorsi
+  robustness.py  # robustezza strutturale, con il baseline della rimozione casuale
+  communities.py # Leiden, e il matching tra partizioni di snapshot successivi
+  cohorts.py     # coorti di ingresso, Kaplan-Meier, retention
+  suppression.py # soglia N: dove una cella diventa NULL invece di un numero
+  metrics.py     # orchestrazione delle metriche (funzione pura)
   pseudonyms.py  # pseudonimi stabili per gli export
   db.py          # tutto il SQL, e nient'altro
-  main.py        # CLI (snapshot | export)
+  main.py        # CLI (snapshot | metrics | export)
 ```
 
 Il job **legge solo Postgres**: non chiama mai l'API Discord. Non è un servizio
@@ -199,6 +205,48 @@ Opzioni principali di `snapshot`:
 Rieseguire il job con lo stesso `as_of` e la stessa finestra riscrive lo
 snapshot esistente invece di duplicarlo.
 
+### Metriche aggregate
+
+```bash
+python -m job.main metrics --dry-run
+python -m job.main metrics
+```
+
+Senza argomenti lavora su **tutte** le guild con almeno uno snapshot, prendendo
+l'ultimo di ciascuna — stesso contratto di `snapshot`. `--guild-id` restringe a
+una community e `--snapshot-id` a uno snapshot preciso; sono mutuamente
+esclusivi.
+
+Legge uno snapshot già scritto e ne
+calcola le tre metriche di `modello-metriche.md`: robustezza strutturale,
+struttura e stabilità delle community (Leiden), onboarding e retention per
+coorte. Non ricalcola il grafo: si possono ritarare i parametri delle metriche
+senza rifare la ricostruzione delle sessioni, che è la parte costosa.
+
+Richiede la migration `0006_metrics.sql` applicata.
+
+Le tabelle `metric_*` sono le **uniche** pensate per essere lette dall'API, ed è
+il motivo per cui la soglia di cardinalità vive nel calcolo e non nella
+dashboard: una cella sotto soglia arriva in tabella già a `NULL`, con un flag,
+**mai a zero** — zero è un valore legittimo e diverso da "non mostrabile". Il
+vincolo è imposto da un trigger nella migration, non dal codice che scrive.
+
+Tre stati diversi da non confondere leggendo una riga:
+
+| Stato | Come si presenta |
+|---|---|
+| Buona | valori presenti, `is_significant = true` |
+| Pubblicata ma inaffidabile | valori presenti, `is_significant = false`, motivo in `details` |
+| Soppressa | tutto `NULL` tranne la chiave, `is_suppressed = true` |
+
+Con i dati di oggi (tre giorni, nove nodi) ci si aspetta il secondo stato per le
+righe strutturali e il terzo per quasi tutte le coorti. È il comportamento
+corretto, non un difetto da correggere.
+
+Nessun output per-nodo sopravvive al calcolo: centralità, appartenenza alle
+community e conteggio connessioni del singolo membro sono passaggi interni, non
+finiscono in nessuna tabella e non compaiono in nessun log, a nessun livello.
+
 ### Export per Gephi
 
 ```bash
@@ -229,4 +277,17 @@ pytest
 Fixture sintetiche, nessun database: coprono i casi limite della ricostruzione
 delle sessioni (intervalli vicini ma mai sovrapposti, sessioni a cavallo del
 confine di uno snapshot, sessioni ancora aperte, sessioni orfane, spostamenti
-tra canali) e le regole su normalizzazione, decadimento e self-loop.
+tra canali) e le regole su normalizzazione, decadimento e self-loop. Per le
+metriche, grafi piccoli di cui si conosce la risposta giusta: una stella che si
+frammenta togliendo il centro, due cricche unite da un solo arco, una coorte
+sotto soglia soppressa e **non** azzerata.
+
+Un solo file fa eccezione, `tests/test_metrics_schema.py`: verifica che sia il
+**database** a rifiutare una riga soppressa con un valore dentro, che è una
+garanzia dello schema e non del codice, e quindi non è verificabile su fixture.
+Si salta da solo senza Postgres. Per eseguirlo serve un database di prova — mai
+quello di produzione, crea e distrugge uno schema:
+
+```bash
+KINDLING_TEST_DATABASE_URL=postgresql://kindling:...@localhost:5432/kindling_test pytest
+```

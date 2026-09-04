@@ -4,3 +4,7 @@ python-dotenv>=1.0,<2
 # Job di calcolo del grafo: igraph e non NetworkX, per la memoria compatta
 # su una droplet da 1 GB condivisa con bot e Postgres (architettura.md 3).
 python-igraph>=0.11,<0.12
+# Community detection: leidenalg gira su igraph, quindi la dipendenza pesante
+# e' gia' in casa. Leiden e non Louvain: garantisce community ben connesse
+# (architettura.md 3).
+leidenalg>=0.10,<0.11
