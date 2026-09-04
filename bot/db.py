@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -171,6 +172,18 @@ _UPSERT_MEMBER_JOIN = """
             left_at = NULL
 """
 
+# INSERT-only: il backfill non deve MAI toccare una riga esistente. Se lo
+# facesse, sovrascriverebbe il joined_at *osservato* di un membro con quello
+# storico letto dall'API Discord — e is_survivors_only distingue i membri
+# backfillati dagli osservati proprio confrontando joined_at con
+# guilds.first_seen_at, quindi la distinzione si romperebbe senza nessun errore.
+# La garanzia sta qui, nella forma della query, non nel codice che la chiama.
+_INSERT_MEMBER_IF_ABSENT = """
+    INSERT INTO members (guild_id, author_id, joined_at, left_at)
+    VALUES ($1, $2, $3, NULL)
+    ON CONFLICT (guild_id, author_id) DO NOTHING
+"""
+
 _MARK_MEMBER_LEFT = """
     UPDATE members
     SET left_at = $3
@@ -183,11 +196,13 @@ async def upsert_member_join(
 ) -> None:
     """Registra o aggiorna l'ingresso di un membro in ``members``.
 
-    Usato sia dall'evento ``member_join`` in tempo reale sia dal backfill una
-    tantum (comando ``!backfill_members``, ``bot/cogs/admin.py``) per i
-    membri già presenti quando il bot viene aggiunto a un server. In caso di
-    rientro dopo un'uscita, sovrascrive joined_at/left_at: nessuno storico
-    dei rientri multipli per l'MVP (vedi CLAUDE.md).
+    Solo per l'evento ``member_join`` in tempo reale. In caso di rientro dopo
+    un'uscita sovrascrive joined_at/left_at — che li' e' il comportamento
+    giusto: nessuno storico dei rientri multipli per l'MVP (vedi CLAUDE.md).
+
+    Il **backfill non passa di qui**: usa ``insert_member_join_if_absent``, che
+    non tocca le righe esistenti. Sono due chiamanti con esigenze opposte, e
+    condividere la funzione basterebbe a rendere possibile la corruzione.
     """
     if joined_at is None:
         # In teoria discord.py valorizza sempre joined_at; per sicurezza non
@@ -208,16 +223,117 @@ async def upsert_member_join(
         )
 
 
+@dataclass(frozen=True)
+class GuildRecord:
+    """Lo stato di osservazione di una guild, come lo vede il bot."""
+
+    guild_id: int
+    first_seen_at: datetime
+    backfilled_at: Optional[datetime]
+
+
+# first_seen_at non viene MAI riscritto: e' l'ancora di osservabilita' del job,
+# e spostarla in avanti cancellerebbe osservazioni valide. Su una guild gia'
+# nota l'INSERT non fa nulla se non azzerare left_at, perche' il bot c'e' di
+# nuovo.
+_REGISTER_GUILD = """
+    INSERT INTO guilds (guild_id, first_seen_at)
+    VALUES ($1, $2)
+    ON CONFLICT (guild_id) DO UPDATE SET left_at = NULL
+    RETURNING first_seen_at, backfilled_at
+"""
+
+_MARK_GUILD_BACKFILLED = """
+    UPDATE guilds SET backfilled_at = $2 WHERE guild_id = $1
+"""
+
+_MARK_GUILD_LEFT = """
+    UPDATE guilds SET left_at = $2 WHERE guild_id = $1
+"""
+
+
+async def register_guild(
+    *, guild_id: int, first_seen_at: datetime
+) -> GuildRecord:
+    """Registra la guild se non c'e', e ne ritorna lo stato di osservazione.
+
+    ``first_seen_at`` viene usato solo alla prima registrazione: da li' in poi
+    e' l'ancora, e non si tocca.
+    """
+    pool = get_pool()
+    row = await pool.fetchrow(_REGISTER_GUILD, guild_id, first_seen_at)
+    return GuildRecord(
+        guild_id=guild_id,
+        first_seen_at=row["first_seen_at"],
+        backfilled_at=row["backfilled_at"],
+    )
+
+
+async def mark_guild_backfilled(*, guild_id: int) -> None:
+    pool = get_pool()
+    await pool.execute(_MARK_GUILD_BACKFILLED, guild_id, datetime.now(timezone.utc))
+
+
+async def mark_guild_left(*, guild_id: int) -> None:
+    """Il bot e' stato rimosso dalla guild.
+
+    Registrato e non dedotto: una rimozione seguita da una riaggiunta lascia un
+    buco di osservazione, e senza questa data non resterebbe nessuna traccia di
+    quando e' cominciato (vedi modello-metriche.md 5.6).
+    """
+    pool = get_pool()
+    try:
+        await pool.execute(_MARK_GUILD_LEFT, guild_id, datetime.now(timezone.utc))
+    except Exception:
+        logger.exception("Update guilds (left) fallito per guild_id=%s", guild_id)
+
+
+async def insert_member_join_if_absent(
+    *, guild_id: int, author_id: int, joined_at: Optional[datetime]
+) -> bool:
+    """Registra un membro solo se non e' gia' in ``members``.
+
+    E' il percorso del **backfill**, e non condivide la funzione con
+    ``on_member_join`` solo perche' tocca la stessa tabella: sono due chiamanti
+    con due esigenze opposte. Li' l'aggiornamento e' corretto (rientro dopo
+    un'uscita), qui sarebbe una corruzione — il backfill legge dall'API Discord
+    il ``joined_at`` storico, e sovrascrivere con quello un ingresso osservato
+    in tempo reale renderebbe indistinguibili membri osservati e backfillati.
+
+    Ritorna ``True`` se la riga e' stata inserita davvero.
+    """
+    if joined_at is None:
+        logger.warning(
+            "joined_at mancante per author_id=%s in guild_id=%s: membro non registrato in members",
+            author_id,
+            guild_id,
+        )
+        return False
+
+    pool = get_pool()
+    try:
+        result = await pool.execute(
+            _INSERT_MEMBER_IF_ABSENT, guild_id, author_id, joined_at
+        )
+    except Exception:
+        logger.exception(
+            "Insert members (backfill) fallito per guild_id=%s author_id=%s",
+            guild_id,
+            author_id,
+        )
+        return False
+    return result.endswith(" 1")
+
+
 async def mark_member_left(
     *, guild_id: int, author_id: int, left_at: Optional[datetime] = None
 ) -> None:
     """Segna l'uscita di un membro già tracciato in ``members``.
 
-    Se il membro non risulta mai entrato (nessuna riga esistente — tipicamente
-    perché era già presente prima che il backfill fosse lanciato su questo
-    server), non inserisce una riga incompleta: joined_at è NOT NULL e non
-    possiamo inventarlo. Logga solo un warning: è esattamente il buco di dati
-    che il backfill dovrebbe prevenire (vedi CLAUDE.md).
+    Se il membro non risulta mai entrato (nessuna riga esistente), non
+    inserisce una riga incompleta: joined_at è NOT NULL e non possiamo
+    inventarlo. Logga solo un warning: è il buco di dati che il backfill
+    automatico all'avvio esiste per prevenire (vedi CLAUDE.md).
     """
     pool = get_pool()
     try:
@@ -227,7 +343,8 @@ async def mark_member_left(
         if result == "UPDATE 0":
             logger.warning(
                 "member_remove per author_id=%s in guild_id=%s senza riga members "
-                "corrispondente: il suo joined_at è perso (backfill mai lanciato su questo server?)",
+                "corrispondente: il suo joined_at è perso (era già uscito prima che "
+                "Kindling arrivasse su questo server, oppure il backfill non è riuscito)",
                 author_id,
                 guild_id,
             )

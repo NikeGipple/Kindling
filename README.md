@@ -17,9 +17,9 @@ bot/
   db.py             # pool asyncpg + insert_raw_event() + stato members
   event_types.py    # tipi di evento canonici
   main.py           # entrypoint (python -m bot.main)
+  backfill.py       # backfill interno di members (nessun comando)
   cogs/
     ingestion.py    # listener discord.py -> raw_events (+ stato members)
-    admin.py        # comandi operativi (es. !backfill_members)
 ```
 
 ### Setup locale
@@ -53,12 +53,15 @@ per il razionale di ogni colonna e indice (incluso il flag `forgotten_at` per
 il diritto all'oblio richiesto dai Discord Developer ToS).
 
 `migrations/0002_members.sql` crea `members` (stato corrente joined_at/left_at
-per calcolare la retention, non append-only come raw_events). Quando Kindling
-viene aggiunto a un nuovo server, lanciare una tantum, in quel server, il
-comando `!backfill_members` (richiede permessi di amministratore): senza
-questo passaggio il `joined_at` dei membri già presenti non viene mai
-osservato via evento, e va perso per sempre se qualcuno esce prima del
-backfill.
+per calcolare la retention, non append-only come raw_events). I membri già
+presenti quando Kindling arriva su un server non hanno mai prodotto un evento
+di ingresso: il loro `joined_at` viene recuperato dal **backfill interno**
+(`bot/backfill.py`), che gira da solo quando il bot entra in un server e
+all'avvio per ogni server non ancora backfillato. Non c'è nessun comando da
+lanciare, ed è voluto: un backfill rieseguito su un server già osservato
+riscriverebbe `joined_at` osservati con quelli storici, rompendo senza errori
+la distinzione tra membri osservati e backfillati su cui poggiano le metriche
+di coorte. Il percorso di backfill inserisce soltanto, non aggiorna mai.
 
 `migrations/0003_referenced_channel_id.sql` aggiunge a `raw_events` il canale
 del messaggio a cui una reply risponde (Discord permette reply cross-canale).

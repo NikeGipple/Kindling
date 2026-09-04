@@ -176,14 +176,28 @@ di onboarding (es. numero di connessioni fatte nei primi giorni):
 - Edge case rientro dopo uscita: per l'MVP si sovrascrivono `joined_at`/
   `left_at` (nessuno storico multi-rientro). Scelta esplicita, da rivedere
   se in futuro serve tracciare rientri multipli.
-- **Backfill una tantum**, comando `!backfill_members` (admin only,
-  `bot/cogs/admin.py`): popola `members` con i membri già presenti su un
-  server al momento dell'aggiunta del bot — senza backfill il loro
-  `joined_at` non viene mai osservato via evento. **Da lanciare su ogni
-  server Discord non appena Kindling viene aggiunto**: se un membro esce
-  prima del backfill su quel server, il suo `joined_at` è perso per sempre.
-  Rilanciabile in sicurezza (aggiorna, non duplica — vedi
-  `db.upsert_member_join`).
+- **Backfill automatico e interno** (`bot/backfill.py`): popola `members` con
+  i membri già presenti su un server al momento dell'arrivo del bot — senza,
+  il loro `joined_at` non viene mai osservato via evento. Gira da solo
+  all'`on_guild_join` **e all'avvio** per ogni guild non ancora backfillata
+  (`guilds.backfilled_at`): `on_guild_join` da solo non basta, perché il
+  flusso OAuth che aggiunge l'applicazione funziona anche a bot spento e
+  Discord non ritrasmette gli eventi del gateway.
+- **Non è più un comando**, e non deve tornare a esserlo. `!backfill_members`
+  è stato rimosso insieme al cog `admin.py`. Il motivo non è l'igiene:
+  `is_survivors_only` (metriche di coorte) distingue i membri backfillati
+  dagli osservati confrontando il loro `joined_at` con `guilds.first_seen_at`,
+  e un backfill rilanciato su una guild già osservata riscriverebbe il
+  `joined_at` di membri osservati, rompendo quella distinzione **senza nessun
+  errore**. Una regola che dipende da "nessuno lo rilancia" è più debole di un
+  comando che non esiste.
+- **Il backfill INSERISCE, non aggiorna** (`db.insert_member_join_if_absent`,
+  `ON CONFLICT DO NOTHING`). È il secondo livello, indipendente dal primo:
+  anche se il backfill venisse eseguito per qualche via, non potrebbe toccare
+  una riga esistente. `db.upsert_member_join` resta al servizio di
+  `on_member_join`, dove sovrascrivere è corretto (rientro dopo uscita): sono
+  due chiamanti con esigenze opposte e non devono condividere la funzione solo
+  perché toccano la stessa tabella.
 
 ## Colonna `referenced_channel_id` su `raw_events`
 

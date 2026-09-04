@@ -8,7 +8,7 @@ import logging
 import discord
 from discord.ext import commands
 
-from . import db
+from . import backfill, db
 from .config import Settings
 
 logger = logging.getLogger(__name__)
@@ -34,11 +34,31 @@ class KindlingBot(commands.Bot):
     async def setup_hook(self) -> None:
         await db.init_pool(self.settings.database_url)
         await self.load_extension("bot.cogs.ingestion")
-        await self.load_extension("bot.cogs.admin")
-        logger.info("Cog di ingestion e amministrazione caricati")
+        logger.info("Cog di ingestion caricato")
 
     async def on_ready(self) -> None:
         logger.info("Connesso come %s (guild collegate: %d)", self.user, len(self.guilds))
+        # All'avvio si guarda lo STATO, non ci si fida di aver visto gli eventi:
+        # una guild aggiunta mentre il bot era spento non produrrebbe mai un
+        # on_guild_join, perche' il flusso OAuth funziona anche a bot spento e
+        # Discord non ritrasmette gli eventi del gateway. E' lo stesso pattern
+        # della riconciliazione vocale nel cog di ingestion.
+        await backfill.reconcile_guilds(self)
+
+    async def on_guild_join(self, guild: discord.Guild) -> None:
+        """Kindling e' stato aggiunto a un server mentre era connesso."""
+        logger.info("Aggiunto alla guild %s (guild_id=%s)", guild.name, guild.id)
+        await backfill.ensure_backfilled(guild)
+
+    async def on_guild_remove(self, guild: discord.Guild) -> None:
+        """Kindling e' stato rimosso da un server.
+
+        La data viene registrata perche' una rimozione seguita da una
+        riaggiunta lascia un buco di osservazione, e senza questo dato non
+        resterebbe traccia di quando e' cominciato.
+        """
+        logger.info("Rimosso dalla guild %s (guild_id=%s)", guild.name, guild.id)
+        await db.mark_guild_left(guild_id=guild.id)
 
     async def close(self) -> None:
         await db.close_pool()

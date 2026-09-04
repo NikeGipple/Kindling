@@ -696,25 +696,29 @@ il valore è NULL con `is_computable = false`. Senza questa regola una coorte
 entrata ieri risulterebbe con "100% di retention a 28 giorni", che è il modo
 più diretto di trasformare l'assenza di dati in un ottimo risultato.
 
-**E non basta: serve un'ancora di osservabilità.** `members` non è un log — è
-popolata da `!backfill_members` e contiene chi era presente **quel giorno**. Chi
-è entrato a marzo e uscito ad aprile non ha un `left_at`: non è mai stato
+**E non basta: serve un'ancora di osservabilità.** `members` non è un log — il
+backfill la popola con chi è presente quando Kindling arriva sul server, quindi
+chi è entrato a marzo e uscito ad aprile non ha un `left_at`: non è mai stato
 scritto. Ogni coorte anteriore all'inizio dell'osservazione è quindi composta
 per costruzione dai **soli sopravvissuti**, e la sua retention vale 1.0 a
 qualunque orizzonte. Non è un risultato, è una tautologia — ed è la forma
 peggiore di errore, perché il numero è alto, plausibile e ha
 `is_computable = true` accanto.
 
-L'**ancora di osservabilità** è il primo istante in cui c'è prova che il bot
-stava ingerendo eventi per quella guild: il primo `raw_event`, che comprende i
-marcatori di riavvio del bot perché sono anch'essi `raw_events`. Da lì in poi un
-`member_remove` sarebbe stato catturato; prima, no.
+L'**ancora di osservabilità è `guilds.first_seen_at`**: l'istante in cui il bot
+ha registrato la guild, scritto dal bot stesso alla prima volta che la vede e
+mai più riscritto. È un dato **dichiarato da chi lo sa**, non dedotto — la prima
+versione usava `MIN(occurred_at)` su `raw_events`, che è un minimo estratto da
+una tabella che può contenere altro e che si sposta per ragioni estranee
+all'osservabilità: una riga cancellata per diritto all'oblio, un evento
+importato. L'ancora non deve dipendere da cosa c'è dentro il log, deve dire
+quando il log ha cominciato.
 
 - Se `cohort_start` precede l'ancora, la retention **non è calcolabile**:
   `is_computable = false` e `not_computable_reason = 'before_observability_anchor'`.
-- Se l'ancora non è determinabile (nessun evento noto), la coorte è trattata
-  come anteriore. Non poter stabilire da quando si osserva non è una prova che
-  si osservasse da sempre, e l'errore prudente è dichiarare il limite.
+- Se la guild non è registrata in `guilds`, la coorte è trattata come
+  anteriore. Non poter stabilire da quando si osserva non è una prova che si
+  osservasse da sempre, e l'errore prudente è dichiarare il limite.
 
 Il problema **non riguarda solo la retention**: anche `n_effective`
 dell'onboarding è distorto allo stesso modo, perché conta i sopravvissuti e non
@@ -744,25 +748,41 @@ finale:
    coorti diverse.
 
 **Un quinto effetto, che non viene dai rientri ma dalla stessa causa: il
-backfill.** `members` è stata popolata una tantum al momento dell'aggiunta del
-bot, quindi non contiene solo uno stato *corrente* — contiene uno stato corrente
-**a quella data**, e tutto ciò che è successo prima non ha lasciato traccia. Chi
-era entrato e già uscito non c'è affatto. È un limite strutturale del backfill,
-non un caso limite: rende ogni coorte anteriore all'ancora di osservabilità
-(§5.5) una coorte di soli sopravvissuti, con `n_effective` che significa "quanti
-erano ancora presenti" invece di "quanti sono entrati". Non è recuperabile — il
-dato non esiste — e per questo si dichiara con `is_survivors_only` invece di
-essere corretto.
+backfill.** `members` viene popolata quando Kindling arriva su un server, quindi
+non contiene solo uno stato *corrente* — contiene uno stato corrente **a quella
+data**, e tutto ciò che è successo prima non ha lasciato traccia. Chi era
+entrato e già uscito non c'è affatto. È un limite strutturale del backfill, non
+un caso limite: rende ogni coorte anteriore a `guilds.first_seen_at` (§5.5) una
+coorte di soli sopravvissuti, con `n_effective` che significa "quanti erano
+ancora presenti" invece di "quanti sono entrati". Non è recuperabile — il dato
+non esiste — e per questo si dichiara con `is_survivors_only` invece di essere
+corretto.
 
-**Mitigazione applicata in v0.** Un rientrante è riconoscibile senza cambiare
-`members`: se esiste attività della persona in quella guild **antecedente al suo
+**Il caso "bot rimosso e riaggiunto" resta aperto, in una forma più stretta.**
+Con `first_seen_at` esplicito il caso "prima che il bot arrivasse" è chiuso: non
+è più un'euristica, è una data scritta. Quello che una **singola** data non sa
+esprimere è un buco *in mezzo*: se il bot viene rimosso e poi riaggiunto, chi è
+entrato e uscito durante l'assenza è invisibile esattamente come prima
+dell'ancora, ma `first_seen_at` continua a dire che quella community è osservata
+da sempre. Chiuderlo davvero richiede di sostituire l'ancora con una **lista di
+intervalli di osservazione**, ed è fuori da v0 (§12).
+
+Non è però lasciato senza appigli: il bot registra `guilds.left_at` quando viene
+rimosso, proprio perché quel momento non sia da indovinare a posteriori. La
+mitigazione parziale che c'è già è che al rientro il backfill reinserisce i
+membri assenti con il loro `joined_at` reale, quindi chi è entrato durante il
+buco **ed è ancora presente** viene recuperato; chi è entrato e uscito dentro il
+buco no. È lo stesso survivorship bias, ristretto a una finestra.
+
+**Mitigazione ai rientri, applicata in v0.** Un rientrante è riconoscibile senza
+cambiare `members`: se esiste attività della persona in quella guild **antecedente al suo
 `joined_at`**, o è un rientro o è un dato incoerente — in entrambi i casi non è
 un nuovo membro di cui misurare l'onboarding. Questi membri vengono **esclusi
 dalle coorti** e contati a parte (`excluded_rejoins`), con
 `exclude_suspected_rejoins` come parametro (default `true`).
 
-Nessun falso positivo dai membri caricati con `!backfill_members`: quel comando
-scrive la data di join reale, che precede la loro attività.
+Nessun falso positivo dai membri caricati dal backfill: quello scrive la data di
+join reale, che precede la loro attività.
 
 Questa mitigazione riduce (3) e non risolve (1) e (2): la correzione vera è
 tracciare i rientri, che è fuori dall'MVP e resta in §12.
@@ -1435,6 +1455,9 @@ Deliberatamente non in questa specifica:
   integrato" da "uscito prima di integrarsi" (§5.4).
 - **Storico dei rientri multipli** in `members`, che è la sola correzione vera
   ai bias di §5.6.
+- **Intervalli di osservazione** al posto della singola `guilds.first_seen_at`:
+  è ciò che serve per chiudere il caso del bot rimosso e riaggiunto (§5.6).
+  `guilds.left_at` viene già registrato in vista di questo.
 - **Segmentazione per canale, ruolo o tipo di evento**: è il punto aperto del
   catalogo su cui l'incrocio di più dimensioni pubbliche ricrea una cella a
   cardinalità 1. Va progettata con la regola di soppressione degli incroci già

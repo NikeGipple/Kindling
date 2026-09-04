@@ -104,10 +104,12 @@ accorge. Migration prima, sempre.
    ```
    Ricrea solo il container `bot`; il container e il volume `postgres` restano
    in esecuzione, invariati.
-7. **Passi applicativi specifici**, se previsti — es. per `members`, lanciare
-   `!backfill_members` (admin only) nel server Discord subito dopo il passo 6,
-   per popolare `joined_at` dei membri già presenti prima che qualcuno di loro
-   esca (altrimenti quel dato è perso per sempre).
+7. **Passi applicativi specifici**, se previsti — migrazioni di *dati* (non di
+   schema) e simili. Il backfill di `members` **non è più di questi**: è
+   interno al bot e gira da solo all'avvio e quando il bot entra in un server,
+   quindi non c'è niente da lanciare a mano. Se dopo il riavvio i log del bot
+   non mostrano `Backfill members completato` né `già backfillata`, quello è un
+   problema da guardare, non un passo da eseguire.
 8. **Verifica**:
    ```bash
    docker compose logs --tail=50 bot
@@ -169,6 +171,55 @@ docker compose exec postgres psql -U kindling -d kindling \
 docker compose exec postgres psql -U kindling -d kindling \
   -f /docker-entrypoint-initdb.d/0007_metrics_observability.sql
 ```
+
+```bash
+docker compose exec postgres psql -U kindling -d kindling \
+  -f /docker-entrypoint-initdb.d/0008_guilds.sql
+```
+
+### Migrazione dati una tantum: `guilds` per L'Arco del Leone
+
+`0008` crea la tabella `guilds` vuota. Per un server nuovo il bot la popola da
+solo al primo avvio; **L'Arco no**, perché è già stato backfillato a mano il
+29/08/2026 e il bot non deve rifarlo. Senza questa riga il job tratterebbe ogni
+coorte come anteriore all'osservazione, e il backfill automatico ripartirebbe su
+un server già osservato.
+
+Da eseguire **una volta sola**, dopo `0008` e prima di riavviare il bot:
+
+```sql
+INSERT INTO guilds (guild_id, first_seen_at, backfilled_at)
+SELECT guild_id, MIN(occurred_at), TIMESTAMPTZ '2026-08-29 00:00:00+00'
+FROM raw_events
+GROUP BY guild_id
+ON CONFLICT (guild_id) DO NOTHING;
+```
+
+I due valori, e da dove vengono:
+
+- **`first_seen_at` = `MIN(occurred_at)` dei `raw_events` di quella guild.** È
+  esattamente il valore che il job calcolava prima come ancora di
+  osservabilità, quindi per L'Arco non cambia nessun numero già prodotto — la
+  differenza è che da adesso l'ancora è un dato scritto e non un minimo
+  ricalcolato ogni volta su una tabella che può cambiare sotto (una riga
+  cancellata per diritto all'oblio sposterebbe il minimo).
+- **`backfilled_at` = la data in cui il backfill manuale è stato eseguito**,
+  cioè il 29/08/2026. È un **marcatore di "già fatto", non una misura**:
+  nessun calcolo lo legge come numero, serve solo perché il bot non ripeta il
+  backfill. Se la data esatta fosse incerta, qualunque valore non nullo
+  precedente a oggi ha lo stesso effetto — ma va scritto quello vero, perché
+  resta l'unica traccia di quando è successo.
+
+Verifica:
+
+```sql
+SELECT guild_id, first_seen_at, backfilled_at, left_at FROM guilds;
+```
+
+Una riga per server, `backfilled_at` valorizzato, `left_at` nullo. Se
+`backfilled_at` risultasse `NULL`, al riavvio il bot rifarebbe il backfill:
+non corromperebbe niente (il percorso inserisce e non aggiorna), ma è una
+chiamata inutile all'API Discord su tutta la member list.
 
 `0007` aggiunge le colonne che dichiarano i due limiti scoperti alla prima
 esecuzione in produzione: `is_survivors_only` (coorti anteriori all'inizio

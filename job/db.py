@@ -569,27 +569,24 @@ async def fetch_observability_anchor(
 ) -> Optional[datetime]:
     """L'istante da cui le uscite dei membri sono osservabili.
 
-    ``members`` non e' un log: viene popolata da ``!backfill_members`` e
-    contiene chi era presente quel giorno, quindi chi e' uscito prima non ha
-    lasciato traccia. Prima di questo istante ogni coorte e' fatta per
-    costruzione dai soli sopravvissuti (modello-metriche.md 5.5).
+    ``members`` non e' un log: il backfill la popola con chi e' presente al
+    momento in cui Kindling arriva sul server, quindi chi era entrato e gia'
+    uscito prima non ha lasciato traccia. Prima di questo istante ogni coorte e'
+    fatta per costruzione dai soli sopravvissuti (modello-metriche.md 5.5).
 
-    L'ancora e' il primo evento noto della guild — i marcatori di riavvio del
-    bot sono essi stessi ``raw_events``, quindi il minimo li comprende: e' il
-    primo istante in cui c'e' prova che il bot stava ingerendo, e da li' un
-    ``member_remove`` sarebbe stato catturato.
+    L'ancora e' ``guilds.first_seen_at``: un dato **dichiarato dal bot**, che
+    quel momento lo conosce, invece di un ``MIN(occurred_at)`` dedotto da
+    ``raw_events`` — una tabella che puo' contenere altro, e il cui minimo si
+    sposta per ragioni che non hanno niente a che vedere con l'osservabilita'
+    (un evento cancellato per diritto all'oblio, una riga importata).
 
-    Le righe con ``forgotten_at`` sono escluse come ovunque nel job: puo' solo
-    spostare l'ancora in avanti, cioe' verso "non calcolabile", che e' il verso
-    prudente.
+    ``None`` se la guild non e' registrata: a valle significa "coorte trattata
+    come anteriore all'osservazione", che e' il verso prudente. Una guild senza
+    riga in ``guilds`` e' una guild su cui il bot non ha ancora girato dopo
+    l'introduzione della tabella — vedi il passo di migrazione dati nel runbook.
     """
     return await conn.fetchval(
-        """
-        SELECT MIN(occurred_at)
-        FROM raw_events
-        WHERE guild_id = $1
-          AND forgotten_at IS NULL
-        """,
+        "SELECT first_seen_at FROM guilds WHERE guild_id = $1",
         guild_id,
     )
 
