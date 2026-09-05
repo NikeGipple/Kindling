@@ -1,7 +1,7 @@
 # Kindling — rotazione del log del job schedulato.
 #
 # Installazione sulla droplet (come root):
-#     cp /opt/kindling/ops/kindling.logrotate /etc/logrotate.d/kindling
+#     cp /root/kindling/ops/kindling.logrotate /etc/logrotate.d/kindling
 #     chmod 644 /etc/logrotate.d/kindling
 #     logrotate --debug /etc/logrotate.d/kindling   # prova a vuoto
 #

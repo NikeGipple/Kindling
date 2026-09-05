@@ -333,27 +333,56 @@ droplet:
 
 | File | Destinazione |
 |---|---|
-| `ops/kindling-weekly.sh` | resta in `/opt/kindling/ops/`, eseguito da lì |
+| `ops/kindling-weekly.sh` | resta nel repo, eseguito da lì |
 | `ops/kindling.cron` | `/etc/cron.d/kindling` |
 | `ops/kindling.logrotate` | `/etc/logrotate.d/kindling` |
 
 ### Installazione
 
 ```bash
-install -m 644 /opt/kindling/ops/kindling.cron /etc/cron.d/kindling && install -m 644 /opt/kindling/ops/kindling.logrotate /etc/logrotate.d/kindling
+install -m 644 /root/kindling/ops/kindling.cron /etc/cron.d/kindling && install -m 644 /root/kindling/ops/kindling.logrotate /etc/logrotate.d/kindling
 ```
 
 Il bit di esecuzione dello script è salvato in git (`100755`), quindi arriva già
 eseguibile con il `git pull`. Se un checkout l'avesse perso:
-`chmod +x /opt/kindling/ops/kindling-weekly.sh`.
+`chmod +x /root/kindling/ops/kindling-weekly.sh`.
 
-Se il repository sulla droplet non è in `/opt/kindling`, va corretto il percorso
-in `/etc/cron.d/kindling` (e lo script accetta `KINDLING_PROJECT_DIR`).
+**Lo script non ha percorsi da aggiornare**: ricava da sé la directory del
+progetto risalendo da dove il file si trova, quindi funziona ovunque il repo sia
+clonato. `KINDLING_PROJECT_DIR` resta come override, ed è quello che permette di
+provarlo senza modificarlo.
+
+#### Due modi in cui `/etc/cron.d` sbaglia in silenzio
+
+Questo file, a differenza di un `crontab -e`, non protesta: se è malformato cron
+scarta la riga e non lo dice a nessuno. Due trappole, entrambe già viste:
+
+1. **Il campo utente è obbligatorio.** In `/etc/cron.d` le colonne sono **sei**:
+   `m h dom mon dow utente comando`. Un file copiato da un crontab personale ha
+   cinque colonne, cron interpreta il primo pezzo del comando come nome utente,
+   la riga viene scartata, e l'unica traccia è una riga in `/var/log/syslog` che
+   nessuno sta guardando.
+2. **Il percorso del comando dipende da dove è clonato il repo.** Lì l'assoluto
+   serve per forza — cron non ha una directory di lavoro utile — e su questa
+   droplet è `/root/kindling`. È l'unica riga da tenere allineata se il repo si
+   sposta, perché lo script la propria directory se la ricava da solo.
+
+Quindi, **dopo ogni copia**, si guarda cosa è finito nel file:
+
+```bash
+cat /etc/cron.d/kindling
+```
+
+Sei colonne sulla riga eseguita, e il percorso deve esistere:
+
+```bash
+ls -l "$(awk '$1 !~ /^#/ && NF >= 7 {print $NF}' /etc/cron.d/kindling)"
+```
 
 ### Verifica: eseguire a mano una volta, non aspettare lunedì
 
 ```bash
-/opt/kindling/ops/kindling-weekly.sh; echo "exit=$?"
+/root/kindling/ops/kindling-weekly.sh; echo "exit=$?"
 ```
 
 **È sicuro**: rieseguire il job sullo stesso `as_of` riscrive lo snapshot invece

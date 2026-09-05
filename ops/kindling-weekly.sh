@@ -8,7 +8,7 @@
 # invece di duplicarlo (chiave graph_snapshots (guild_id, as_of, window_start,
 # window_end)), e lo stesso vale per le metriche.
 #
-#     /opt/kindling/ops/kindling-weekly.sh
+#     <repo>/ops/kindling-weekly.sh
 #
 # Perche' uno script e non una riga di crontab: una riga di crontab con flock,
 # nice, due comandi concatenati e una redirezione non si legge, non si prova a
@@ -26,8 +26,16 @@ set -euo pipefail
 # login. `docker` sta in /usr/bin su una installazione standard del repository
 # ufficiale Docker, ma non e' detto sia nel PATH di cron — quindi si passa dal
 # percorso completo invece di sperare.
+#
+# La directory del progetto lo script se la ricava da se', risalendo da dove il
+# file si trova: funziona ovunque il repo sia clonato, e sostituire un percorso
+# hardcoded con un altro sposterebbe solo il problema. `readlink -f` risolve gli
+# eventuali symlink, cosi' vale anche se lo script viene collegato altrove.
+#
+# L'override resta: e' quello che permette di provare lo script senza
+# modificarlo.
 
-PROJECT_DIR="${KINDLING_PROJECT_DIR:-/opt/kindling}"
+PROJECT_DIR="${KINDLING_PROJECT_DIR:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
 DOCKER_BIN="${KINDLING_DOCKER_BIN:-/usr/bin/docker}"
 LOG_FILE="${KINDLING_LOG_FILE:-/var/log/kindling/job.log}"
 LOCK_FILE="${KINDLING_LOCK_FILE:-/var/lock/kindling-job.lock}"

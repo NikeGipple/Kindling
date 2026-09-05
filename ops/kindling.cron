@@ -1,8 +1,13 @@
 # Kindling — cadenza settimanale del job di calcolo.
 #
 # Installazione sulla droplet (come root):
-#     cp /opt/kindling/ops/kindling.cron /etc/cron.d/kindling
+#     cp /root/kindling/ops/kindling.cron /etc/cron.d/kindling
 #     chmod 644 /etc/cron.d/kindling
+#
+# Il percorso qui sotto e' assoluto per forza — cron non ha una directory di
+# lavoro utile — e dipende da dove il repo e' clonato: su questa droplet e'
+# /root/kindling. Se cambia, va cambiato anche qui. Lo SCRIPT invece la propria
+# directory se la ricava da se', quindi e' l'unica riga da tenere allineata.
 #
 # /etc/cron.d e non `crontab -e`: il file sta in git, si aggiorna con un
 # `git pull` piu' una copia, e si legge senza entrare in un editor. Richiede il
@@ -31,4 +36,4 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # sovrapposizione delle finestre.
 #
 #  m  h  dom mon dow  utente  comando
-   15 4   *   *   1   root    /opt/kindling/ops/kindling-weekly.sh
+   15 4   *   *   1   root    /root/kindling/ops/kindling-weekly.sh
