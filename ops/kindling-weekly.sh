@@ -63,18 +63,26 @@ mkdir -p "$(dirname "$LOG_FILE")"
 # diventerebbe un'uscita silenziosa con codice 1, cioe' un fallimento senza
 # spiegazione nel log.
 #
-# --conflict-exit-code 99 e' cio' che rende distinguibile "lock occupato" da
-# "il lavoro e' fallito con codice 1": senza, i due casi hanno lo stesso codice
-# di uscita e il primo verrebbe segnalato come errore.
+# --conflict-exit-code rende distinguibile "lock occupato" da "il lavoro e'
+# fallito con codice 1": senza, i due casi hanno lo stesso codice di uscita.
+#
+# E quel codice arriva fino in fondo, NON viene tradotto in 0. Un'esecuzione
+# saltata deve restare distinguibile dall'esterno da una riuscita: altrimenti il
+# MAILTO di cron, un wrapper o un controllo sull'ultimo codice di uscita
+# leggerebbero "tutto bene" su una settimana in cui il job non ha calcolato
+# niente. E' lo stesso principio del runbook — un job che non parte produce
+# assenza e non errore — e qui l'assenza ha un modo di farsi notare, che non va
+# buttato via.
+LOCK_BUSY_EXIT=99
+
 if [ -z "${KINDLING_LOCKED:-}" ]; then
     export KINDLING_LOCKED=1
     set +e
-    flock --nonblock --conflict-exit-code 99 "$LOCK_FILE" "$0" "$@"
+    flock --nonblock --conflict-exit-code "$LOCK_BUSY_EXIT" "$LOCK_FILE" "$0" "$@"
     lock_status=$?
     set -e
-    if [ "$lock_status" -eq 99 ]; then
+    if [ "$lock_status" -eq "$LOCK_BUSY_EXIT" ]; then
         log "SKIP  un'altra esecuzione e' gia' in corso (lock $LOCK_FILE)"
-        exit 0
     fi
     exit "$lock_status"
 fi
@@ -90,8 +98,15 @@ run_job() {
     local started
     started=$(date +%s)
     set +e
+    # -T: niente terminale. Senza, `docker compose run` prova a leggere da
+    # stdin, e lanciato in background (da cron, o con &) il kernel ferma il
+    # processo con SIGTTIN. Un processo fermo continua a TENERE IL LOCK, quindi
+    # l'esecuzione successiva salta con una riga SKIP che non spiega niente —
+    # ed e' il modo in cui questo difetto si e' presentato in produzione. E' la
+    # stessa forma che il runbook usa gia' per `docker compose exec -T` nella
+    # procedura delle migration.
     nice -n 10 "$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" \
-        run --rm job python -m job.main "$@" >>"$LOG_FILE" 2>&1
+        run --rm -T job python -m job.main "$@" >>"$LOG_FILE" 2>&1
     local status=$?
     set -e
     log "END   $step exit=$status durata=$(( $(date +%s) - started ))s"

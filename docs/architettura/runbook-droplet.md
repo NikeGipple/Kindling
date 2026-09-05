@@ -454,6 +454,26 @@ quale processo chiudere.
 - **`flock`**: se un'esecuzione è ancora in corso la successiva non parte e
   scrive `SKIP` nel log. Su 1 vCPU due job sovrapposti sono il modo più diretto
   di rubare l'heartbeat del gateway al bot.
+- **`docker compose run -T`**: senza `-T` il comando alloca un terminale e prova
+  a leggere da stdin; lanciato in background il kernel ferma il processo con
+  SIGTTIN (`[1]+ Stopped`). Un processo fermo **continua a tenere il lock**,
+  quindi l'esecuzione successiva salta con una riga `SKIP` che non spiega
+  niente. È la stessa forma di `docker compose exec -T` usata sopra per le
+  migration.
+- **Codici di uscita**, che è quello che un monitoraggio legge:
+
+  | Codice | Significato |
+  |---|---|
+  | `0` | snapshot e metriche calcolati |
+  | `99` | **saltato**: un'altra esecuzione era in corso, non è stato calcolato niente |
+  | altro | snapshot o metriche falliti (il log dice quale) |
+
+  `99` non viene tradotto in `0` di proposito: una settimana saltata non deve
+  somigliare dall'esterno a una andata bene, altrimenti il `MAILTO` di cron o
+  un controllo sull'ultimo codice di uscita leggerebbero "tutto bene" su una
+  settimana in cui il job non ha prodotto nulla. Vale qui lo stesso principio
+  della sezione precedente — un job che non parte produce assenza e non errore
+  — con la differenza che questa assenza un modo di farsi notare ce l'ha.
 - **`nice -n 10`**: come previsto da `architettura.md`, sezione Hosting. Il
   limite di memoria è già nel compose (`mem_limit: 400m`), `nice` copre la CPU.
 - **`snapshot` prima, `metrics` solo se il primo è riuscito**: metriche calcolate
