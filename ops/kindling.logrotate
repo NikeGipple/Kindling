@@ -1,0 +1,27 @@
+# Kindling — rotazione del log del job schedulato.
+#
+# Installazione sulla droplet (come root):
+#     cp /opt/kindling/ops/kindling.logrotate /etc/logrotate.d/kindling
+#     chmod 644 /etc/logrotate.d/kindling
+#     logrotate --debug /etc/logrotate.d/kindling   # prova a vuoto
+#
+# Il disco della droplet e' 25 GB e non si rimpicciolisce: un log che cresce
+# per sempre e' un problema che si scopre quando il disco e' pieno, cioe' nel
+# momento peggiore. Il volume qui e' minuscolo (qualche decina di righe a
+# settimana), quindi non e' urgenza — e' igiene, e costa una configurazione.
+
+/var/log/kindling/job.log {
+    weekly
+    # Otto settimane di storico: abbastanza per guardare indietro qualche
+    # esecuzione quando un numero sembra sbagliato, non tanto da accumulare.
+    rotate 8
+    compress
+    delaycompress
+    # Il job gira una volta a settimana: se il log e' vuoto non c'e' niente da
+    # ruotare, e un file vuoto in piu' ogni settimana e' solo rumore.
+    notifempty
+    missingok
+    # Lo script ricrea la cartella ma non il file: create garantisce che dopo
+    # la rotazione ci sia gia' un file con i permessi giusti.
+    create 0640 root adm
+}

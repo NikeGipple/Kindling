@@ -1,0 +1,34 @@
+# Kindling — cadenza settimanale del job di calcolo.
+#
+# Installazione sulla droplet (come root):
+#     cp /opt/kindling/ops/kindling.cron /etc/cron.d/kindling
+#     chmod 644 /etc/cron.d/kindling
+#
+# /etc/cron.d e non `crontab -e`: il file sta in git, si aggiorna con un
+# `git pull` piu' una copia, e si legge senza entrare in un editor. Richiede il
+# campo utente (la sesta colonna), che un crontab personale non ha.
+#
+# Nessuna credenziale qui: lo script non ne ha bisogno, il .env della droplet lo
+# legge docker compose.
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Lunedi' 04:15 UTC.
+#
+# Lunedi': allinea le finestre da 7 giorni alle settimane ISO usate dalle coorti
+# (modello-metriche.md 5.1), cosi' i confini della finestra e quelli della
+# coorte non si sfalsano di qualche giorno.
+#
+# 04:15 UTC: L'Arco del Leone e' una community serale, quindi e' l'ora piu'
+# tranquilla — il job non compete con il picco di attivita' del bot su 1 vCPU.
+# I 15 minuti spostano l'esecuzione fuori dall'ora tonda, dove si accalcano
+# logrotate e gli altri cron di sistema.
+#
+# La finestra risultante e' [lunedi'-7g, lunedi'), che si affianca a quella
+# della settimana prima senza sovrapporsi ne' lasciare buchi: e' la condizione
+# in cui stability_jaccard misura la ricomposizione delle community e non la
+# sovrapposizione delle finestre.
+#
+#  m  h  dom mon dow  utente  comando
+   15 4   *   *   1   root    /opt/kindling/ops/kindling-weekly.sh

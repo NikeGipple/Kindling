@@ -317,6 +317,123 @@ snapshot su 1 vCPU condiviso con l'heartbeat del gateway Discord — invece di
 scoprirlo da un OOM. Sopra 500 nodi le ripetizioni si riducono da sole, e la
 riga lo dichiara in `details.baseline_degraded`.
 
+## Cadenza settimanale (cron)
+
+Perché settimanale e perché lunedì: con `--window-days 7` e un'esecuzione ogni
+sette giorni le finestre si affiancano **senza sovrapporsi né lasciare buchi**,
+ed è la condizione in cui `stability_jaccard` misura la ricomposizione delle
+community invece della sovrapposizione delle finestre. Con gli snapshot a
+quattro giorni di distanza la stabilità risulta gonfiata — e lo dice da sé, in
+`snapshot_gaps.cadence_days_median`. Il lunedì allinea le finestre alle settimane
+ISO usate dalle coorti; le 04:15 UTC sono l'ora più tranquilla per una community
+serale come L'Arco.
+
+Tre file, tutti in `ops/` nel repository — niente da scrivere a mano sulla
+droplet:
+
+| File | Destinazione |
+|---|---|
+| `ops/kindling-weekly.sh` | resta in `/opt/kindling/ops/`, eseguito da lì |
+| `ops/kindling.cron` | `/etc/cron.d/kindling` |
+| `ops/kindling.logrotate` | `/etc/logrotate.d/kindling` |
+
+### Installazione
+
+```bash
+install -m 644 /opt/kindling/ops/kindling.cron /etc/cron.d/kindling && install -m 644 /opt/kindling/ops/kindling.logrotate /etc/logrotate.d/kindling
+```
+
+Il bit di esecuzione dello script è salvato in git (`100755`), quindi arriva già
+eseguibile con il `git pull`. Se un checkout l'avesse perso:
+`chmod +x /opt/kindling/ops/kindling-weekly.sh`.
+
+Se il repository sulla droplet non è in `/opt/kindling`, va corretto il percorso
+in `/etc/cron.d/kindling` (e lo script accetta `KINDLING_PROJECT_DIR`).
+
+### Verifica: eseguire a mano una volta, non aspettare lunedì
+
+```bash
+/opt/kindling/ops/kindling-weekly.sh; echo "exit=$?"
+```
+
+**È sicuro**: rieseguire il job sullo stesso `as_of` riscrive lo snapshot invece
+di duplicarlo, e lo stesso vale per le metriche. Serve a verificare che lo
+script giri nell'ambiente giusto — che `docker` sia dove lo cerca, che il `.env`
+venga letto, che il log sia scrivibile — prima che lo faccia cron, dove un
+errore non lo vede nessuno.
+
+Poi il lunedì successivo:
+
+```bash
+tail -40 /var/log/kindling/job.log
+```
+
+```sql
+SELECT id, as_of FROM graph_snapshots ORDER BY id DESC LIMIT 3;
+```
+
+Gli `as_of` devono essere a sette giorni esatti di distanza.
+
+### Come accorgersi che il cron ha smesso di funzionare
+
+È la domanda che i runbook non pongono mai: **un job schedulato che non parte
+più non produce nessun errore, produce solo assenza**, e l'assenza non arriva in
+nessuna casella di posta. Il segnale però c'è già, ed è nei dati.
+
+`details.snapshot_gaps` di ogni riga di coorte riporta `cadence_days_median` e
+`max_gap_days`, calcolati sulla spaziatura degli `as_of`:
+
+```sql
+SELECT cohort_start, details -> 'snapshot_gaps'
+FROM metric_cohorts
+WHERE snapshot_id = (SELECT max(snapshot_id) FROM metric_runs)
+LIMIT 1;
+```
+
+Se `max_gap_days` è il doppio della mediana, **una settimana è saltata**. È una
+lettura diretta e non richiede nessuna soglia configurata: la mediana dice qual
+è la cadenza vera, il massimo dice se qualcosa l'ha interrotta. Con cadenza
+settimanale ci si aspetta `cadence_days_median` ≈ 7 e `max_gap_days` ≈ 7; un 14
+è un'esecuzione persa.
+
+Controllo più diretto, se si ha una connessione al database a portata:
+
+```sql
+SELECT max(as_of), now() - max(as_of) AS eta FROM graph_snapshots;
+```
+
+Oltre gli otto giorni, l'ultima esecuzione è saltata.
+
+### Vedere arrivare il problema di CPU invece di scoprirlo dall'OOM
+
+`metric_runs.stats` porta le **durate per metrica**. Con il cron diventano una
+serie storica, ed è l'unico modo per accorgersi che il costo cresce mentre
+cresce il grafo — il baseline è fino a ~400 esecuzioni di Leiden per snapshot su
+1 vCPU condiviso con l'heartbeat del bot (`modello-metriche.md` §11.1):
+
+```sql
+SELECT as_of, stats -> 'durations_ms' FROM metric_runs ORDER BY as_of DESC LIMIT 8;
+```
+
+Va letta come tendenza, non come valore assoluto. Se `communities_ms` raddoppia
+di settimana in settimana, il momento di alzare `baseline_downgrade_nodes` (o di
+guardare i segnali di resize) è quello — non quando l'OOM killer decide da solo
+quale processo chiudere.
+
+### Note sullo script
+
+- **`flock`**: se un'esecuzione è ancora in corso la successiva non parte e
+  scrive `SKIP` nel log. Su 1 vCPU due job sovrapposti sono il modo più diretto
+  di rubare l'heartbeat del gateway al bot.
+- **`nice -n 10`**: come previsto da `architettura.md`, sezione Hosting. Il
+  limite di memoria è già nel compose (`mem_limit: 400m`), `nice` copre la CPU.
+- **`snapshot` prima, `metrics` solo se il primo è riuscito**: metriche calcolate
+  su uno snapshot fallito a metà sono peggio di metriche assenti — sono numeri
+  pubblicabili ricavati da un grafo incompleto, e a valle nessuno li distingue
+  da quelli buoni. Nel log compare `ABORT metrics non eseguito`.
+- Nessuna credenziale nello script né nel crontab: `DATABASE_URL` vive nel
+  `.env` della droplet, che `docker compose` legge da sé.
+
 ## Esito del primo deploy completo (31/08/2026)
 
 Riferimento di cosa aspettarsi, non un obiettivo da riprodurre: serve a

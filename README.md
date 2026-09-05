@@ -159,6 +159,11 @@ job/
   pseudonyms.py  # pseudonimi stabili per gli export
   db.py          # tutto il SQL, e nient'altro
   main.py        # CLI (snapshot | metrics | export)
+
+ops/
+  kindling-weekly.sh   # esecuzione settimanale (flock + nice, snapshot -> metrics)
+  kindling.cron        # -> /etc/cron.d/kindling
+  kindling.logrotate   # -> /etc/logrotate.d/kindling
 ```
 
 Il job **legge solo Postgres**: non chiama mai l'API Discord. Non è un servizio
@@ -249,6 +254,20 @@ corretto, non un difetto da correggere.
 Nessun output per-nodo sopravvive al calcolo: centralità, appartenenza alle
 community e conteggio connessioni del singolo membro sono passaggi interni, non
 finiscono in nessuna tabella e non compaiono in nessun log, a nessun livello.
+
+### Esecuzione settimanale
+
+Sulla droplet il job gira da cron il lunedì alle 04:15 UTC. Lo script è in
+`ops/kindling-weekly.sh` — `flock` perché due esecuzioni sovrapposte su 1 vCPU
+rubano l'heartbeat del gateway al bot, `nice` come da `architettura.md`, e
+`metrics` solo se `snapshot` è riuscito. Installazione, verifica e — soprattutto
+— come accorgersi che il cron ha smesso di funzionare sono in
+`docs/architettura/runbook-droplet.md`.
+
+La cadenza non è un dettaglio operativo: con `--window-days 7` ogni sette giorni
+le finestre si affiancano senza sovrapporsi, ed è la condizione in cui
+`stability_jaccard` misura la ricomposizione delle community e non la
+sovrapposizione delle finestre.
 
 ### Export per Gephi
 
