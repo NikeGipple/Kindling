@@ -20,6 +20,23 @@
 
 set -euo pipefail
 
+# Questo script non ha niente da leggere da stdin, mai. Una riga sola in testa
+# invece di una redirezione ripetuta su ogni invocazione: copre tutti i comandi,
+# compresi quelli che verranno aggiunti dopo.
+#
+# Serve perche' `-T` da solo non basta: toglie il TTY ma `docker compose run`
+# tiene comunque stdin attaccato, e un processo in background che prova a
+# leggere dal terminale viene fermato dal kernel con SIGTTIN ([1]+ Stopped). Un
+# processo fermo continua a TENERE IL LOCK, quindi l'esecuzione successiva salta
+# con una riga SKIP che non spiega niente.
+#
+# Ridimensionamento, per chi rileggera' questa riga: **sotto cron non puo'
+# accadere** — cron non assegna un terminale di controllo, quindi SIGTTIN non e'
+# possibile. Il difetto si manifesta solo lanciando lo script con `&` da una
+# shell interattiva, ed e' li' che ha reso illeggibile il test del lock. Va
+# corretto per quello, non perche' il cron di lunedi' fosse a rischio.
+exec 0< /dev/null
+
 # --- percorsi assoluti -----------------------------------------------------
 #
 # L'ambiente di cron e' minimale: niente PATH dell'utente, niente shell di

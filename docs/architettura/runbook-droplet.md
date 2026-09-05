@@ -454,12 +454,20 @@ quale processo chiudere.
 - **`flock`**: se un'esecuzione è ancora in corso la successiva non parte e
   scrive `SKIP` nel log. Su 1 vCPU due job sovrapposti sono il modo più diretto
   di rubare l'heartbeat del gateway al bot.
-- **`docker compose run -T`**: senza `-T` il comando alloca un terminale e prova
-  a leggere da stdin; lanciato in background il kernel ferma il processo con
-  SIGTTIN (`[1]+ Stopped`). Un processo fermo **continua a tenere il lock**,
-  quindi l'esecuzione successiva salta con una riga `SKIP` che non spiega
-  niente. È la stessa forma di `docker compose exec -T` usata sopra per le
-  migration.
+- **`exec 0< /dev/null` in testa, più `-T` sulle invocazioni.** Risolvono
+  problemi diversi e stanno insieme: `-T` toglie il TTY ed è la forma corretta
+  per un contesto non interattivo, ma da solo non basta — `docker compose run`
+  tiene comunque stdin attaccato, e un processo in background che prova a
+  leggere dal terminale viene fermato dal kernel con SIGTTIN (`[1]+ Stopped`).
+  Un processo fermo **continua a tenere il lock**, quindi l'esecuzione
+  successiva salta con una riga `SKIP` che non spiega niente. La redirezione in
+  testa allo script chiude la questione per ogni comando, anche quelli che
+  verranno aggiunti dopo.
+
+  **Sotto cron questo non può accadere**: cron non assegna un terminale di
+  controllo, quindi SIGTTIN non è possibile. Si manifesta solo lanciando lo
+  script con `&` da una shell interattiva — cioè proprio quando lo si prova a
+  mano, ed è così che ha reso illeggibile il test del lock.
 - **Codici di uscita**, che è quello che un monitoraggio legge:
 
   | Codice | Significato |
