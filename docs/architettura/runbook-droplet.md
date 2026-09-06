@@ -145,7 +145,35 @@ lì che si guarda.
 
 **Questo deploy in particolare porta la migration `0011_previous_gap_days.sql`**
 (colonna tipizzata su `metric_communities`, promossa da `details` — vedi
-`modello-metriche.md` §4.7), da applicare al passo 5 come le altre.
+`modello-metriche.md` §4.7). L'ordine qui **non è quello generico del passo 5**:
+sia `job/db.py` (l'`INSERT` di `write_metrics`) sia `api/db.py` (la `SELECT` di
+`fetch_communities`) nominano la colonna nuova, quindi il codice nuovo su uno
+schema vecchio fallisce — `UndefinedColumnError` nel job, un `500` su
+`/communities`. L'ordine inverso è innocuo: `0011` applicata prima è solo una
+colonna in più che nessuno seleziona ancora. La sequenza:
+
+1. **Migration prima**, come sempre (passo 5 della procedura generale):
+   ```bash
+   docker compose exec postgres psql -U kindling -d kindling \
+     -f /docker-entrypoint-initdb.d/0011_previous_gap_days.sql
+   ```
+2. `docker compose build`.
+3. `docker compose up -d api` — **solo `api`, non `up -d` senza argomenti**.
+   L'immagine è condivisa fra `bot`, `job` e `api`: ricrearla per tutti i
+   servizi farebbe ripartire anche il `bot`, con il gateway Discord che cade
+   per una modifica che non lo riguarda.
+4. Il `job` non ha un container in esecuzione da ricreare (`profiles: ["tools"]`):
+   il `build` del passo 2 ha già prodotto la sua immagine nuova, quindi il
+   prossimo `docker compose run --rm job ...` — a mano o da cron — la usa senza
+   nessun passo aggiuntivo.
+
+**Precondizione temporale per l'intero deploy, non solo per questa parte**: non
+prima che il cron schedulato di lunedì 07/09/2026 04:15 UTC sia stato
+verificato riuscito sull'installato attuale (`grep -E
+'(START|END|===|ABORT|SKIP)' /var/log/kindling/job.log`, sezione "Cadenza
+settimanale" più sotto). Un fallimento di lunedì deve avere una causa
+possibile sola, non due — il cron di questa settimana e il deploy di questa
+modifica insieme.
 
 **Questo deploy in particolare rompe anche un'assunzione mai scritta**, e fino
 a lunedì 14/09/2026 00:00 UTC **non va lanciato `ops/kindling-weekly.sh` a

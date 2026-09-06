@@ -19,10 +19,12 @@
 -- Nessun GRANT aggiuntivo: 0010 concede SELECT sull'intera tabella
 -- (GRANT SELECT ON metric_communities TO kindling_api), non colonna per
 -- colonna — in Postgres un GRANT senza elenco di colonne copre anche quelle
--- aggiunte dopo, senza bisogno di un nuovo GRANT. Lo stesso meccanismo e'
--- quello che tests/test_api_role_schema.py verifica in generale (il ruolo
--- legge davvero cio' che gli e' stato concesso a livello di tabella), non
--- questa colonna in particolare.
+-- aggiunte dopo, senza bisogno di un nuovo GRANT. Verificato su Postgres
+-- 16.13 e non solo dedotto dal meccanismo: dopo questa migration,
+-- kindling_api legge previous_gap_days (letto 0.318 su una riga scritta dal
+-- proprietario) senza nessun GRANT aggiuntivo, e resta cieco su graph_edges
+-- come prima — il perimetro del ruolo non si e' allargato per un effetto
+-- collaterale.
 
 ALTER TABLE metric_communities
     ADD COLUMN IF NOT EXISTS previous_gap_days DOUBLE PRECISION;
@@ -34,6 +36,8 @@ COMMENT ON COLUMN metric_communities.previous_gap_days IS
 -- 0006_metrics.sql): il trigger enumera le colonne della riga con to_jsonb(NEW)
 -- e non una lista scritta a mano, quindi una riga soppressa che porta un
 -- previous_gap_days non NULL viene gia' rifiutata senza toccare il trigger.
--- Lo stesso meccanismo generico e' quello che
--- tests/test_metrics_schema.py::test_una_colonna_nuova_finisce_sotto_vincolo_senza_toccare_il_trigger
--- prova su una colonna aggiunta ad hoc, non su questa in particolare.
+-- Verificato su Postgres 16.13 su questa colonna, non solo dedotto dal
+-- meccanismo generico: una riga soppressa con previous_gap_days = 0.318 e'
+-- stata rifiutata con
+--   "riga soppressa di metric_communities con valori non NULL: previous_gap_days"
+-- e la stessa riga con previous_gap_days = NULL e' stata accettata.
