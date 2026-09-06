@@ -88,6 +88,12 @@ class CommunityResult:
     previous_snapshot_id: Optional[int] = None
     node_overlap: Optional[float] = None
     stability_jaccard: Optional[float] = None
+    # Giorni tra as_of e l'as_of del precedente: qualifica stability_jaccard,
+    # quindi e' colonna tipizzata e non chiave di details — details e'
+    # dichiarata diagnostica e non contratto (api/models.py), e questo e'
+    # l'unico dei quattro dati del confronto che dice se gli altri tre valgono
+    # qualcosa (modello-metriche.md 4.7).
+    previous_gap_days: Optional[float] = None
     communities_born: Optional[int] = None
     communities_dissolved: Optional[int] = None
     communities_merged: Optional[int] = None
@@ -377,10 +383,10 @@ def compute_communities(
 
     if previous is not None and (as_of is None or previous_as_of is None):
         # Non un guard difensivo: e' la regola di 4.7. La stabilita' non deve
-        # poter essere scritta senza la distanza a cui e' stata calcolata,
-        # altrimenti torna a viaggiare da sola come faceva prima — e un campo
-        # assente in details e' precisamente il modo in cui l'informazione
-        # sparirebbe senza che nessuno se ne accorga.
+        # poter essere scritta senza la distanza a cui e' stata calcolata, e
+        # una colonna che resta silenziosamente NULL invece di sollevare e'
+        # precisamente il modo in cui l'informazione sparirebbe senza che
+        # nessuno se ne accorga.
         raise ValueError(
             "compute_communities: con una partizione precedente servono as_of e "
             "previous_as_of"
@@ -443,7 +449,7 @@ def compute_communities(
         # stesso argomento del docstring di series_spacing, e vale identico qui.
         # Una soglia inventata su poche settimane di dati sarebbe un parametro
         # senza base messo davanti a un numero che si legge benissimo da solo.
-        details["previous_gap_days"] = round(
+        result.previous_gap_days = round(
             (as_of - previous_as_of).total_seconds() / 86400.0, 3
         )
         comparison = compare_partitions(previous, membership, params=params)

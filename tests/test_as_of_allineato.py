@@ -13,7 +13,8 @@ Due difetti, uno la causa dell'altro:
   dicesse a che distanza fosse stata calcolata.
 
 Qui si verifica l'ancoraggio (sempre lunedi' 00:00 UTC, qualunque sia il giorno
-in cui il job parte) e che la riga di community porti ``previous_gap_days``.
+in cui il job parte) e che la riga di community porti
+``previous_gap_days``: colonna tipizzata, non chiave di ``details``.
 Che l'UPSERT venga davvero raggiunto e' un'altra cosa e richiede Postgres: sta
 in ``tests/test_write_snapshot_upsert.py``.
 """
@@ -164,7 +165,11 @@ def test_la_riga_di_stabilita_dichiara_la_distanza_dal_precedente():
     row = _riga_di_community(gap=timedelta(days=7))
 
     assert row.stability_jaccard is not None, "senza stabilita' il test non prova nulla"
-    assert row.details["previous_gap_days"] == 7.0
+    # Colonna tipizzata e non chiave di details: details e' dichiarata
+    # diagnostica e non contratto (api/models.py), e questo e' l'unico dei
+    # quattro dati del confronto che dice se gli altri tre valgono qualcosa.
+    assert row.previous_gap_days == 7.0
+    assert "previous_gap_days" not in row.details
 
 
 def test_la_distanza_e_quella_vera_anche_fuori_cadenza():
@@ -174,7 +179,7 @@ def test_la_distanza_e_quella_vera_anche_fuori_cadenza():
     # significativa, perche' decidere sta a chi legge.
     row = _riga_di_community(gap=timedelta(days=1, hours=6))
 
-    assert row.details["previous_gap_days"] == 1.25
+    assert row.previous_gap_days == 1.25
     assert row.is_significant is True
     assert "not_significant_because" not in row.details
     assert "stability_unavailable" not in row.details
@@ -191,7 +196,7 @@ def test_senza_precedente_non_c_e_nessuna_distanza_da_dichiarare():
         as_of=LUNEDI,
     )
 
-    assert "previous_gap_days" not in row.details
+    assert row.previous_gap_days is None
     assert row.details["stability_unavailable"] == "no_previous_snapshot"
 
 
@@ -244,4 +249,4 @@ def test_la_distanza_arriva_fino_alla_riga_scritta_da_build_metrics():
     row = righe[0]
     assert not row.is_suppressed, "riga soppressa: i details sarebbero vuoti comunque"
     assert row.previous_snapshot_id == 6
-    assert row.details["previous_gap_days"] == 7.0
+    assert row.previous_gap_days == 7.0

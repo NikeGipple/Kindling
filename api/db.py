@@ -175,6 +175,7 @@ async def fetch_communities(guild_id: int, *, limit: int) -> list[asyncpg.Record
                c.n_effective, c.community_count, c.modularity,
                c.modularity_random_mean, c.modularity_random_sd, c.modularity_z,
                c.previous_snapshot_id, c.node_overlap, c.stability_jaccard,
+               c.previous_gap_days,
                c.communities_born, c.communities_dissolved,
                c.communities_merged, c.communities_split,
                c.is_suppressed, c.suppression_reason, c.is_significant, c.details
