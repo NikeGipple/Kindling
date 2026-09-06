@@ -309,3 +309,47 @@ di Guild Wars 2. Sono due entità diverse, con fonti dati diverse:
 Non usare mai "guild" da solo per riferirsi alla gilda GW2 nel codice o nello
 schema: nel contesto Discord/discord.py "guild" è già un termine riservato
 con un significato preciso (= server).
+
+## Follow-up aperti (trovati, non risolti di proposito)
+
+Gap reali, verificati, ma volutamente non risolti nel branch in cui sono stati
+trovati perché il fix cambia un default o un comportamento e merita la propria
+voce di spec — non un innesto silenzioso su un cambiamento che parlava d'altro.
+
+### `run_metrics` sceglie lo snapshot per `as_of` massimo, non per "appena scritto"
+
+Trovato e verificato su Postgres reale durante il deploy del fix di
+`modello-grafo.md` §5.1 (ancoraggio di `as_of` alla settimana ISO, 07/09/2026).
+
+`ops/kindling-weekly.sh` lancia `snapshot` e poi `metrics` **senza
+`--snapshot-id`**: `metrics` sceglie con `db.fetch_snapshot`
+(`ORDER BY as_of DESC, id DESC`). Finché `as_of` veniva da `now()`, "il più
+recente per `as_of`" e "quello appena scritto" erano sempre la stessa riga per
+costruzione. Con `as_of` ancorato al lunedì non lo sono più: uno snapshot con
+`as_of` maggiore, scritto prima (codice vecchio, o un `--as-of` esplicito nel
+passato), resta il più recente per `as_of` anche dopo che un lancio successivo
+ne scrive uno logicamente più nuovo ma con `as_of` minore. `metrics` calcola
+allora sullo snapshot sbagliato, `exit=0`, nessun errore nel log.
+
+Riprodotto: `scritto id=1 as_of=2026-09-07 04:15` (cron, codice pre-fix) poi
+`scritto id=2 as_of=2026-09-07 00:00` (lancio a mano, codice col fix) →
+`fetch_snapshot()` torna `id=1`.
+
+**Non è un bug introdotto oggi in astratto**: prima del fix "appena scritto" e
+"più recente per `as_of`" coincidevano sempre, quindi la distinzione non
+esisteva. È il fix di `as_of` a separare le due nozioni, e a scoprire che
+`fetch_snapshot` dipendeva dalla loro coincidenza senza dichiararlo.
+
+**Fix NON fatto qui**: disaccoppiare le due nozioni — per esempio scegliendo
+per `created_at` (che l'`ON CONFLICT` di `write_snapshot` aggiorna a ogni
+riscrittura) invece che per `as_of`, o accettando esplicitamente che `metrics`
+senza `--snapshot-id` richieda una garanzia diversa. Cambia il comportamento di
+default di un comando usato in produzione: va deciso e scritto in spec, non
+scelto a margine di un altro task.
+
+**Mitigazione temporanea, documentata in `runbook-droplet.md`** (sezione
+"Verifica: eseguire a mano una volta"): dal deploy del fix di `as_of` fino al
+prossimo cron regolare (lunedì 14/09/2026 04:15 UTC, che scrive un `as_of`
+sicuramente più alto di qualunque snapshot di transizione) non lanciare
+`ops/kindling-weekly.sh` a mano; se serve verificare, lanciare `snapshot` e poi
+`metrics --snapshot-id <id>` separatamente. La finestra si chiude da sola.

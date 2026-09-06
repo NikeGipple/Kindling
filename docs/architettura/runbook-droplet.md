@@ -143,6 +143,15 @@ vicini ha una `stability_jaccard` che misura in parte quella differenza di
 codice. `metric_runs.code_version` dice quale codice ha prodotto cosa, ed è da
 lì che si guarda.
 
+**Questo deploy in particolare porta la migration `0011_previous_gap_days.sql`**
+(colonna tipizzata su `metric_communities`, promossa da `details` — vedi
+`modello-metriche.md` §4.7), da applicare al passo 5 come le altre.
+
+**Questo deploy in particolare rompe anche un'assunzione mai scritta**, e fino
+a lunedì 14/09/2026 00:00 UTC **non va lanciato `ops/kindling-weekly.sh` a
+mano**: vedi il riquadro nella sezione "Verifica: eseguire a mano una volta"
+qui sotto, che spiega perché e cosa fare se serve davvero verificare.
+
 ## Lanciare il job di calcolo del grafo
 
 Il job è sotto `profiles: ["tools"]`: non parte con `docker compose up -d` e non
@@ -587,6 +596,41 @@ di duplicarlo, e lo stesso vale per le metriche. Serve a verificare che lo
 script giri nell'ambiente giusto — che `docker` sia dove lo cerca, che il `.env`
 venga letto, che il log sia scrivibile — prima che lo faccia cron, dove un
 errore non lo vede nessuno.
+
+> **Eccezione, dal deploy di questa modifica fino a lunedì 14/09/2026 00:00
+> UTC: NON lanciare questo script a mano.**
+>
+> `ops/kindling-weekly.sh` lancia `snapshot` e poi `metrics` **senza
+> `--snapshot-id`**: `metrics` sceglie lo snapshot su cui calcolare con
+> `db.fetch_snapshot` (`ORDER BY as_of DESC, id DESC`), non "quello appena
+> scritto". Finché `as_of` veniva da `now()` le due cose coincidevano sempre
+> per costruzione — lo snapshot appena scritto aveva per forza l'`as_of` più
+> alto. Con l'ancoraggio al lunedì **non è più garantito**, e in questa
+> settimana specifica non lo è: il cron di questa mattina (04:15 UTC) ha
+> scritto uno snapshot con codice vecchio e `as_of` = lunedì **04:15**; un
+> lancio a mano dopo il deploy calcola `as_of` = lunedì **00:00** — un istante
+> *precedente* per orologio ma della stessa settimana. `metrics` sceglierebbe
+> lo snapshot delle 04:15 (l'`as_of` più alto), cioè quello vecchio, e
+> calcolerebbe le metriche sul grafo sbagliato. Nessun errore, `exit=0`, nel
+> log solo `END metrics exit=0`: verificato su Postgres reale, non dedotto.
+>
+> Se la verifica serve comunque, lanciare i due passi **separati** e passare a
+> `metrics` l'id restituito dal primo:
+>
+> ```bash
+> docker compose run --rm job python -m job.main snapshot
+> # annotare l'id dal log: "guild_id=... snapshot <ID> scritto."
+> docker compose run --rm job python -m job.main metrics --snapshot-id <ID>
+> ```
+>
+> La finestra si chiude da sola: dopo il cron di lunedì 14/09 alle 04:15 UTC
+> (che scrive `as_of` = lunedì 14/09 **00:00**, più alto di qualunque snapshot
+> di questa settimana) `fetch_snapshot` torna a scegliere giusto senza bisogno
+> di attenzioni. Il fix permanente — scegliere lo snapshot "appena scritto" in
+> un modo che non dipenda dall'essere anche il più recente per `as_of` — è
+> deliberatamente rimandato: è un cambio di comportamento in un altro punto e
+> merita la propria voce di spec, non un innesto su questo branch (vedi
+> `CLAUDE.md`).
 
 Poi il lunedì successivo:
 

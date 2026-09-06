@@ -245,6 +245,21 @@ due ampiezze di finestra sullo stesso istante. Nessun flag per disattivare
 l'allineamento: `--as-of` fa già quel lavoro, e ha il pregio di costringere a
 dichiarare l'istante invece di ereditare quello dell'orologio.
 
+**Invariante che il fix rompe, da conoscere per chi legge `job/main.py`**:
+"lo snapshot appena scritto è anche quello con l'`as_of` massimo per la
+guild" era vera **per costruzione** finché `as_of` veniva da `now()` — ogni
+scrittura aveva per definizione l'istante più recente. Con l'ancoraggio al
+lunedì non lo è più: uno snapshot scritto con `--as-of` esplicito nel passato,
+o uno scritto da codice non ancora allineato prima di questo fix, può avere un
+`as_of` **maggiore** di uno scritto legittimamente più tardi nella stessa
+settimana. `db.fetch_snapshot` (usato da `run_metrics` senza `--snapshot-id`,
+come fa `ops/kindling-weekly.sh`) sceglie per `as_of` massimo, non per
+"scritto più di recente": le due nozioni si sono appena separate, e nulla nel
+codice lo segnala. Vedi `runbook-droplet.md`, sezione "Verifica: eseguire a
+mano una volta", per il caso concreto in cui questo si è manifestato durante il
+deploy di questo stesso fix, e `CLAUDE.md` per la nota di follow-up sul fix
+permanente (non fatto qui: cambia un default e merita la propria spec).
+
 ## 6. Layer direzionali — risoluzione del target
 
 Reply e reazioni identificano il messaggio bersaglio, non il suo autore: serve
