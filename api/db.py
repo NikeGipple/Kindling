@@ -98,6 +98,27 @@ async def fetch_guild(guild_id: int) -> Optional[asyncpg.Record]:
     )
 
 
+# La sottoquery che sceglie gli snapshot piu' recenti, scritta una volta sola.
+#
+# Il tiebreaker su ``snapshot_id`` non e' cosmetico. ``graph_snapshots_identity``
+# e' su (guild_id, as_of, window_start, window_end): due snapshot con lo stesso
+# ``as_of`` sono ammessi se differisce la finestra, ed e' esattamente cio' che
+# produce il confronto tra larghezze di finestra a parita' di as_of
+# (``--as-of T --window-days 7`` e ``--as-of T --window-days 14``). Senza il
+# tiebreaker l'ordine tra i due e' indefinito e ogni query lo risolve per conto
+# suo: ``/runs?limit=1`` e ``/robustness?limit=1`` rispondono allora su snapshot
+# DIVERSI — i parametri di una run accanto ai numeri di un'altra, senza nessun
+# errore. Deve restare identico all'ORDER BY di ``fetch_runs``.
+#
+# Costante di modulo e non sei copie: sei copie possono divergere alla settima.
+# E' un letterale scritto qui, non input utente — l'interpolazione non apre
+# nessun rischio di injection, e i parametri restano $1 (guild) e $2 (limite).
+_LATEST_SNAPSHOTS = """
+              SELECT snapshot_id FROM metric_runs
+              WHERE guild_id = $1 ORDER BY as_of DESC, snapshot_id DESC LIMIT $2
+          """
+
+
 # ---- run ------------------------------------------------------------------
 
 
@@ -128,7 +149,7 @@ async def fetch_robustness(guild_id: int, *, limit: int) -> list[asyncpg.Record]
     """
     pool = get_pool()
     return await pool.fetch(
-        """
+        f"""
         SELECT r.snapshot_id, run.as_of, r.layer, r.removal_fraction,
                r.n_effective, r.nodes_removed, r.giant_before,
                r.giant_after_targeted, r.components_after_targeted,
@@ -138,10 +159,7 @@ async def fetch_robustness(guild_id: int, *, limit: int) -> list[asyncpg.Record]
         FROM metric_robustness r
         JOIN metric_runs run ON run.snapshot_id = r.snapshot_id
         WHERE run.guild_id = $1
-          AND run.snapshot_id IN (
-              SELECT snapshot_id FROM metric_runs
-              WHERE guild_id = $1 ORDER BY as_of DESC LIMIT $2
-          )
+          AND run.snapshot_id IN ({_LATEST_SNAPSHOTS})
         ORDER BY run.as_of DESC, r.layer, r.removal_fraction
         """,
         guild_id,
@@ -152,7 +170,7 @@ async def fetch_robustness(guild_id: int, *, limit: int) -> list[asyncpg.Record]
 async def fetch_communities(guild_id: int, *, limit: int) -> list[asyncpg.Record]:
     pool = get_pool()
     return await pool.fetch(
-        """
+        f"""
         SELECT c.snapshot_id, run.as_of, c.layer,
                c.n_effective, c.community_count, c.modularity,
                c.modularity_random_mean, c.modularity_random_sd, c.modularity_z,
@@ -163,10 +181,7 @@ async def fetch_communities(guild_id: int, *, limit: int) -> list[asyncpg.Record
         FROM metric_communities c
         JOIN metric_runs run ON run.snapshot_id = c.snapshot_id
         WHERE run.guild_id = $1
-          AND run.snapshot_id IN (
-              SELECT snapshot_id FROM metric_runs
-              WHERE guild_id = $1 ORDER BY as_of DESC LIMIT $2
-          )
+          AND run.snapshot_id IN ({_LATEST_SNAPSHOTS})
         ORDER BY run.as_of DESC, c.layer
         """,
         guild_id,
@@ -177,17 +192,14 @@ async def fetch_communities(guild_id: int, *, limit: int) -> list[asyncpg.Record
 async def fetch_community_sizes(guild_id: int, *, limit: int) -> list[asyncpg.Record]:
     pool = get_pool()
     return await pool.fetch(
-        """
+        f"""
         SELECT s.snapshot_id, s.layer, s.bucket,
                s.community_count, s.member_count,
                s.is_suppressed, s.suppression_reason
         FROM metric_community_sizes s
         JOIN metric_runs run ON run.snapshot_id = s.snapshot_id
         WHERE run.guild_id = $1
-          AND run.snapshot_id IN (
-              SELECT snapshot_id FROM metric_runs
-              WHERE guild_id = $1 ORDER BY as_of DESC LIMIT $2
-          )
+          AND run.snapshot_id IN ({_LATEST_SNAPSHOTS})
         ORDER BY s.snapshot_id DESC, s.layer, s.bucket
         """,
         guild_id,
@@ -198,7 +210,7 @@ async def fetch_community_sizes(guild_id: int, *, limit: int) -> list[asyncpg.Re
 async def fetch_cohorts(guild_id: int, *, limit: int) -> list[asyncpg.Record]:
     pool = get_pool()
     return await pool.fetch(
-        """
+        f"""
         SELECT c.snapshot_id, run.as_of, c.cohort_start, c.layer_scope, c.k,
                c.n_effective, c.observation_days, c.is_mature,
                c.event_count, c.censored_count, c.censored_by_leave,
@@ -210,10 +222,7 @@ async def fetch_cohorts(guild_id: int, *, limit: int) -> list[asyncpg.Record]:
         FROM metric_cohorts c
         JOIN metric_runs run ON run.snapshot_id = c.snapshot_id
         WHERE run.guild_id = $1
-          AND run.snapshot_id IN (
-              SELECT snapshot_id FROM metric_runs
-              WHERE guild_id = $1 ORDER BY as_of DESC LIMIT $2
-          )
+          AND run.snapshot_id IN ({_LATEST_SNAPSHOTS})
         ORDER BY run.as_of DESC, c.cohort_start DESC, c.layer_scope, c.k
         """,
         guild_id,
@@ -224,7 +233,7 @@ async def fetch_cohorts(guild_id: int, *, limit: int) -> list[asyncpg.Record]:
 async def fetch_cohort_retention(guild_id: int, *, limit: int) -> list[asyncpg.Record]:
     pool = get_pool()
     return await pool.fetch(
-        """
+        f"""
         SELECT t.snapshot_id, run.as_of, t.cohort_start, t.horizon_days,
                t.n_effective, t.excluded_rejoins, t.is_survivors_only,
                t.retained_fraction, t.is_computable, t.not_computable_reason,
@@ -232,10 +241,7 @@ async def fetch_cohort_retention(guild_id: int, *, limit: int) -> list[asyncpg.R
         FROM metric_cohort_retention t
         JOIN metric_runs run ON run.snapshot_id = t.snapshot_id
         WHERE run.guild_id = $1
-          AND run.snapshot_id IN (
-              SELECT snapshot_id FROM metric_runs
-              WHERE guild_id = $1 ORDER BY as_of DESC LIMIT $2
-          )
+          AND run.snapshot_id IN ({_LATEST_SNAPSHOTS})
         ORDER BY t.snapshot_id DESC, t.cohort_start DESC, t.horizon_days
         """,
         guild_id,
