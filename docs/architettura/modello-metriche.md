@@ -460,6 +460,40 @@ relazioni"), e vanno poter essere letti come serie senza aprire un JSON.
 Uno snapshot precedente "vicino ma non identico" nei parametri non viene
 adattato né riscalato: la stabilità semplicemente non è calcolabile, e lo dice.
 
+### 4.7 `details.previous_gap_days` — la stabilità dichiara la propria cadenza
+
+Ogni riga di `metric_communities` in cui la stabilità viene calcolata porta in
+`details` la **distanza in giorni tra i due `as_of` confrontati**:
+
+```json
+{"previous_gap_days": 7.0}
+```
+
+Il numero è la differenza `as_of − as_of_precedente` arrotondata a tre
+decimali, scritta **sempre** e senza soglia.
+
+Serve perché `stability_jaccard` non significa la stessa cosa a distanze
+diverse, e da solo non lo dichiara. Lo snapshot precedente è quello
+immediatamente precedente per `as_of` (§4.6), senza nessun requisito di
+distanza: se due snapshot distano un giorno, le rispettive finestre da sette
+giorni si sovrappongono all'85-95%, e il Jaccard che ne esce misura in gran
+parte quella sovrapposizione invece della ricomposizione delle community — pur
+uscendo con `is_significant = true` come qualunque altro. È accaduto davvero,
+sulle righe prodotte dai lanci manuali di sabato e domenica precedenti
+all'ancoraggio di `as_of` (`modello-grafo.md` §5.1).
+
+Con `as_of` ancorato al lunedì il valore atteso è `7.0`, ma il campo resta:
+serve proprio a distinguere le righe calcolate quando l'ancoraggio non c'era, e
+a rendere visibile ogni futura esecuzione fuori cadenza (un `--as-of` esplicito,
+un recupero dopo una settimana saltata).
+
+**Nessuna soglia, nessun `reason`, e `is_significant` non viene toccato.** Vale
+identico l'argomento del §5.3 sulla cadenza della serie di snapshot: una soglia
+inventata oggi su poche settimane di dati sarebbe un parametro senza base messo
+davanti a un numero che si legge benissimo da solo. Il valore nudo basta —
+quello che cambia è che non viaggia più senza l'informazione che dice quanto
+vale, e chi legge decide.
+
 ## 5. Onboarding e retention per coorte (catalogo §5)
 
 ### 5.1 Coorte
@@ -1272,7 +1306,7 @@ metric_communities
   is_suppressed          BOOLEAN NOT NULL DEFAULT FALSE
   suppression_reason     TEXT
   is_significant         BOOLEAN          -- NULL = non valutata (riga soppressa)
-  details                JSONB   NOT NULL DEFAULT '{}'
+  details                JSONB   NOT NULL DEFAULT '{}'  -- previous_gap_days (§4.7)
 ```
 
 ```

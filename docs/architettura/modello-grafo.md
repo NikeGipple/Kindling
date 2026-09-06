@@ -177,6 +177,74 @@ Conseguenze da rispettare:
 - `H = 7 giorni` è ingegneria nostra, non letteratura: è il primo parametro da
   rimettere in discussione quando ci saranno mesi di dati.
 
+### 5.1 `as_of` è il confine della settimana, non l'istante di esecuzione
+
+L'`as_of` di uno snapshot è il **lunedì 00:00 UTC** della settimana ISO in cui
+il job viene eseguito, non l'istante in cui il job parte. È lo stesso confine
+che definisce le coorti (`modello-metriche.md` §5.1), e l'ancora è **la stessa
+funzione**, non un secondo calcolo del lunedì scritto a parte: è questo che fa
+coincidere i confini delle finestre con quelli delle coorti invece di
+sfalsarli di qualche ora.
+
+Cinque conseguenze, tutte volute — l'ultima è anche un rischio da conoscere:
+
+- **Le finestre si affiancano esattamente.** Con `--window-days 7` la finestra
+  è `[lunedì − 7g 00:00, lunedì 00:00)`, che confina con quella della settimana
+  prima senza sovrapporsi né lasciare buchi. È la condizione — richiesta da
+  `modello-metriche.md` §4.4 — in cui `stability_jaccard` misura la
+  ricomposizione delle community e non la sovrapposizione delle finestre.
+- **Il decadimento diventa deterministico.** `Δ` è l'età dell'interazione
+  rispetto ad `as_of`: preso `as_of` da `now()`, due esecuzioni a dieci minuti
+  di distanza danno pesi diversi sugli stessi dati, e nessuna delle due è più
+  giusta dell'altra. Ancorato al confine della settimana, lo stesso contenuto di
+  `raw_events` produce sempre gli stessi pesi.
+- **Gli eventi tra la mezzanotte e l'ora del cron cadono nella settimana
+  successiva.** Il job gira alle 04:15 UTC ma calcola fino alle 00:00: quelle
+  quattro ore non sono perse né contate due volte, entrano nello snapshot della
+  settimana dopo. Vale anche per le sessioni vocali che finiscono in quella
+  fascia — restano "ancora aperte" per questo snapshot e vengono recuperate al
+  successivo, che è esattamente §4.2. Nessun dato si perde perché ogni snapshot
+  **ricalcola da `raw_events`** invece di incrementare il precedente.
+- **Rilanciare a mano nella stessa settimana riscrive.** Due esecuzioni nella
+  stessa settimana ISO hanno lo stesso `as_of` e la stessa finestra, quindi la
+  seconda aggiorna la riga della prima invece di affiancargliene una nuova
+  (chiave `graph_snapshots (guild_id, as_of, window_start, window_end)`). È
+  l'idempotenza promessa dal runbook e dall'intestazione di
+  `ops/kindling-weekly.sh`, che con `as_of` preso da `now()` al microsecondo era
+  **falsa**: quella chiave non si ripeteva mai, quindi l'`ON CONFLICT` non
+  veniva mai raggiunto e ogni lancio a mano creava una riga in più.
+- **Rendere raggiungibile l'UPSERT apre una porta finora murata: rilanciare il
+  job sulla stessa settimana con codice diverso riscrive numeri già
+  pubblicati.** Deploy di mercoledì, prova a mano prevista dal runbook, e le
+  metriche del lunedì cambiano sotto l'API senza che nessuno abbia chiesto un
+  ricalcolo: stesso `snapshot_id`, stesso `as_of`, valori diversi. Finora non
+  poteva accadere solo perché il difetto creava ogni volta una riga nuova — cioè
+  per un effetto collaterale di un bug, non per una scelta. Non è una
+  regressione rispetto all'intenzione: è esattamente ciò che l'intestazione di
+  `ops/kindling-weekly.sh` promette da sempre. Ed è tracciabile: `metric_runs`
+  porta `code_version`, e `created_at` viene aggiornato a ogni riscrittura.
+
+  **Regola operativa che ne discende**: dopo un deploy che tocca il calcolo, **o
+  si ricalcolano tutte le settimane confrontabili, o non se ne ricalcola
+  nessuna**. Ricalcolarne una sola produce una serie in cui uno snapshot è stato
+  prodotto da codice diverso dai suoi vicini, e la `stability_jaccard` tra i due
+  misurerebbe in parte la differenza di codice invece della ricomposizione delle
+  community — lo stesso genere di errore che §4.6 di `modello-metriche.md` evita
+  già per i parametri, ma che nessun confronto automatico intercetta, perché
+  `code_version` non entra nell'identità di confrontabilità. Per ora è una
+  regola scritta, non una macchina: va tenuta a mano.
+
+Un'esecuzione manuale di mercoledì produce quindi lo snapshot **del lunedì**, e
+non uno degli ultimi sette giorni: gli eventi da lunedì a mercoledì entreranno
+in quello della settimana successiva. È la stessa proprietà vista dall'altro
+lato, ed è il prezzo — voluto — dell'affiancamento esatto delle finestre.
+
+Restano fuori dall'allineamento solo le esecuzioni con **`--as-of` esplicito**,
+che è la via di fuga per ricalcolare uno snapshot già scritto o per confrontare
+due ampiezze di finestra sullo stesso istante. Nessun flag per disattivare
+l'allineamento: `--as-of` fa già quel lavoro, e ha il pregio di costringere a
+dichiarare l'istante invece di ereditare quello dell'orologio.
+
 ## 6. Layer direzionali — risoluzione del target
 
 Reply e reazioni identificano il messaggio bersaglio, non il suo autore: serve
@@ -246,6 +314,7 @@ Partecipante: `session_id`, `author_id`, `joined_at`, `left_at`, `is_reconciled`
 | Tetto sessione orfana | 12 ore | Euristica di plausibilità |
 | Normalizzazione dimensione | `1/(n−1)` | Da §10.3; alternativa futura: odds ratio |
 | Cadenza snapshot | settimanale | Deciso |
+| Ancora di `as_of` | lunedì 00:00 UTC (settimana ISO) | Deciso — §5.1 |
 
 Tutti in un unico modulo di configurazione, non sparsi nel codice: cambiarli
 deve essere una modifica di un file, e ogni snapshot registra i valori usati.

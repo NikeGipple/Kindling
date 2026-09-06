@@ -179,6 +179,37 @@ sistemare (rigenerare in hex) alla prossima occasione in cui si tocca comunque
 quella credenziale, non con un cambio dedicato su una credenziale che oggi
 funziona.
 
+### 7. Classe di difetto: una verifica che smette di verificare senza dirlo
+
+Non è un errore singolo, è un **genere** da cercare attivamente. Un controllo
+che continua a passare mentre ha smesso di controllare qualcosa è peggio di un
+controllo assente: quello assente si nota, questo dà conferma. Due casi già
+visti in questo repo, diversi nella forma e identici nella sostanza:
+
+- **`api/db.py`, ordinamento senza tiebreaker.** `ORDER BY as_of DESC` senza
+  `snapshot_id DESC` lascia l'ordine indefinito quando due snapshot pareggiano
+  su `as_of` (caso reale: stessa `--as-of`, ampiezze di finestra diverse), e sei
+  endpoint possono rispondere su snapshot diversi senza nessun errore. Un test
+  scritto sul *testo* della query sarebbe passato lo stesso, purché sbagliato
+  in modo uniforme in tutti e sei i punti; il test che lo prende
+  (`tests/test_api_db.py`) riproduce il pareggio e guarda cosa esce.
+- **`runbook-droplet.md`, controllo del file di cron.** Il comando
+  `ls -l "$(awk '... {print $NF}' /etc/cron.d/kindling)"` serviva a verificare
+  che il percorso dello script esistesse. Aggiungendo una pipe alla riga di
+  cron, `$NF` è diventato `kindling-cron` (l'argomento di `logger`) invece del
+  percorso: il comando avrebbe continuato a girare, verificando una cosa che a
+  nessuno interessa. Corretto in `$7`, cioè il campo che il formato di
+  `/etc/cron.d` definisce come "comando" (06/09/2026).
+
+Come si cercano: ogni volta che si cambia la **forma** di qualcosa che un
+controllo ispeziona — l'ordine di una query, il numero di campi di una riga, il
+formato di un log, il nome di una colonna — si rilegge il controllo e ci si
+chiede *cosa fallirebbe adesso*. Se la risposta è "niente", il controllo è da
+riscrivere insieme alla modifica, non dopo. Vale in modo particolare per le
+verifiche scritte nei runbook: nessuno le esegue abbastanza spesso da vederle
+degradare, e quando le si esegue è di solito nel momento peggiore per
+accorgersene.
+
 ## Checklist prima di chiudere un task che tocca Docker/rete/segreti
 
 1. `git diff` sui file toccati: il diff riflette solo l'intento del task?
