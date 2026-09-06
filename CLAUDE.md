@@ -136,6 +136,49 @@ riferimento futuro a Fly.io, Railway o altri PaaS in file di questo repo è
 un refuso da correggere, non un'opzione valida — vedi
 `docs/architettura/architettura.md` per il razionale completo.
 
+### 5. `Dockerfile` non aggiornato quando è stata aggiunta una nuova cartella di primo livello (`api/`)
+
+Il `Dockerfile` copiava esplicitamente `bot/` e `job/`, ma nessuno lo ha
+aggiornato quando `api/` è diventata una terza componente del progetto.
+`requirements.txt` conteneva già `fastapi`/`uvicorn`/`pydantic` (le
+dipendenze si installano da lì), il che ha mascherato il problema fino al
+primo `docker compose up -d --build api` in produzione (06/09/2026):
+`ModuleNotFoundError: No module named 'api'`, container in crash-loop.
+
+Lezione: avere le dipendenze giuste in `requirements.txt` non dice niente
+sul fatto che il **codice sorgente** della componente sia nell'immagine — sono
+due liste indipendenti (`RUN pip install` da un lato, `COPY <cartella>/
+./<cartella>/` dall'altro) e vanno tenute allineate a mano. Quando si aggiunge
+una cartella di primo livello con codice Python destinato a girare in un
+container, il `Dockerfile` va aggiornato nello stesso commit, non quando si
+arriva finalmente a fare il primo deploy di quella componente — altrimenti il
+gap resta invisibile per settimane, come qui.
+
+### 6. Password generata con `openssl rand -base64` incollata dentro una connection string URL
+
+La password del ruolo `kindling_api` (`docs/architettura/runbook-droplet.md`,
+sezione "Avviare l'API") è stata generata con `openssl rand -base64 24` e
+messa direttamente in `API_DATABASE_URL=postgresql://kindling_api:<password>@postgres:5432/kindling`.
+L'alfabeto base64 include `/`, `+` e `=` — caratteri che dentro una URL hanno
+un significato proprio (`/` in particolare separa il path). Una password che
+ne contiene uno rompe il parsing di `asyncpg` **dentro** l'host/porta, con un
+errore fuorviante (`ValueError: invalid literal for int()`) che non menziona
+mai la password — molto più lento da diagnosticare di un banale "password
+errata". Scoperto e risolto il 06/09/2026, rigenerando la password con
+`openssl rand -hex 24` (alfabeto `0-9a-f`, nessun carattere riservato di URL).
+
+Regola pratica: **qualunque credenziale destinata a finire dentro una URL
+`postgresql://...` (o schema simile) si genera con `openssl rand -hex`, mai
+con `-base64`.** `-base64` resta adatto a segreti che non vengono mai
+interpolati in una URL (es. `KINDLING_PSEUDONYM_SALT`, che il codice legge
+come stringa e basta). Nota collaterale non ancora risolta: `POSTGRES_PASSWORD`
+(usata nello stesso modo dentro `DATABASE_URL` per `bot`/`job`) è stata
+generata con `-base64` il 28/08/2026 e funziona solo perché non contiene per
+caso nessuno di quei caratteri — è un rischio latente, non un bug attivo; da
+sistemare (rigenerare in hex) alla prossima occasione in cui si tocca comunque
+quella credenziale, non con un cambio dedicato su una credenziale che oggi
+funziona.
+
 ## Checklist prima di chiudere un task che tocca Docker/rete/segreti
 
 1. `git diff` sui file toccati: il diff riflette solo l'intento del task?

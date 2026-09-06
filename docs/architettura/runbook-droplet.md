@@ -18,7 +18,7 @@ Versione formattata con comandi copiabili: artifact pubblicato "Kindling Fase 1"
 1. **Swapfile 2 GB** sul droplet (`fallocate` + `mkswap` + `swapon` + entry in `/etc/fstab`).
 2. **Docker Engine + plugin Compose** dal repository ufficiale Docker (non `docker.io` di Ubuntu).
 3. **Codice sulla droplet** via deploy key GitHub di sola lettura dedicata (mai la chiave personale), poi `git clone`.
-4. **`.env` con credenziali reali** sulla droplet (mai committato): `DISCORD_TOKEN` reale, `POSTGRES_PASSWORD` generata con `openssl rand -base64 24`.
+4. **`.env` con credenziali reali** sulla droplet (mai committato): `DISCORD_TOKEN` reale, `POSTGRES_PASSWORD` generata con `openssl rand -hex 24` (non `-base64`: finisce dentro `DATABASE_URL`, e `/`/`+`/`=` di base64 rompono il parsing di una connection string — vedi `CLAUDE.md`, errore #6).
 5. **Avvio**: `docker compose up -d --build` — oggi il compose definisce `postgres` e `bot`; `api`, `job` e dashboard si aggiungono a questo stesso file quando vengono sviluppati.
 6. **Verifica**: dall'esterno `nc -zv <ip-droplet> 5432` deve fallire (porta non raggiungibile); dentro il container, controllare che `raw_events` riceva righe.
 
@@ -37,14 +37,21 @@ liberi, vedi `architettura.md`. Punti di attenzione al momento del deploy:
 
 1. **Stesso `docker-compose.yml`**, non un file separato: si aggiungono i
    servizi `api`, `job` e dashboard a quello esistente.
-2. **`mem_limit` per servizio**, così un picco del job non fa scegliere all'OOM
+2. **Il `Dockerfile` va aggiornato con un `COPY <cartella>/ ./<cartella>/`
+   dedicato per ogni nuova componente con codice proprio** (`api/`,
+   dashboard). Avere le dipendenze in `requirements.txt` non basta — è una
+   lista indipendente da quella dei `COPY` — e il sintomo di dimenticarselo è
+   un `ModuleNotFoundError` silenzioso che si vede solo al primo
+   `docker compose up --build` di quella componente, non prima (vedi
+   `CLAUDE.md`, errore #5: è già successo con `api/` il 06/09/2026).
+3. **`mem_limit` per servizio**, così un picco del job non fa scegliere all'OOM
    killer il processo più grosso (Postgres) — deve morire il job.
-3. **Job schedulato** in orario di bassa attività, con `nice`: su 1 vCPU non
+4. **Job schedulato** in orario di bassa attività, con `nice`: su 1 vCPU non
    deve rubare tempo all'heartbeat del gateway Discord del bot.
-4. **Reverse proxy Caddy** davanti ad API e dashboard: HTTPS automatico +
+5. **Reverse proxy Caddy** davanti ad API e dashboard: HTTPS automatico +
    autenticazione (basic auth come minimo) prima di renderli raggiungibili.
-5. **Cloud Firewall**: aprire 443/80 solo in quel momento, mai la 5432.
-6. **Riverificare i consumi** dopo il deploy: `free -h` e
+6. **Cloud Firewall**: aprire 443/80 solo in quel momento, mai la 5432.
+7. **Riverificare i consumi** dopo il deploy: `free -h` e
    `docker stats --no-stream`.
 
 ## Quando cambiare macchina
@@ -335,27 +342,32 @@ errore di permessi.
 ### La password del ruolo
 
 **La migration non ne contiene nessuna, di proposito**: una migration sta in git,
-una password no. Va generata e impostata a mano, una volta sola:
+una password no. Va generata e impostata a mano, una volta sola — e in un
+solo blocco, senza farla transitare per un editor a mano (`nano`, dove è
+facile lasciare un refuso o un carattere di troppo):
 
 ```bash
-openssl rand -base64 24
+NEWPASS=$(openssl rand -hex 24)
+docker compose exec postgres psql -U kindling -d kindling -c "ALTER ROLE kindling_api PASSWORD '$NEWPASS'"
+grep -v '^API_DATABASE_URL=' .env > .env.tmp && mv .env.tmp .env
+echo "API_DATABASE_URL=postgresql://kindling_api:${NEWPASS}@postgres:5432/kindling" >> .env
 ```
 
-```bash
-docker compose exec postgres psql -U kindling -d kindling -c "ALTER ROLE kindling_api PASSWORD '<password generata>'"
-```
+**`-hex`, non `-base64`.** La password finisce direttamente dentro una URL
+(`API_DATABASE_URL=postgresql://kindling_api:<password>@postgres:5432/kindling`),
+e l'alfabeto base64 include `/`, `+`, `=` — caratteri che in una URL hanno un
+significato proprio. Una password base64 che contiene `/` rompe il parsing di
+`asyncpg` **dentro l'host/porta**, con un errore che non nomina mai la
+password (`ValueError: invalid literal for int()`) e quindi molto più lento
+da diagnosticare di un banale "password errata". Successo esattamente così
+il 06/09/2026, sul primo deploy: vedi `CLAUDE.md`, errore #6. `hex` usa solo
+`0-9a-f`, nessun carattere riservato di URL.
 
-Poi la stessa password entra nel `.env` della droplet, dentro
-`API_DATABASE_URL` — che è **distinta** da `DATABASE_URL`:
-
-```
-API_DATABASE_URL=postgresql://kindling_api:<password>@postgres:5432/kindling
-```
-
-Metterci `DATABASE_URL` "perché tanto funziona" vanificherebbe tutto: l'API
-girerebbe con i permessi del ruolo proprietario, cioè con la capacità di leggere
-`raw_events` e di scrivere ovunque. Il servizio partirebbe lo stesso, e nessuno
-se ne accorgerebbe.
+`API_DATABASE_URL` è **distinta** da `DATABASE_URL`. Metterci `DATABASE_URL`
+"perché tanto funziona" vanificherebbe tutto: l'API girerebbe con i permessi
+del ruolo proprietario, cioè con la capacità di leggere `raw_events` e di
+scrivere ovunque. Il servizio partirebbe lo stesso, e nessuno se ne
+accorgerebbe.
 
 ### Avvio e verifica
 
@@ -402,6 +414,28 @@ maschera la password e lascia visibile l'utente, che è l'unica cosa da
 verificare: stampare la stringa intera la lascerebbe nella cronologia della shell
 e in un eventuale log della sessione.
 
+**Quarto controllo, permanente**: nessuno snapshot in doppio sullo stesso
+`as_of`. `/runs`, `/robustness`, `/communities`, `/community_sizes`,
+`/cohorts` e `/cohort_retention` scelgono tutti "l'ultimo snapshot" con
+`ORDER BY as_of DESC, snapshot_id DESC LIMIT`; se mai smettessero di
+concordare (una modifica futura che tocchi una di quelle query senza passare
+dalla costante condivisa `_LATEST_SNAPSHOTS` in `api/db.py`), il sintomo non
+è un errore — è un dashboard che mostra i parametri di una run accanto ai
+numeri di un'altra. Il caso non è ipotetico: `graph_snapshots_identity` ammette
+due snapshot con lo stesso `as_of` se cambia la finestra, ed è esattamente
+cosa produce un confronto tra `--window-days` diversi allo stesso `--as-of`.
+
+```bash
+docker compose exec postgres psql -U kindling -d kindling -c "SELECT guild_id, as_of, count(*) FROM metric_runs GROUP BY guild_id, as_of HAVING count(*) > 1;"
+```
+
+Vuota è la risposta attesa quasi sempre (finché non si rifà uno snapshot già
+scritto con una finestra diversa). Se torna una riga, prima di procedere
+controllare a mano che `/runs?limit=1` e uno degli endpoint di metrica
+concordino sullo stesso `snapshot_id` per quella `guild_id` — è la controprova
+che il tiebreaker (corretto il 06/09/2026, test di regressione in
+`tests/test_api_db.py`) sta ancora funzionando su dati veri, non solo nel test.
+
 ### Nessuna esposizione pubblica, e quando cambierà
 
 Niente `ports:`, niente Caddy, niente 443 aperta sul Cloud Firewall, **niente
@@ -412,6 +446,39 @@ raggiungibile da fuori**, non un affinamento successivo, e quel momento è quand
 esisterà il dashboard. Aggiungere `ports:` a questo servizio prima di aver fatto
 quel passo è la versione API dell'incidente descritto in `CLAUDE.md`: una porta
 aperta su internet "per provare".
+
+### Esito del primo deploy (06/09/2026)
+
+Riferimento di cosa aspettarsi, non un obiettivo da riprodurre — stesso spirito
+della sezione equivalente per il primo deploy del job.
+
+- Prima di questo deploy, `api/` non era mai stato costruito in produzione:
+  `0010` era già applicata (creata insieme alle altre migration), ma il ruolo
+  non aveva ancora una password e il `Dockerfile` non copiava `api/`
+  nell'immagine (non serviva finché nessuno provava a costruirla). Entrambi i
+  gap erano invisibili finché non si è tentato il primo avvio vero.
+- **Primo avvio**: crash-loop, `ModuleNotFoundError: No module named 'api'`.
+  Causa: `Dockerfile` fermo a `COPY bot/` e `COPY job/`, mai aggiornato quando
+  `api/` è stata scritta. Fix: `CLAUDE.md` errore #5, `COPY api/ ./api/`
+  aggiunta.
+- **Secondo avvio**, dopo il fix del Dockerfile: di nuovo crash-loop, questa
+  volta `ValueError: invalid literal for int()` dentro il parsing del DSN di
+  `asyncpg`. Causa: la password di `kindling_api`, generata con
+  `openssl rand -base64 24`, conteneva un `/` — carattere che dentro una URL
+  `postgresql://` rompe il parsing di host/porta. Fix: `CLAUDE.md` errore #6,
+  password rigenerata in esadecimale.
+- **Terzo avvio**: pulito. Le quattro verifiche di questa sezione (health,
+  permission-denied su `graph_edges`, successo su `metric_runs`,
+  `API_DATABASE_URL` che punta davvero a `kindling_api`) tutte confermate.
+- **Controllo duplicati `as_of`** (il quarto, sopra): zero righe in
+  produzione al momento del deploy. Il fix del tiebreaker (stesso giorno,
+  vedi `tests/test_api_db.py`) non ha quindi avuto un caso reale da
+  dimostrare qui — la garanzia viene dal test di regressione (che riproduce
+  il pareggio, non ispeziona il testo SQL) più una riproduzione indipendente
+  su Postgres 16 in sandbox, non da un'osservazione diretta sui dati di questa
+  droplet.
+- Nessuna `ports:` aggiunta, come da progetto: l'API resta raggiungibile solo
+  dagli altri servizi del compose e da tunnel SSH.
 
 ## Cadenza settimanale (cron)
 
