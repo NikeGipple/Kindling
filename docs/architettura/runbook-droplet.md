@@ -317,6 +317,102 @@ snapshot su 1 vCPU condiviso con l'heartbeat del gateway Discord — invece di
 scoprirlo da un OOM. Sopra 500 nodi le ripetizioni si riducono da sole, e la
 riga lo dichiara in `details.baseline_degraded`.
 
+## Avviare l'API
+
+Serve la migration `0010`, applicata come le altre:
+
+```bash
+docker compose exec postgres psql -U kindling -d kindling \
+  -f /docker-entrypoint-initdb.d/0010_api_role.sql
+```
+
+`0010` crea il ruolo `kindling_api` con `SELECT` sulle sole sette tabelle che non
+contengono dati riferibili a una persona — le sei `metric_*` più `guilds`. È ciò
+che rende il perimetro dell'API una garanzia del database invece di una
+convenzione: un endpoint scritto per errore contro `graph_edges` fallisce con un
+errore di permessi.
+
+### La password del ruolo
+
+**La migration non ne contiene nessuna, di proposito**: una migration sta in git,
+una password no. Va generata e impostata a mano, una volta sola:
+
+```bash
+openssl rand -base64 24
+```
+
+```bash
+docker compose exec postgres psql -U kindling -d kindling -c "ALTER ROLE kindling_api PASSWORD '<password generata>'"
+```
+
+Poi la stessa password entra nel `.env` della droplet, dentro
+`API_DATABASE_URL` — che è **distinta** da `DATABASE_URL`:
+
+```
+API_DATABASE_URL=postgresql://kindling_api:<password>@postgres:5432/kindling
+```
+
+Metterci `DATABASE_URL` "perché tanto funziona" vanificherebbe tutto: l'API
+girerebbe con i permessi del ruolo proprietario, cioè con la capacità di leggere
+`raw_events` e di scrivere ovunque. Il servizio partirebbe lo stesso, e nessuno
+se ne accorgerebbe.
+
+### Avvio e verifica
+
+```bash
+docker compose up -d --build api
+```
+
+```bash
+docker compose exec api python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8000/health').read())"
+```
+
+Il servizio **non pubblica porte**, quindi non è raggiungibile dall'host né da
+internet: la verifica passa da dentro il container o dagli altri servizi del
+compose. Per guardarla dal laptop si usa il tunnel SSH, come per Postgres.
+
+**Controllo che il perimetro sia davvero in piedi.** Questo comando deve
+**fallire**:
+
+```bash
+docker compose exec postgres psql -U kindling_api -d kindling -c "SELECT count(*) FROM graph_edges"
+```
+
+Deve rispondere `ERROR: permission denied for table graph_edges`. Se invece
+restituisce un numero, la `0010` non è stata applicata o i grant sono stati
+alterati a mano — fermarsi lì, perché in quello stato l'API può leggere le
+tabelle interne.
+
+E questo deve **riuscire**:
+
+```bash
+docker compose exec postgres psql -U kindling_api -d kindling -c "SELECT count(*) FROM metric_runs"
+```
+
+Se il primo fallisce e il secondo riesce, il ruolo è configurato come deve. Resta
+da verificare che l'API lo stia **usando**: `API_DATABASE_URL` nel `.env` deve
+contenere `kindling_api`, non `kindling`.
+
+```bash
+docker compose exec api sh -c 'echo "$API_DATABASE_URL" | sed "s#:[^:@]*@#:***@#"'
+```
+
+Deve stampare `postgresql://kindling_api:***@postgres:5432/kindling`. Il `sed`
+maschera la password e lascia visibile l'utente, che è l'unica cosa da
+verificare: stampare la stringa intera la lascerebbe nella cronologia della shell
+e in un eventuale log della sessione.
+
+### Nessuna esposizione pubblica, e quando cambierà
+
+Niente `ports:`, niente Caddy, niente 443 aperta sul Cloud Firewall, **niente
+autenticazione**: non c'è ancora niente di esposto da autenticare.
+
+TLS e autenticazione sono il prerequisito **del momento in cui l'API diventa
+raggiungibile da fuori**, non un affinamento successivo, e quel momento è quando
+esisterà il dashboard. Aggiungere `ports:` a questo servizio prima di aver fatto
+quel passo è la versione API dell'incidente descritto in `CLAUDE.md`: una porta
+aperta su internet "per provare".
+
 ## Cadenza settimanale (cron)
 
 Perché settimanale e perché lunedì: con `--window-days 7` e un'esecuzione ogni

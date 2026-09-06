@@ -8,3 +8,9 @@ python-igraph>=0.11,<0.12
 # e' gia' in casa. Leiden e non Louvain: garantisce community ben connesse
 # (architettura.md 3).
 leidenalg>=0.10,<0.11
+# API di sola lettura sugli aggregati (api/). uvicorn con 1 worker: piu' worker
+# moltiplicherebbero la RAM su una macchina che non ha CPU da parallelizzare
+# (architettura.md, sezione Hosting).
+fastapi>=0.115,<0.120
+uvicorn>=0.30,<0.35
+pydantic>=2.7,<3

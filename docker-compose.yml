@@ -47,6 +47,42 @@ services:
       postgres:
         condition: service_healthy
 
+  # API di sola lettura sugli aggregati. NESSUN `ports:` pubblicato, ed e' una
+  # scelta, non una dimenticanza: il servizio e' raggiungibile dagli altri
+  # container sulla rete interna del compose e, per lo sviluppo, via tunnel SSH
+  # — come Postgres. TLS e autenticazione sono il prerequisito del momento in
+  # cui l'API diventa raggiungibile da fuori, cioe' quando esistera' il
+  # dashboard, non un affinamento successivo (docs/architettura/api.md 5).
+  # Aggiungere `ports:` qui senza aver fatto quel passo e' la versione API
+  # dell'incidente descritto in CLAUDE.md.
+  api:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Ruolo di SOLA LETTURA (migration 0010), non il proprietario usato da bot
+      # e job: e' cio' che rende il perimetro di api.md 1 una garanzia del
+      # database invece di una convenzione.
+      API_DATABASE_URL: ${API_DATABASE_URL}
+    # Budget stimato ~80-120 MB (architettura.md, sezione Hosting). Il tetto
+    # esiste perche' se qualcosa deve morire per esaurimento memoria non deve
+    # essere Postgres o il bot.
+    mem_limit: 200m
+    # 1 worker: piu' worker moltiplicherebbero la RAM su una macchina che non ha
+    # CPU da parallelizzare (1 vCPU condiviso con l'heartbeat del gateway).
+    command:
+      ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # Il job non e' un servizio sempre acceso: si lancia a mano o da cron con
   # `docker compose run --rm job ...`. E' definito qui, nello stesso compose di
   # postgres e bot, perche' l'ambiente di riferimento e' la droplet e non

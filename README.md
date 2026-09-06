@@ -289,7 +289,71 @@ gli id reali serve il flag esplicito `--identified`.
 
 `exports/` è in `.gitignore`.
 
+## API (`api/`)
+
+Serve gli aggregati al dashboard. Non calcola niente: legge tabelle già pronte.
+La nota di progettazione è `docs/architettura/api.md` — è quella la fonte di
+verità, non questo codice.
+
+```
+api/
+  config.py     # parametri e perimetro delle tabelle leggibili
+  models.py     # modelli di risposta: quality accanto a values
+  assemble.py   # da riga a risposta (funzioni pure, nessun database)
+  db.py         # tutto il SQL, e nient'altro
+  main.py       # applicazione FastAPI
+```
+
+**Due vincoli, ed è da lì che discende tutto il resto.**
+
+L'API **non legge nessuna tabella che contenga dati riferibili a una persona**.
+È un criterio, non una lista: `members` resta fuori anche se sembra una tabella
+di date, perché la chiave è `(guild_id, author_id)` e ogni riga dice quando *una
+persona* è entrata e quando se n'è andata. `guilds` entra, perché
+`first_seen_at`, `backfilled_at`, `left_at` e `rejoined_at` sono fatti sul server
+e sul deployment del bot. Il criterio non è una convenzione: la migration `0010`
+crea un ruolo Postgres di sola lettura che ha `SELECT` sulle sole sette tabelle
+ammesse, e un endpoint scritto per errore contro `graph_edges` fallisce con un
+errore di permessi.
+
+**Un valore non viaggia mai senza i flag che dicono quanto vale.** Ogni riga è
+`{chiave…, quality, values}`: per arrivare a un numero bisogna passare da
+`values`, e `quality` è lì come suo fratello. Su una riga soppressa `values`
+resta, con tutti i campi a `null` — se sparisse, "soppressa" somiglierebbe ad
+"assente".
+
+| Endpoint | Risponde a |
+|---|---|
+| `GET /health` | l'API è viva e Postgres risponde |
+| `GET /guilds` | quali community sono osservate, e a che data arrivano le metriche |
+| `GET /guilds/{id}` | ancora di osservabilità, backfill, buchi di osservazione |
+| `GET /guilds/{id}/runs` | stato dell'ultimo snapshot (`?limit=1`) e storico |
+| `GET /guilds/{id}/robustness` | serie storica della robustezza strutturale |
+| `GET /guilds/{id}/communities` | Leiden, con la distribuzione delle dimensioni annidata |
+| `GET /guilds/{id}/cohorts` | coorti: onboarding **e** retention insieme |
+
+Documentazione interattiva su `/docs` (generata da FastAPI).
+
+### Lanciarla
+
+Sulla droplet il servizio `api` è nello stesso `docker-compose.yml` degli altri e
+parte con `docker compose up -d`. **Non pubblica porte**: è raggiungibile dagli
+altri container e, per lo sviluppo, via tunnel SSH. Niente TLS e niente
+autenticazione, perché non c'è ancora niente di esposto da autenticare — TLS e
+autenticazione sono il prerequisito del momento in cui l'API diventerà
+raggiungibile da fuori, cioè quando esisterà il dashboard.
+
+In locale, con il tunnel aperto:
+
+```bash
+API_DATABASE_URL="postgresql://kindling_api:<password>@localhost:5432/kindling" uvicorn api.main:app --reload
+```
+
+Serve la migration `0010` applicata e la password del ruolo impostata (vedi
+`docs/architettura/runbook-droplet.md`).
+
 ### Test
+
 
 ```bash
 pip install -r requirements-dev.txt
@@ -313,3 +377,9 @@ quello di produzione, crea e distrugge uno schema:
 ```bash
 KINDLING_TEST_DATABASE_URL=postgresql://kindling:...@localhost:5432/kindling_test pytest
 ```
+
+Lo stesso vale per `tests/test_api_role_schema.py`, che prova la garanzia su cui
+poggia il perimetro dell'API: che il ruolo di sola lettura **non possa** leggere
+`graph_edges` e `members`, non possa scrivere, e possa leggere `guilds` e le
+`metric_*`. Verificarla leggendo `api/db.py` e constatando che non nomina quelle
+tabelle proverebbe la convenzione, non la garanzia.
