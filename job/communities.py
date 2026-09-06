@@ -24,6 +24,7 @@ from __future__ import annotations
 import random
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Iterator, Optional
 
 import igraph
@@ -356,14 +357,34 @@ def compute_communities(
     layer: str,
     params: MetricParams,
     rng: random.Random,
+    as_of: Optional[datetime] = None,
     previous: Optional[dict[int, int]] = None,
     previous_snapshot_id: Optional[int] = None,
+    previous_as_of: Optional[datetime] = None,
     unavailable_reason: Optional[str] = None,
 ) -> Optional[tuple[CommunityResult, list[CommunitySize]]]:
-    """Partizione, modularita' con baseline, e stabilita' se confrontabile."""
+    """Partizione, modularita' con baseline, e stabilita' se confrontabile.
+
+    ``as_of`` e ``previous_as_of`` sono opzionali solo perche' le varianti che
+    non confrontano niente (la verifica di sensibilita' senza archi ricostruiti)
+    non hanno un precedente da dichiarare. Con ``previous`` servono entrambi, e
+    la mancanza e' un errore invece che un dato che manca in silenzio: vedi
+    sotto.
+    """
     n = graph.vcount()
     if n == 0:
         return None
+
+    if previous is not None and (as_of is None or previous_as_of is None):
+        # Non un guard difensivo: e' la regola di 4.7. La stabilita' non deve
+        # poter essere scritta senza la distanza a cui e' stata calcolata,
+        # altrimenti torna a viaggiare da sola come faceva prima — e un campo
+        # assente in details e' precisamente il modo in cui l'informazione
+        # sparirebbe senza che nessuno se ne accorga.
+        raise ValueError(
+            "compute_communities: con una partizione precedente servono as_of e "
+            "previous_as_of"
+        )
 
     partition = _find_partition(graph, params=params, seed=params.seed)
     membership = _membership_by_author(graph, partition)
@@ -410,6 +431,21 @@ def compute_communities(
         # sarebbe falso.
         details["stability_unavailable"] = unavailable_reason or "no_previous_snapshot"
     else:
+        # Sempre, e senza soglia: la cadenza con cui la stabilita' e' stata
+        # calcolata viaggia insieme al valore. fetch_previous_snapshot prende lo
+        # snapshot immediatamente precedente per as_of e non chiede nessuna
+        # distanza minima, quindi due snapshot a un giorno l'uno dall'altro
+        # confrontano finestre da 7 giorni sovrapposte all'85-95% e il Jaccard
+        # che ne esce misura in gran parte quella sovrapposizione — uscendo
+        # comunque con is_significant a true.
+        #
+        # Nessun reason, nessuna soglia, is_significant non si tocca: e' lo
+        # stesso argomento del docstring di series_spacing, e vale identico qui.
+        # Una soglia inventata su poche settimane di dati sarebbe un parametro
+        # senza base messo davanti a un numero che si legge benissimo da solo.
+        details["previous_gap_days"] = round(
+            (as_of - previous_as_of).total_seconds() / 86400.0, 3
+        )
         comparison = compare_partitions(previous, membership, params=params)
         result.previous_snapshot_id = previous_snapshot_id
         result.node_overlap = comparison.node_overlap

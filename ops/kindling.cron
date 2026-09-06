@@ -19,21 +19,63 @@
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
+# Nessuna mail: su questa droplet non c'e' nessun MTA, quindi quello che cron
+# spedirebbe non arriverebbe da nessuna parte. Senza MAILTO="" cron ci prova
+# comunque a ogni esecuzione che produce output, e l'unica traccia del
+# fallimento finisce in /var/log/syslog.
+#
+# Resta anche adesso che la pipe a logger non lascia output da spedire: se un
+# giorno qualcuno togliesse la pipe, la protezione sarebbe ancora qui.
+MAILTO=""
+
 # Lunedi' 04:15 UTC.
 #
-# Lunedi': allinea le finestre da 7 giorni alle settimane ISO usate dalle coorti
-# (modello-metriche.md 5.1), cosi' i confini della finestra e quelli della
-# coorte non si sfalsano di qualche giorno.
+# L'allineamento delle finestre alle settimane ISO usate dalle coorti
+# (modello-metriche.md 5.1) NON lo fa questa riga: lo fa il job, che ancora
+# as_of al lunedi' 00:00 UTC (modello-grafo.md 5.1). Qui si decide solo QUANDO
+# il calcolo gira, non il confine SU CUI gira — e finche' l'ancoraggio non c'e'
+# stato le due cose sono state confuse proprio in questi commenti: la finestra
+# usciva sfasata di 4h15m rispetto alla settimana ISO che dichiaravano.
+#
+# Lunedi' resta comunque il giorno giusto: fa coincidere l'esecuzione con il
+# confine che il job usera', cosi' il calcolo copre la settimana appena chiusa
+# invece di rifare quella in corso.
 #
 # 04:15 UTC: L'Arco del Leone e' una community serale, quindi e' l'ora piu'
 # tranquilla — il job non compete con il picco di attivita' del bot su 1 vCPU.
 # I 15 minuti spostano l'esecuzione fuori dall'ora tonda, dove si accalcano
-# logrotate e gli altri cron di sistema.
+# logrotate e gli altri cron di sistema. Le quattro ore tra il confine e
+# l'esecuzione non sono un buco: gli eventi che ci cadono dentro entrano nello
+# snapshot della settimana successiva, che ricalcola da raw_events.
 #
-# La finestra risultante e' [lunedi'-7g, lunedi'), che si affianca a quella
-# della settimana prima senza sovrapporsi ne' lasciare buchi: e' la condizione
-# in cui stability_jaccard misura la ricomposizione delle community e non la
-# sovrapposizione delle finestre.
+# La finestra risultante e' [lunedi'-7g 00:00, lunedi' 00:00), che si affianca a
+# quella della settimana prima senza sovrapporsi ne' lasciare buchi: e' la
+# condizione in cui stability_jaccard misura la ricomposizione delle community
+# e non la sovrapposizione delle finestre.
+#
+# La pipe a logger, e non una redirezione su file: lo script logga da se' in
+# job.log, ma solo DOPO essere partito. Quello che fallisce prima — flock
+# assente, docker fuori dal PATH, script senza bit di esecuzione — non ha
+# nessun log dove finire, e con MAILTO="" sparirebbe del tutto.
+#
+# Perche' non `>> /var/log/kindling/cron.log`: la shell apre il file PRIMA di
+# eseguire il comando, quindi una cartella mancante non produce un log vuoto,
+# produce un job che non parte — e in silenzio. Oggi quella cartella si
+# auto-ripara, perche' e' lo script a farne il mkdir -p; scrivendoci da qui la
+# condizione uscirebbe dallo script e diventerebbe una precondizione che
+# nessuno impone. Sarebbe un fallimento silenzioso nel caso normale al posto di
+# uno nel caso raro.
+#
+# logger invece non dipende da nessuna directory: sta in util-linux, pacchetto
+# essenziale che non si puo' rimuovere — garanzia molto piu' forte di una
+# cartella che chiunque puo' cancellare. E l'output finisce in journald, cioe'
+# nello stesso posto dove si controlla gia' il RELOAD di questo file:
+# `journalctl -t kindling-cron` accanto a `journalctl -u cron`, un posto solo
+# invece di due.
+#
+# Percorso assoluto anche per logger, benche' PATH sia dichiarato qui sopra:
+# e' la stessa disciplina che questo file applica gia' a docker, e due regole
+# diverse nello stesso file sono un invito a sbagliare quella che conta.
 #
 #  m  h  dom mon dow  utente  comando
-   15 4   *   *   1   root    /root/kindling/ops/kindling-weekly.sh
+   15 4   *   *   1   root    /root/kindling/ops/kindling-weekly.sh 2>&1 | /usr/bin/logger -t kindling-cron

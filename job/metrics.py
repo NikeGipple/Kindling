@@ -68,6 +68,10 @@ class PreviousPartition:
     """
 
     snapshot_id: int
+    # L'as_of dello snapshot precedente, non solo il suo id: la stabilita' deve
+    # poter dichiarare a che distanza e' stata calcolata (modello-metriche.md
+    # 4.7), e senza questo campo l'informazione non arriverebbe fin qui.
+    as_of: datetime
     membership_by_layer: dict[str, dict[int, int]]
 
 
@@ -158,6 +162,7 @@ def build_metrics(
     started = time.monotonic()
     _structural_metrics(
         result,
+        as_of=as_of,
         edges=edges,
         params=params,
         previous=previous,
@@ -193,6 +198,7 @@ def build_metrics(
 def _structural_metrics(
     result: MetricsResult,
     *,
+    as_of: datetime,
     edges: list[Edge],
     params: MetricParams,
     previous: Optional[PreviousPartition],
@@ -272,8 +278,10 @@ def _structural_metrics(
             layer=layer,
             params=params,
             rng=random.Random(_seed_for(params, layer, "leiden")),
+            as_of=as_of,
             previous=previous_membership,
             previous_snapshot_id=previous.snapshot_id if previous else None,
+            previous_as_of=previous.as_of if previous else None,
             unavailable_reason=stability_unavailable_reason,
         )
         communities_ms += (time.monotonic() - started) * 1000.0
