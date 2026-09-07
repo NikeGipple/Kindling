@@ -347,6 +347,35 @@ Non usare mai "guild" da solo per riferirsi alla gilda GW2 nel codice o nello
 schema: nel contesto Discord/discord.py "guild" è già un termine riservato
 con un significato preciso (= server).
 
+## Migrazioni: `schema_migrations` e autoregistrazione
+
+`schema_migrations (filename, applied_at)` (migration `0012`) è il ledger di
+quali migration sono applicate su un dato database. Prima non esisteva:
+"quali migration sono applicate sulla droplet" era un fatto custodito FUORI
+dal database — scritto a mano altrove — e poteva divergere dalla realtà senza
+che niente lo segnalasse. È la stessa forma dei difetti in §7: un meccanismo
+che sembra tenere traccia e non lo fa in modo verificabile.
+
+**Regola non negoziabile da qui in avanti: ogni nuova migration finisce
+registrando il proprio nome file**, ultima riga del file:
+
+```sql
+INSERT INTO schema_migrations (filename) VALUES ('0013_qualcosa.sql')
+    ON CONFLICT (filename) DO NOTHING;
+```
+
+Non un passo separato per l'operatore, e non facoltativo. Un ledger che
+qualcuno deve ricordarsi di aggiornare a mano è peggio di nessun ledger: non
+diverge mai in modo rumoroso, diverge zitto e continua a sembrare affidabile.
+La riga sta nel file della migration stessa, quindi non può mancare se il
+file è stato applicato — **una migration senza questa riga è incompleta**,
+allo stesso titolo di una migration senza `IF NOT EXISTS`.
+
+`ops/kindling-deploy.sh` legge questa tabella per fermarsi prima del deploy se
+qualcosa non è stato applicato (vedi lo script e `runbook-droplet.md`). Un
+falso "tutto applicato" per una migration dimenticata di registrarsi
+vanificherebbe esattamente il controllo che il ledger esiste per fare.
+
 ## Follow-up aperti (trovati, non risolti di proposito)
 
 Gap reali, verificati, ma volutamente non risolti nel branch in cui sono stati
