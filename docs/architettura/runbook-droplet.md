@@ -75,6 +75,55 @@ deve aver già creato: riavviare il bot prima di migrare lo manda in crash-loop
 su ogni insert, e gli eventi in arrivo si perdono finché qualcuno non se ne
 accorge. Migration prima, sempre.
 
+### Lancia `ops/kindling-deploy.sh`
+
+Per il caso comune, non a mano: lo script fa da solo `git pull`, calcola
+`KINDLING_CODE_VERSION` dal commit appena preso e lo passa al build (vedi
+`Dockerfile`), **si ferma** se `migrations/` contiene file non ancora applicati
+sul database (li elenca, non li applica), costruisce `bot`/`api` **e** `job`
+(due comandi distinti — vedi sotto il perché), riavvia solo `api`, e infine
+verifica. Le verifiche non sono tutte dello stesso tipo: le prime quattro
+(date delle immagini, `KINDLING_CODE_VERSION` dentro il container `job`,
+health dell'API, `API_DATABASE_URL`) sono **informative** — stampate, non
+decidono niente. Le ultime due, sul **perimetro del ruolo `kindling_api`**
+(`graph_edges` deve restare illeggibile, `metric_runs` deve essere leggibile),
+non lo sono: sono il primo invariante non negoziabile del progetto (vedi
+sotto, "Controllo che il perimetro sia davvero in piedi"), e se una delle due
+dà l'esito sbagliato lo script **si ferma** con un codice di uscita dedicato
+invece di limitarsi a stamparlo in fondo a una schermata lunga.
+
+Quello che **non** fa, di proposito — restano passi separati, a mano:
+
+1. **Commit e push**, dal proprio checkout, prima di lanciare lo script sulla
+   droplet — vedi passo 1 sotto.
+2. **Backup**, prima di lanciarlo — vedi passo 2 sotto. Sempre, anche se non ci
+   si aspetta che questa volta serva una migration.
+3. **Applicare le migration**, se lo script si ferma perché ne mancano. Stampa
+   lui stesso l'elenco e il comando esatto da lanciare, in ordine — ma non le
+   applica: è la parte che questo progetto tratta come deliberata (vedi passo
+   5 sotto). Fatto quello, si rilancia lo script.
+4. **Passi applicativi specifici**, se previsti dal cambiamento — vedi passo 7
+   sotto.
+
+```bash
+./ops/kindling-deploy.sh
+```
+
+Quattro codici di uscita distinti da conoscere, oltre a `0`:
+
+| Codice | Significato |
+|---|---|
+| `10` | una o più migration in `migrations/` non sono nel ledger: applicarle (comando stampato) e rilanciare |
+| `11` | il ledger `schema_migrations` stesso non esiste: applicare prima `0012_schema_migrations.sql` |
+| `12` | il perimetro del ruolo `kindling_api` non è quello atteso (legge tabelle interne, o non legge `metric_runs`): **non è un deploy riuscito**, va guardato a mano prima di considerarlo finito |
+| altro | `git pull`, il build o l'`up` sono falliti: il log dice dove |
+
+### Procedura manuale, passo per passo
+
+Quello che lo script sopra automatizza, spiegato per intero: usarla per capire
+cosa fa davvero, per debuggare lo script stesso, o quando serve un controllo
+più fine di quello che offre.
+
 1. **Committare e pushare** sul branch che la droplet clona (deploy key di sola
    lettura). La droplet vede solo quello che è su GitHub, mai la working copy
    locale — è l'errore più facile da fare, perché in locale è tutto pronto e
@@ -94,30 +143,17 @@ accorge. Migration prima, sempre.
    `openssl rand -base64 32`) vanno anche annotate come tali: cambiarle
    invalida silenziosamente gli output precedenti.
 
-   **`KINDLING_CODE_VERSION` è diversa da tutte le altre: non si imposta una
-   volta, si riscrive a OGNI deploy**, qui, subito dopo il `git pull` del passo
-   3 — è l'hash del commit appena preso:
-   ```bash
-   sed -i "s/^KINDLING_CODE_VERSION=.*/KINDLING_CODE_VERSION=$(git rev-parse --short HEAD)/" .env
-   ```
-   Verificato necessario il 07/09/2026: la riga è in `.env.example` da prima
-   ancora del layer del grafo, ma sulla droplet non l'ha mai scritta nessuno
-   perché non c'è un comando "una tantum" a cui appoggiarsi come per le altre
-   — il valore giusto *cambia* a ogni deploy. Risultato: `code_version` è
-   sempre stato `NULL` su `graph_snapshots` e `metric_runs`, invisibile finché
-   non si è cercato "quale codice ha scritto questa riga" — che è esattamente
-   la domanda che la regola del ricalcolo (`modello-grafo.md` §5.1) chiede di
-   fare prima di ricalcolare una settimana con codice diverso. Nessuna riga
-   nuova in `docker-compose.yml`: `env_file: - .env` sui servizi `bot`, `api` e
-   `job` carica già ogni riga di `.env` nel container, `KINDLING_CODE_VERSION`
-   compresa — è lo stesso meccanismo che già porta `KINDLING_PSEUDONYM_SALT` al
-   job senza comparire nella sezione `environment:` di nessuno dei tre. Le
-   righe già scritte restano `NULL`: non c'è modo di ricostruire a posteriori
-   quale codice le ha prodotte, e non è un dato che valga la pena migrare a
-   mano riga per riga. Verifica dopo il prossimo snapshot:
-   ```sql
-   SELECT id, code_version FROM graph_snapshots ORDER BY id DESC LIMIT 3;
-   ```
+   **`KINDLING_CODE_VERSION` NON va qui.** Non è mai stata una variabile
+   d'ambiente da impostare in `.env`: arriva incisa nell'immagine (`Dockerfile`,
+   build-arg passato da `docker-compose.yml`), calcolata da `git rev-parse
+   --short HEAD` al momento del build — `ops/kindling-deploy.sh` lo fa da solo
+   al passo 2 del suo flusso. Un primo tentativo (06/09/2026) l'aveva messa in
+   `.env`, e lì restava vuota per settimane perché nessun comando "una tantum"
+   la teneva aggiornata: il valore giusto *cambia* a ogni deploy, e `.env` non
+   è il posto giusto per un valore che deve descrivere l'immagine in
+   esecuzione — un `git pull` senza rebuild li fa divergere. Vedi
+   `.env.example` per la spiegazione completa e perché quella riga non va
+   rimessa.
 5. **Applicare le migration a mano.** I file in `migrations/` vengono eseguiti
    da Postgres automaticamente **solo al primo avvio**, a volume dati (`pgdata`)
    vuoto (`docker-entrypoint-initdb.d`). Su un volume già popolato le nuove
@@ -130,7 +166,20 @@ accorge. Migration prima, sempre.
    Tutte le migration del progetto usano `ADD COLUMN IF NOT EXISTS` /
    `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`: idempotenti,
    rilanciabili in sicurezza senza toccare le righe esistenti.
-6. **Solo adesso il codice nuovo**:
+
+   **Da `0012` in poi, ogni migration si registra da sola** nella tabella
+   `schema_migrations (filename, applied_at)`: applicarla con il comando sopra
+   scrive anche la propria riga nel ledger, senza un passo separato. È quello
+   che permette a `ops/kindling-deploy.sh` di sapere se `migrations/` e il
+   database sono allineati prima di costruire codice sopra — prima di `0012`
+   questo fatto non era verificabile da nessuna parte (vedi `CLAUDE.md`,
+   sezione "Migrazioni"). Una migration scritta senza la propria riga di
+   autoregistrazione è incompleta, non solo per igiene: lo script la
+   scambierebbe per non applicata anche dopo averla applicata.
+6. **Solo adesso il codice nuovo** — `ops/kindling-deploy.sh` fa questo passo e
+   il successivo da solo, con `docker compose build` invece di
+   `up -d --build bot`, per poter costruire anche `job` nello stesso comando
+   prima di riavviare:
    ```bash
    docker compose up -d --build bot
    ```
@@ -179,6 +228,12 @@ una serie in cui un solo snapshot è stato prodotto da codice diverso dai suoi
 vicini ha una `stability_jaccard` che misura in parte quella differenza di
 codice. `metric_runs.code_version` dice quale codice ha prodotto cosa, ed è da
 lì che si guarda.
+
+**Cronaca del deploy che ha reso necessari `ops/kindling-deploy.sh` e
+`schema_migrations`** — precede entrambi, fatto a mano passo per passo, ed è
+il motivo per cui esistono. Un deploy successivo con lo stesso tipo di
+cambiamento (migration più codice che tocca `job/`) userebbe lo script sopra,
+non questa sequenza.
 
 **Questo deploy in particolare porta la migration `0011_previous_gap_days.sql`**
 (colonna tipizzata su `metric_communities`, promossa da `details` — vedi

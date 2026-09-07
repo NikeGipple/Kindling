@@ -260,3 +260,306 @@ def test_logrotate_copre_tutti_i_log_della_cartella():
 
     assert "/var/log/kindling/*.log {" in testo
     assert "/var/log/kindling/job.log {" not in testo
+
+
+# --- ops/kindling-deploy.sh --------------------------------------------------
+#
+# Stesso criterio dello script settimanale: non un test di ``git`` o ``docker``,
+# ma di come lo script usa il loro esito. Difetti reali lo hanno reso
+# necessario e poi corretto (07/09/2026, CLAUDE.md 7):
+#
+# - ``docker compose build`` non ricostruiva ``job`` (profiles: ["tools"]),
+#   senza nessun errore — il job ha girato con un'immagine di tre giorni prima;
+# - non esisteva nessun modo di sapere se le migration in ``migrations/`` erano
+#   davvero applicate sul database della droplet, quindi nessuno lo verificava
+#   prima di costruire il codice nuovo sopra;
+# - il perimetro del ruolo ``kindling_api`` rotto veniva solo stampato
+#   (``ATTENZIONE``) senza fermare niente, in fondo a una schermata lunga —
+#   il posto esatto in cui un avviso non viene letto.
+
+DEPLOY_SCRIPT = REPO / "ops" / "kindling-deploy.sh"
+
+# git: risponde a `pull` e a `rev-parse --short HEAD` con un hash fisso, cosi'
+# i test possono verificare che sia proprio QUELLO ad arrivare al build.
+GIT_STUB = '\n'.join([
+    "#!/usr/bin/env bash",
+    'case "$*" in',
+    '    *pull) echo "Already up to date." ; exit 0 ;;',
+    '    *"rev-parse --short HEAD") echo "deadbee" ; exit 0 ;;',
+    "esac",
+    "exit 1",
+    "",
+])
+
+# docker: registra ogni invocazione E l'ambiente con cui e' stata chiamata (per
+# verificare che KINDLING_CODE_VERSION arrivi fino al build), e si comporta in
+# modo diverso a seconda del comando — proprio come dovra' fare il vero
+# `docker compose` con `exec`, `build`, `up`, `run`.
+#
+# Il contenuto del ledger e' parametrico via STUB_SCHEMA_MIGRATIONS: una lista
+# di nomi separati da spazio, o la stringa "MISSING_TABLE" per simulare
+# l'assenza della tabella. Lo stub risponde a `to_regclass` (la query che lo
+# script usa per accorgersene, senza dover leggere un messaggio d'errore) E a
+# `SELECT filename FROM schema_migrations`, coerentemente tra loro.
+#
+# STUB_GRAPH_EDGES_LEAKS e STUB_METRIC_RUNS_DENIED simulano il perimetro del
+# ruolo kindling_api rotto nei due versi possibili: legge quello che non
+# dovrebbe, o non legge quello che dovrebbe.
+DOCKER_STUB_DEPLOY = '\n'.join([
+    "#!/usr/bin/env bash",
+    'printf "%s\\n" "$*" >>"$DEPLOY_DOCKER_ARGS_FILE"',
+    'printf "KINDLING_CODE_VERSION=%s\\n" "${KINDLING_CODE_VERSION:-<unset>}" >>"$DEPLOY_DOCKER_ENV_FILE"',
+    'case "$*" in',
+    '    *"to_regclass"*)',
+    '        if [ "$STUB_SCHEMA_MIGRATIONS" = "MISSING_TABLE" ]; then',
+    '            echo ""',
+    "        else",
+    '            echo "schema_migrations"',
+    "        fi",
+    "        exit 0 ;;",
+    '    *"schema_migrations ORDER BY filename"*)',
+    '        for nome in $STUB_SCHEMA_MIGRATIONS; do printf "%s\\n" "$nome"; done',
+    "        exit 0 ;;",
+    '    *"graph_edges"*)',
+    '        if [ "${STUB_GRAPH_EDGES_LEAKS:-}" = "1" ]; then',
+    '            echo "5" ; exit 0',
+    "        fi",
+    '        echo "ERROR: permission denied" >&2 ; exit 1 ;;',
+    '    *"metric_runs"*)',
+    '        if [ "${STUB_METRIC_RUNS_DENIED:-}" = "1" ]; then',
+    '            echo "ERROR: permission denied" >&2 ; exit 1',
+    "        fi",
+    '        echo "5" ; exit 0 ;;',
+    '    *"images --format"*)',
+    '        echo "kindling-bot	2026-09-07T10:00:00Z"',
+    '        echo "kindling-api	2026-09-07T10:00:00Z"',
+    '        echo "kindling-job	2026-09-07T10:00:00Z"',
+    "        exit 0 ;;",
+    "esac",
+    "exit 0",
+    "",
+])
+
+
+@dataclass(frozen=True)
+class EsitoDeploy:
+    status: int
+    log: str
+    docker_args: str
+    docker_env: str
+
+
+def _run_deploy(
+    tmp_path: Path,
+    *,
+    migrations: tuple[str, ...] = ("0001_a.sql", "0002_b.sql"),
+    schema_migrations: str = "0001_a.sql 0002_b.sql",
+    git_body: str = GIT_STUB,
+    graph_edges_leaks: bool = False,
+    metric_runs_denied: bool = False,
+) -> EsitoDeploy:
+    binaries = tmp_path / "bin"
+    binaries.mkdir(exist_ok=True)
+    _stub(binaries / "docker", DOCKER_STUB_DEPLOY)
+    _stub(binaries / "git", git_body)
+
+    project_dir = tmp_path / "progetto"
+    (project_dir / "migrations").mkdir(parents=True, exist_ok=True)
+    for nome in migrations:
+        (project_dir / "migrations" / nome).write_text("-- fake\n", encoding="utf-8")
+
+    log = tmp_path / "deploy.log"
+    args_file = tmp_path / "docker-args.txt"
+    env_file = tmp_path / "docker-env.txt"
+    env = dict(
+        os.environ,
+        PATH=f"{binaries}{os.pathsep}{os.environ['PATH']}",
+        DEPLOY_DOCKER_ARGS_FILE=str(args_file),
+        DEPLOY_DOCKER_ENV_FILE=str(env_file),
+        STUB_SCHEMA_MIGRATIONS=schema_migrations,
+        STUB_GRAPH_EDGES_LEAKS="1" if graph_edges_leaks else "0",
+        STUB_METRIC_RUNS_DENIED="1" if metric_runs_denied else "0",
+        KINDLING_DOCKER_BIN=str(binaries / "docker"),
+        KINDLING_GIT_BIN=str(binaries / "git"),
+        KINDLING_PROJECT_DIR=str(project_dir),
+        KINDLING_DEPLOY_LOG_FILE=str(log),
+    )
+
+    completed = subprocess.run(
+        [BASH, str(DEPLOY_SCRIPT)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    def _read(path: Path) -> str:
+        return path.read_text(encoding="utf-8") if path.exists() else ""
+
+    return EsitoDeploy(
+        status=completed.returncode,
+        log=_read(log),
+        docker_args=_read(args_file),
+        docker_env=_read(env_file),
+    )
+
+
+def test_procede_se_tutte_le_migration_sono_applicate(tmp_path):
+    esito = _run_deploy(tmp_path)
+
+    assert esito.status == 0
+    assert "=== fine (ok) ===" in esito.log
+    assert "up -d api" in esito.docker_args
+
+
+def test_si_ferma_se_manca_una_migration_e_non_costruisce_niente(tmp_path):
+    # 0002_b.sql esiste come file ma non e' nel ledger: e' il caso reale,
+    # verificato in produzione, di una migration scritta ma non ancora
+    # applicata sulla droplet.
+    esito = _run_deploy(tmp_path, schema_migrations="0001_a.sql")
+
+    assert esito.status == 10, "migration mancanti: codice di uscita distinto"
+    assert "0002_b.sql" in esito.log
+    assert "build" not in esito.docker_args, "non deve costruire nulla se manca una migration"
+    assert "up -d" not in esito.docker_args
+
+
+def test_si_ferma_con_codice_diverso_se_manca_il_ledger_stesso(tmp_path):
+    # Non lo stesso caso di "una migration manca": qui lo script non sa NIENTE
+    # sullo stato del database, e deve dirlo invece di scambiarlo per "tutto
+    # applicato" (il ledger vuoto sarebbe indistinguibile da "nessuna riga
+    # trovata" se non si controllasse l'errore specifico).
+    esito = _run_deploy(tmp_path, schema_migrations="MISSING_TABLE")
+
+    assert esito.status == 11
+    assert esito.status != 10, "manca il ledger, non solo una migration: sono due casi diversi"
+    assert "0012" in esito.log
+    assert "build" not in esito.docker_args
+
+
+def test_build_normale_e_build_del_profilo_tools_vanno_sempre_insieme(tmp_path):
+    # Il difetto del 07/09/2026: un `docker compose build` da solo non
+    # ricostruisce `job`. Da qui in avanti i due comandi vanno sempre insieme,
+    # in quest'ordine.
+    esito = _run_deploy(tmp_path)
+
+    invocazioni = [riga for riga in esito.docker_args.splitlines() if riga.strip()]
+    build_semplice = [i for i, riga in enumerate(invocazioni) if riga.endswith(" build")]
+    build_job = [
+        i for i, riga in enumerate(invocazioni) if "--profile tools build job" in riga
+    ]
+    assert len(build_semplice) == 1, invocazioni
+    assert len(build_job) == 1, invocazioni
+    assert build_semplice[0] < build_job[0], "build semplice deve venire prima"
+
+
+def test_non_lancia_mai_up_d_nudo(tmp_path):
+    # Ricreerebbe anche `bot`, facendo cadere il gateway Discord per una
+    # modifica che non lo riguarda. Solo `up -d api`.
+    esito = _run_deploy(tmp_path)
+
+    invocazioni_up = [
+        riga for riga in esito.docker_args.splitlines() if " up " in f" {riga} "
+    ]
+    assert invocazioni_up, "lo script deve invocare up almeno una volta"
+    for riga in invocazioni_up:
+        assert riga.endswith("up -d api"), riga
+
+
+def test_kindling_code_version_arriva_al_build_dal_git_pullato_non_da_env(tmp_path):
+    # Il punto di tutta la parte A: la versione non si legge da .env (lo
+    # script non lo tocca nemmeno), si calcola da git rev-parse subito dopo il
+    # pull e viaggia nell'ambiente della shell fino a docker compose build.
+    esito = _run_deploy(tmp_path)
+
+    righe_env = [r for r in esito.docker_env.splitlines() if r.strip()]
+    assert righe_env, "il docker stub deve aver registrato qualcosa"
+    for riga in righe_env:
+        assert riga == "KINDLING_CODE_VERSION=deadbee", riga
+
+
+def test_si_ferma_se_kindling_api_legge_graph_edges(tmp_path):
+    # Il primo invariante non negoziabile del progetto: se il ruolo di sola
+    # lettura legge una tabella interna, non e' un dettaglio da segnalare a
+    # margine, e' un deploy da considerare fallito.
+    esito = _run_deploy(tmp_path, graph_edges_leaks=True)
+
+    assert esito.status == 12
+    assert "perimetro compromesso" in esito.log
+    assert "ATTENZIONE" in esito.log or "graph_edges" in esito.log
+
+
+def test_si_ferma_se_kindling_api_non_legge_metric_runs(tmp_path):
+    # Il verso opposto dello stesso invariante: se il ruolo non legge nemmeno
+    # quello che DEVE poter leggere, l'API in produzione e' rotta, non solo il
+    # perimetro.
+    esito = _run_deploy(tmp_path, metric_runs_denied=True)
+
+    assert esito.status == 12
+    assert "perimetro compromesso" in esito.log
+
+
+def test_il_controllo_del_perimetro_mostra_entrambi_gli_esiti_prima_di_fermarsi(tmp_path):
+    # Non deve uscire al primo problema: se sono rotti entrambi i controlli,
+    # chi legge deve vedere tutti e due, non solo il primo che ha fatto fallire
+    # lo script.
+    esito = _run_deploy(tmp_path, graph_edges_leaks=True, metric_runs_denied=True)
+
+    assert esito.status == 12
+    assert esito.log.count("perimetro compromesso") == 2, esito.log
+
+
+def test_le_verifiche_informative_non_fermano_lo_script(tmp_path):
+    # Il resto del passo 6 (date immagini, health, code_version,
+    # API_DATABASE_URL) resta informativo: solo il perimetro del ruolo decide
+    # l'esito. Qui nessuna delle due condizioni di rottura e' simulata, quindi
+    # lo script deve arrivare in fondo.
+    esito = _run_deploy(tmp_path)
+
+    assert esito.status == 0
+    assert "=== fine (ok) ===" in esito.log
+
+
+def test_pull_fallito_non_chiama_nessun_docker(tmp_path):
+    git_che_fallisce = '#!/usr/bin/env bash\nexit 17\n'
+    esito = _run_deploy(tmp_path, git_body=git_che_fallisce)
+
+    assert esito.status == 17
+    assert esito.docker_args == "", "senza codice aggiornato non si costruisce niente"
+
+
+def test_nessun_comando_eredita_uno_stdin_leggibile_nel_deploy(tmp_path):
+    # Stessa proprieta' di ops/kindling-weekly.sh, stesso motivo: un deploy
+    # lanciato da una sessione che si stacca non deve lasciare nessun comando
+    # in attesa di leggere da un terminale che non c'e' piu'.
+    binaries = tmp_path / "bin"
+    binaries.mkdir(exist_ok=True)
+    _stub(binaries / "docker", DOCKER_STUB_DEPLOY)
+    _stub(binaries / "git", GIT_STUB)
+
+    project_dir = tmp_path / "progetto"
+    (project_dir / "migrations").mkdir(parents=True)
+    (project_dir / "migrations" / "0001_a.sql").write_text("-- fake\n", encoding="utf-8")
+
+    env = dict(
+        os.environ,
+        PATH=f"{binaries}{os.pathsep}{os.environ['PATH']}",
+        DEPLOY_DOCKER_ARGS_FILE=str(tmp_path / "docker-args.txt"),
+        DEPLOY_DOCKER_ENV_FILE=str(tmp_path / "docker-env.txt"),
+        STUB_SCHEMA_MIGRATIONS="0001_a.sql",
+        KINDLING_DOCKER_BIN=str(binaries / "docker"),
+        KINDLING_GIT_BIN=str(binaries / "git"),
+        KINDLING_PROJECT_DIR=str(project_dir),
+        KINDLING_DEPLOY_LOG_FILE=str(tmp_path / "deploy.log"),
+    )
+
+    completed = subprocess.run(
+        [BASH, str(DEPLOY_SCRIPT)],
+        env=env,
+        input="questo non deve arrivare a docker\n",
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    assert completed.returncode == 0

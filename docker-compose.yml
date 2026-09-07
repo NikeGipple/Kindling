@@ -88,18 +88,27 @@ services:
   # postgres e bot, perche' l'ambiente di riferimento e' la droplet e non
   # esiste una "fase locale" separata da promuovere (vedi architettura.md).
   job:
-    build: .
+    build:
+      context: .
+      args:
+        # Incisa nell'immagine (vedi Dockerfile), non letta da .env a runtime:
+        # ops/kindling-deploy.sh la calcola da `git rev-parse --short HEAD` e
+        # la passa qui come build-arg. Il default vuoto serve solo a chi
+        # lancia `docker compose build` senza lo script (sviluppo locale):
+        # _code_version() tratta una versione vuota come assente, non come un
+        # errore.
+        KINDLING_CODE_VERSION: "${KINDLING_CODE_VERSION:-}"
     profiles: ["tools"]
-    # env_file carica GIA' ogni riga di .env nel container, KINDLING_CODE_VERSION
-    # e KINDLING_PSEUDONYM_SALT comprese: non serve restarle qui sotto
-    # `environment`, che e' riservato ai valori che devono essere DIVERSI da
-    # quelli di .env (vedi DATABASE_URL sotto). Il gap vero non era qui: era
-    # che sulla droplet quella riga di .env restava vuota — vedi
-    # runbook-droplet.md, procedura di deploy, passo 4.
     env_file:
       - .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-kindling}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-kindling}
+    # NON aggiungere KINDLING_CODE_VERSION qui ne' in .env (vedi .env.example):
+    # env_file e environment vincono sempre sul valore incastonato nell'immagine
+    # con l'ARG sopra, quindi una riga anche vuota in .env sovrascriverebbe in
+    # silenzio il commit vero con una stringa vuota, e code_version tornerebbe
+    # NULL con la build riuscita — il modo in cui questo difetto e' gia'
+    # successo una volta.
     # Se qualcosa deve morire per esaurimento memoria su una macchina da 1 GB,
     # deve morire il job, non il bot o Postgres: senza un limite esplicito
     # l'OOM killer sceglie il processo con piu' RSS, che e' il database.
