@@ -93,6 +93,31 @@ accorge. Migration prima, sempre.
    cambiate (es. `KINDLING_PSEUDONYM_SALT`, con
    `openssl rand -base64 32`) vanno anche annotate come tali: cambiarle
    invalida silenziosamente gli output precedenti.
+
+   **`KINDLING_CODE_VERSION` è diversa da tutte le altre: non si imposta una
+   volta, si riscrive a OGNI deploy**, qui, subito dopo il `git pull` del passo
+   3 — è l'hash del commit appena preso:
+   ```bash
+   sed -i "s/^KINDLING_CODE_VERSION=.*/KINDLING_CODE_VERSION=$(git rev-parse --short HEAD)/" .env
+   ```
+   Verificato necessario il 07/09/2026: la riga è in `.env.example` da prima
+   ancora del layer del grafo, ma sulla droplet non l'ha mai scritta nessuno
+   perché non c'è un comando "una tantum" a cui appoggiarsi come per le altre
+   — il valore giusto *cambia* a ogni deploy. Risultato: `code_version` è
+   sempre stato `NULL` su `graph_snapshots` e `metric_runs`, invisibile finché
+   non si è cercato "quale codice ha scritto questa riga" — che è esattamente
+   la domanda che la regola del ricalcolo (`modello-grafo.md` §5.1) chiede di
+   fare prima di ricalcolare una settimana con codice diverso. Nessuna riga
+   nuova in `docker-compose.yml`: `env_file: - .env` sui servizi `bot`, `api` e
+   `job` carica già ogni riga di `.env` nel container, `KINDLING_CODE_VERSION`
+   compresa — è lo stesso meccanismo che già porta `KINDLING_PSEUDONYM_SALT` al
+   job senza comparire nella sezione `environment:` di nessuno dei tre. Le
+   righe già scritte restano `NULL`: non c'è modo di ricostruire a posteriori
+   quale codice le ha prodotte, e non è un dato che valga la pena migrare a
+   mano riga per riga. Verifica dopo il prossimo snapshot:
+   ```sql
+   SELECT id, code_version FROM graph_snapshots ORDER BY id DESC LIMIT 3;
+   ```
 5. **Applicare le migration a mano.** I file in `migrations/` vengono eseguiti
    da Postgres automaticamente **solo al primo avvio**, a volume dati (`pgdata`)
    vuoto (`docker-entrypoint-initdb.d`). Su un volume già popolato le nuove
@@ -111,6 +136,18 @@ accorge. Migration prima, sempre.
    ```
    Ricrea solo il container `bot`; il container e il volume `postgres` restano
    in esecuzione, invariati.
+
+   **Se la modifica tocca anche `job/`, questo comando non lo aggiorna**, ne'
+   lo aggiornerebbe un `docker compose build` semplice: `job` ha
+   `profiles: ["tools"]`, ed e' escluso in silenzio da entrambi, esattamente
+   come da `up`. Va ricostruito a parte:
+   ```bash
+   docker compose --profile tools build job
+   ```
+   Verifica dopo il build, sempre: `docker images --format
+   '{{.Repository}}\t{{.CreatedAt}}' | grep kindling` — le date di
+   `kindling-bot`, `kindling-api` e `kindling-job` devono essere ravvicinate.
+   Una vecchia in mezzo a due fresche e' il segno che questo passo e' saltato.
 7. **Passi applicativi specifici**, se previsti — migrazioni di *dati* (non di
    schema) e simili. Il backfill di `members` **non è più di questi**: è
    interno al bot e gira da solo all'avvio e quando il bot entra in un server,
@@ -157,15 +194,45 @@ colonna in più che nessuno seleziona ancora. La sequenza:
    docker compose exec postgres psql -U kindling -d kindling \
      -f /docker-entrypoint-initdb.d/0011_previous_gap_days.sql
    ```
-2. `docker compose build`.
+2. **Build, in due comandi e non uno**:
+   ```bash
+   docker compose build
+   docker compose --profile tools build job
+   ```
+   `docker compose build` da solo **non ricostruisce `job`**: `profiles:
+   ["tools"]` lo esclude dal build di default esattamente come lo esclude da
+   `up`, e senza avviso — nessun errore, nessuna riga di log, l'immagine
+   vecchia resta lì. Verificato in produzione il 07/09/2026: dopo un
+   `docker compose build` semplice, `kindling-api` e `kindling-bot` risultavano
+   ricostruite e `kindling-job` no, e un `docker compose run --rm job python -m
+   job.main metrics --snapshot-id 11` lanciato subito dopo ha girato con il
+   codice di tre giorni prima, scritto metriche, ed è uscito `0` —
+   `previous_gap_days` è rimasto `NULL` e sembrava un difetto del codice nuovo,
+   non un'immagine mai aggiornata. `--profile tools build job` è il comando
+   verificato che risolve, non uno plausibile: rieseguito subito dopo, ha
+   scritto `previous_gap_days = 0.318` su tutti e quattro i layer.
+
+   Verifica che il build abbia coperto tutti e tre i servizi, prima di
+   proseguire:
+   ```bash
+   docker images --format '{{.Repository}}\t{{.CreatedAt}}' | grep kindling
+   ```
+   Le tre date devono essere ravvicinate (stesso minuto, tipicamente). Una
+   `kindling-job` con una data vecchia mentre le altre due sono fresche è
+   esattamente questo difetto che si ripete.
 3. `docker compose up -d api` — **solo `api`, non `up -d` senza argomenti**.
-   L'immagine è condivisa fra `bot`, `job` e `api`: ricrearla per tutti i
-   servizi farebbe ripartire anche il `bot`, con il gateway Discord che cade
-   per una modifica che non lo riguarda.
-4. Il `job` non ha un container in esecuzione da ricreare (`profiles: ["tools"]`):
-   il `build` del passo 2 ha già prodotto la sua immagine nuova, quindi il
-   prossimo `docker compose run --rm job ...` — a mano o da cron — la usa senza
-   nessun passo aggiuntivo.
+   `bot` e `api` sono immagini distinte (non condivisa: `docker images` le
+   elenca separate), ma nessuna delle due ha un `profiles`, quindi un `up -d`
+   senza argomenti ricrea **entrambi** i container corrispondenti alle immagini
+   appena costruite — non solo quello che serve a questo deploy. Ricreare il
+   container `bot` fa cadere il gateway Discord per una modifica che non lo
+   riguarda. `job` non ha questo problema: `profiles: ["tools"]` lo tiene fuori
+   da qualunque `up`, con o senza argomenti — è per questo che non ha un passo
+   `up` proprio, solo il `build` esplicito del punto 2.
+4. Il `job` non ha un container in esecuzione da ricreare: il `build` esplicito
+   del passo 2 ha già prodotto la sua immagine nuova, quindi il prossimo
+   `docker compose run --rm job ...` — a mano o da cron — la usa senza nessun
+   passo aggiuntivo.
 
 **Precondizione temporale per l'intero deploy, non solo per questa parte**: non
 prima che il cron schedulato di lunedì 07/09/2026 04:15 UTC sia stato

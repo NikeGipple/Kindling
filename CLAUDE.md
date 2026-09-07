@@ -179,12 +179,14 @@ sistemare (rigenerare in hex) alla prossima occasione in cui si tocca comunque
 quella credenziale, non con un cambio dedicato su una credenziale che oggi
 funziona.
 
-### 7. Classe di difetto: una verifica che smette di verificare senza dirlo
+### 7. Classe di difetto: un meccanismo che sembra funzionare e non dice che non sta funzionando
 
 Non è un errore singolo, è un **genere** da cercare attivamente. Un controllo
-che continua a passare mentre ha smesso di controllare qualcosa è peggio di un
-controllo assente: quello assente si nota, questo dà conferma. Due casi già
-visti in questo repo, diversi nella forma e identici nella sostanza:
+che continua a passare mentre ha smesso di controllare qualcosa — o un
+meccanismo che sembra applicarsi a tutto e in realtà esclude qualcosa in
+silenzio — è peggio di un'assenza dichiarata: quella si nota, questo dà
+conferma. Quattro casi già visti in questo repo, diversi nella forma e
+identici nella sostanza:
 
 - **`api/db.py`, ordinamento senza tiebreaker.** `ORDER BY as_of DESC` senza
   `snapshot_id DESC` lascia l'ordine indefinito quando due snapshot pareggiano
@@ -200,6 +202,30 @@ visti in questo repo, diversi nella forma e identici nella sostanza:
   percorso: il comando avrebbe continuato a girare, verificando una cosa che a
   nessuno interessa. Corretto in `$7`, cioè il campo che il formato di
   `/etc/cron.d` definisce come "comando" (06/09/2026).
+- **`docker compose build` che salta `job` senza dirlo.** Il servizio `job` ha
+  `profiles: ["tools"]`, e Compose esclude i servizi fuori dal profilo attivo
+  sia da `build` sia da `up`, con lo stesso silenzio: nessun errore, nessuna
+  riga di log, l'immagine vecchia resta. Capitato davvero il 07/09/2026:
+  `docker compose build` seguito da un `docker compose run --rm job ...` ha
+  eseguito codice di tre giorni prima, scritto metriche, uscendo `0`. Il
+  sintomo (`previous_gap_days` rimasto `NULL`) sembrava un bug del codice
+  nuovo. Fix: `docker compose --profile tools build job` esplicito, sempre
+  accanto a `docker compose build`, con la verifica
+  `docker images --format '{{.Repository}}\t{{.CreatedAt}}' | grep kindling`
+  (le tre date devono essere ravvicinate) — vedi `runbook-droplet.md`.
+- **`KINDLING_CODE_VERSION` mai scritta sulla droplet.** La riga è in
+  `.env.example` da settimane, con un commento che dice "sulla droplet la
+  imposta il deploy" — ma nessun passo della procedura di deploy la impostava
+  davvero, perché a differenza di ogni altra variabile del file il suo valore
+  giusto *cambia* a ogni deploy, e non esiste un comando "una tantum" a cui
+  appoggiarsi come per le altre. Risultato: `code_version` è stato `NULL` su
+  ogni riga di `graph_snapshots` e `metric_runs` da sempre, scoperto solo
+  cercando "quale codice ha scritto questa riga" — la stessa domanda che la
+  regola del ricalcolo di `modello-grafo.md` §5.1 chiede di fare prima di
+  ricalcolare con codice diverso, e che quella regola presuppone risolvibile.
+  Fix: passo esplicito nella procedura di deploy (`runbook-droplet.md`, passo
+  4) che la riscrive da `git rev-parse --short HEAD` a ogni esecuzione, non
+  una tantum.
 
 Come si cercano: ogni volta che si cambia la **forma** di qualcosa che un
 controllo ispeziona — l'ordine di una query, il numero di campi di una riga, il
@@ -209,6 +235,17 @@ riscrivere insieme alla modifica, non dopo. Vale in modo particolare per le
 verifiche scritte nei runbook: nessuno le esegue abbastanza spesso da vederle
 degradare, e quando le si esegue è di solito nel momento peggiore per
 accorgersene.
+
+Vale anche al contrario, ed è la parte nuova con `profiles` e con
+`KINDLING_CODE_VERSION`: non solo un controllo che smette di controllare, ma un
+**meccanismo che sembra coprire tutto** (un `build` senza argomenti, un
+commento che promette "lo imposta il deploy") **e in realtà esclude un caso
+particolare senza segnalarlo**. Il test per riconoscerlo è lo stesso: quando si
+introduce un servizio con un comportamento diverso dagli altri (un `profiles`,
+un valore che cambia invece di restare fisso), ci si chiede se ogni comando
+"per tutti" scritto prima di quel momento lo include ancora davvero — e se un
+commento promette che "qualcosa lo fa", si verifica che quel qualcosa esista
+per davvero come passo eseguibile, non come intenzione.
 
 ## Checklist prima di chiudere un task che tocca Docker/rete/segreti
 
