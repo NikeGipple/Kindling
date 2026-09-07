@@ -132,6 +132,54 @@ accorge. Migration prima, sempre.
 il volume `pgdata`, quindi anche `raw_events`, che non è ricostruibile. Per
 riavviare i servizi basta sempre `docker compose up -d --build`, mai `down -v`.
 
+**Se il deploy tocca il calcolo** (job del grafo o delle metriche), c'è una
+decisione da prendere *prima* di rilanciare qualcosa a mano: da quando `as_of` è
+ancorato alla settimana ISO, rieseguire il job nella settimana corrente
+**riscrive** lo snapshot e le metriche già pubblicate, con lo stesso
+`snapshot_id` e valori diversi. La regola, da `modello-grafo.md` §5.1: **o si
+ricalcolano tutte le settimane confrontabili, o non se ne ricalcola nessuna** —
+una serie in cui un solo snapshot è stato prodotto da codice diverso dai suoi
+vicini ha una `stability_jaccard` che misura in parte quella differenza di
+codice. `metric_runs.code_version` dice quale codice ha prodotto cosa, ed è da
+lì che si guarda.
+
+**Questo deploy in particolare porta la migration `0011_previous_gap_days.sql`**
+(colonna tipizzata su `metric_communities`, promossa da `details` — vedi
+`modello-metriche.md` §4.7). L'ordine qui **non è quello generico del passo 5**:
+sia `job/db.py` (l'`INSERT` di `write_metrics`) sia `api/db.py` (la `SELECT` di
+`fetch_communities`) nominano la colonna nuova, quindi il codice nuovo su uno
+schema vecchio fallisce — `UndefinedColumnError` nel job, un `500` su
+`/communities`. L'ordine inverso è innocuo: `0011` applicata prima è solo una
+colonna in più che nessuno seleziona ancora. La sequenza:
+
+1. **Migration prima**, come sempre (passo 5 della procedura generale):
+   ```bash
+   docker compose exec postgres psql -U kindling -d kindling \
+     -f /docker-entrypoint-initdb.d/0011_previous_gap_days.sql
+   ```
+2. `docker compose build`.
+3. `docker compose up -d api` — **solo `api`, non `up -d` senza argomenti**.
+   L'immagine è condivisa fra `bot`, `job` e `api`: ricrearla per tutti i
+   servizi farebbe ripartire anche il `bot`, con il gateway Discord che cade
+   per una modifica che non lo riguarda.
+4. Il `job` non ha un container in esecuzione da ricreare (`profiles: ["tools"]`):
+   il `build` del passo 2 ha già prodotto la sua immagine nuova, quindi il
+   prossimo `docker compose run --rm job ...` — a mano o da cron — la usa senza
+   nessun passo aggiuntivo.
+
+**Precondizione temporale per l'intero deploy, non solo per questa parte**: non
+prima che il cron schedulato di lunedì 07/09/2026 04:15 UTC sia stato
+verificato riuscito sull'installato attuale (`grep -E
+'(START|END|===|ABORT|SKIP)' /var/log/kindling/job.log`, sezione "Cadenza
+settimanale" più sotto). Un fallimento di lunedì deve avere una causa
+possibile sola, non due — il cron di questa settimana e il deploy di questa
+modifica insieme.
+
+**Questo deploy in particolare rompe anche un'assunzione mai scritta**, e fino
+a lunedì 14/09/2026 00:00 UTC **non va lanciato `ops/kindling-weekly.sh` a
+mano**: vedi il riquadro nella sezione "Verifica: eseguire a mano una volta"
+qui sotto, che spiega perché e cosa fare se serve davvero verificare.
+
 ## Lanciare il job di calcolo del grafo
 
 Il job è sotto `profiles: ["tools"]`: non parte con `docker compose up -d` e non
@@ -148,15 +196,29 @@ Postgres: è il passo da fare sempre prima della prima esecuzione dopo un
 cambiamento al calcolo, e i suoi numeri vanno confrontati con quelli attesi
 prima di lasciarlo scrivere.
 
-Il job è **idempotente**: rilanciarlo sullo stesso `as_of` e sulla stessa
-finestra riscrive lo snapshot esistente invece di affiancargliene un duplicato
-(chiave `graph_snapshots (guild_id, as_of, window_start, window_end)`). È
-quello che permette, dopo una correzione al calcolo, di rigenerare uno
-snapshot già scritto:
+Il job è **idempotente**, e da adesso lo è davvero: senza `--as-of` l'istante
+dello snapshot non è più `now()` ma il **lunedì 00:00 UTC della settimana ISO
+corrente** (`modello-grafo.md` §5.1). Due esecuzioni nella stessa settimana
+condividono quindi `as_of` e finestra, e la seconda **riscrive** la riga della
+prima invece di affiancargliene una nuova (chiave
+`graph_snapshots (guild_id, as_of, window_start, window_end)`).
+
+> Fino al 06/09/2026 questa promessa era falsa: `as_of` veniva preso
+> dall'orologio al microsecondo, quella chiave non si ripeteva mai e ogni
+> lancio a mano lasciava in tabella una riga in più. Gli snapshot `8`, `9` e
+> `10` in produzione sono nati così, e restano dove sono.
+
+Un'esecuzione a mano di mercoledì ricalcola quindi lo snapshot **del lunedì**,
+non gli ultimi sette giorni: gli eventi da lunedì in poi entreranno in quello
+della settimana prossima. È voluto — è ciò che fa affiancare esattamente le
+finestre — e la via di fuga è dichiarare l'istante:
 
 ```bash
 docker compose run --rm job python -m job.main snapshot --as-of '<as_of dello snapshot>'
 ```
+
+È anche il modo di rigenerare uno snapshot già scritto dopo una correzione al
+calcolo: stesso `as_of`, stessa `--window-days`, la riga viene riscritta.
 
 Gli export GraphML restano in `exports/` sull'host e si portano sul proprio PC
 con `scp`. Sono file per Gephi, non dati del servizio, e la cartella è in
@@ -487,9 +549,17 @@ sette giorni le finestre si affiancano **senza sovrapporsi né lasciare buchi**,
 ed è la condizione in cui `stability_jaccard` misura la ricomposizione delle
 community invece della sovrapposizione delle finestre. Con gli snapshot a
 quattro giorni di distanza la stabilità risulta gonfiata — e lo dice da sé, in
-`snapshot_gaps.cadence_days_median`. Il lunedì allinea le finestre alle settimane
-ISO usate dalle coorti; le 04:15 UTC sono l'ora più tranquilla per una community
-serale come L'Arco.
+`snapshot_gaps.cadence_days_median` e in `details.previous_gap_days` della riga
+di community (`modello-metriche.md` §4.7).
+
+L'allineamento però **non lo fa il cron**: lo fa `as_of`, che il job ancora al
+lunedì 00:00 UTC della settimana ISO usata dalle coorti (`modello-grafo.md`
+§5.1). L'orario del cron decide solo *quando* il calcolo gira, non il confine
+*su cui* gira: le 04:15 UTC sono l'ora più tranquilla per una community serale
+come L'Arco, e i quindici minuti spostano l'esecuzione fuori dall'ora tonda dove
+si accalcano gli altri cron di sistema. Fino al 06/09/2026 l'allineamento era
+affidato al solo giorno del cron, e le finestre uscivano sfasate di 4h15m
+rispetto alle settimane ISO.
 
 Tre file, tutti in `ops/` nel repository — niente da scrivere a mano sulla
 droplet:
@@ -536,10 +606,11 @@ Quindi, **dopo ogni copia**, si guarda cosa è finito nel file:
 cat /etc/cron.d/kindling
 ```
 
-Sei colonne sulla riga eseguita, e il percorso deve esistere:
+Sei colonne sulla riga eseguita, e il percorso del comando — la **settima**, non
+l'ultima: dopo il comando c'è la pipe a `logger` — deve esistere:
 
 ```bash
-ls -l "$(awk '$1 !~ /^#/ && NF >= 7 {print $NF}' /etc/cron.d/kindling)"
+ls -l "$(awk '$1 !~ /^#/ && NF >= 7 {print $7}' /etc/cron.d/kindling)"
 ```
 
 ### Verifica: eseguire a mano una volta, non aspettare lunedì
@@ -554,17 +625,80 @@ script giri nell'ambiente giusto — che `docker` sia dove lo cerca, che il `.en
 venga letto, che il log sia scrivibile — prima che lo faccia cron, dove un
 errore non lo vede nessuno.
 
+> **Eccezione, dal deploy di questa modifica fino a lunedì 14/09/2026 00:00
+> UTC: NON lanciare questo script a mano.**
+>
+> `ops/kindling-weekly.sh` lancia `snapshot` e poi `metrics` **senza
+> `--snapshot-id`**: `metrics` sceglie lo snapshot su cui calcolare con
+> `db.fetch_snapshot` (`ORDER BY as_of DESC, id DESC`), non "quello appena
+> scritto". Finché `as_of` veniva da `now()` le due cose coincidevano sempre
+> per costruzione — lo snapshot appena scritto aveva per forza l'`as_of` più
+> alto. Con l'ancoraggio al lunedì **non è più garantito**, e in questa
+> settimana specifica non lo è: il cron di questa mattina (04:15 UTC) ha
+> scritto uno snapshot con codice vecchio e `as_of` = lunedì **04:15**; un
+> lancio a mano dopo il deploy calcola `as_of` = lunedì **00:00** — un istante
+> *precedente* per orologio ma della stessa settimana. `metrics` sceglierebbe
+> lo snapshot delle 04:15 (l'`as_of` più alto), cioè quello vecchio, e
+> calcolerebbe le metriche sul grafo sbagliato. Nessun errore, `exit=0`, nel
+> log solo `END metrics exit=0`: verificato su Postgres reale, non dedotto.
+>
+> Se la verifica serve comunque, lanciare i due passi **separati** e passare a
+> `metrics` l'id restituito dal primo:
+>
+> ```bash
+> docker compose run --rm job python -m job.main snapshot
+> # annotare l'id dal log: "guild_id=... snapshot <ID> scritto."
+> docker compose run --rm job python -m job.main metrics --snapshot-id <ID>
+> ```
+>
+> La finestra si chiude da sola: dopo il cron di lunedì 14/09 alle 04:15 UTC
+> (che scrive `as_of` = lunedì 14/09 **00:00**, più alto di qualunque snapshot
+> di questa settimana) `fetch_snapshot` torna a scegliere giusto senza bisogno
+> di attenzioni. Il fix permanente — scegliere lo snapshot "appena scritto" in
+> un modo che non dipenda dall'essere anche il più recente per `as_of` — è
+> deliberatamente rimandato: è un cambio di comportamento in un altro punto e
+> merita la propria voce di spec, non un innesto su questo branch (vedi
+> `CLAUDE.md`).
+
 Poi il lunedì successivo:
 
 ```bash
-tail -40 /var/log/kindling/job.log
+grep -E '(START|END|===|ABORT|SKIP)' /var/log/kindling/job.log | tail -20
 ```
+
+Non un `tail -40`: il job logga una riga per **ogni** riga di metrica scritta —
+robustezza, community, bucket, coorti, retention — quindi le ultime quaranta
+righe sono quasi sempre solo retention, e il passo `snapshot` non compare
+nemmeno. Il grep tiene le sole righe di struttura dello script: `START`/`END`
+con il codice di uscita e la durata di ogni passo, `===` per l'esecuzione, e le
+due condizioni che raccontano un problema (`SKIP`, lock occupato; `ABORT`,
+snapshot fallito e metriche non eseguite).
+
+Poi journald, dove finisce quello che il job non ha potuto scrivere da sé:
+
+```bash
+journalctl -t kindling-cron --since '2 hours ago'
+```
+
+**Nessuna riga è la condizione normale.** La riga di cron manda il proprio
+output a `logger -t kindling-cron`, quindi lì ci compare solo ciò che fallisce
+*prima* che lo script arrivi al proprio log: `flock` che manca, `docker` fuori
+dal `PATH` di cron, lo script senza bit di esecuzione. Senza quella pipe (e con
+`MAILTO=""`) quegli errori andrebbero alla mail di cron, che su questa droplet
+non ha nessun MTA che la consegni — cioè sparirebbero, ed è il tipo di
+fallimento che si nota solo settimane dopo, dai dati mancanti. È anche lo stesso
+posto in cui si guarda che cron abbia ricaricato il file
+(`journalctl -u cron | grep RELOAD`): un posto solo invece di due.
 
 ```sql
 SELECT id, as_of FROM graph_snapshots ORDER BY id DESC LIMIT 3;
 ```
 
-Gli `as_of` devono essere a sette giorni esatti di distanza.
+Gli `as_of` devono essere a sette giorni esatti di distanza **e cadere tutti a
+mezzanotte UTC di lunedì**, non alle 04:15: è l'ancoraggio di
+`modello-grafo.md` §5.1, ed è quello che rende ripetibile la chiave dello
+snapshot. Un `as_of` con i minuti dentro è un'esecuzione che ha aggirato
+l'allineamento (un `--as-of` esplicito, o codice precedente al 06/09/2026).
 
 ### Come accorgersi che il cron ha smesso di funzionare
 

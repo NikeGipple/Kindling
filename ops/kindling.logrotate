@@ -1,4 +1,4 @@
-# Kindling — rotazione del log del job schedulato.
+# Kindling — rotazione dei log del job schedulato.
 #
 # Installazione sulla droplet (come root):
 #     cp /root/kindling/ops/kindling.logrotate /etc/logrotate.d/kindling
@@ -10,7 +10,12 @@
 # momento peggiore. Il volume qui e' minuscolo (qualche decina di righe a
 # settimana), quindi non e' urgenza — e' igiene, e costa una configurazione.
 
-/var/log/kindling/job.log {
+# Il glob e non `job.log`: oggi in questa cartella c'e' solo quel file — la riga
+# di cron manda il proprio output a journald via logger, non qui — ma un log
+# nuovo che nessuno si ricorda di aggiungere in questa stanza e' esattamente il
+# modo in cui una rotazione smette di coprire quello che dovrebbe. Il glob costa
+# un carattere e toglie il problema.
+/var/log/kindling/*.log {
     weekly
     # Otto settimane di storico: abbastanza per guardare indietro qualche
     # esecuzione quando un numero sembra sbagliato, non tanto da accumulare.

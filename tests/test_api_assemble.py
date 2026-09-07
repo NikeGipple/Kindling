@@ -180,6 +180,63 @@ def test_i_bucket_finiscono_sotto_la_loro_partizione_e_non_su_un_altra():
     assert voice.sizes[0].quality.suppressed is False
 
 
+def test_previous_gap_days_arriva_come_campo_tipizzato_e_non_dentro_details():
+    # Il punto della migration 0011: previous_gap_days e' l'unico dei quattro
+    # dati del confronto di stabilita' che dice se gli altri tre valgono
+    # qualcosa, e details e' dichiarata diagnostica e non contratto
+    # (api/models.py) — un qualificatore su cui il consumatore non puo' contare
+    # non qualifica niente. Qui si verifica che la riga dal database (colonna
+    # SQL, non chiave JSON) arrivi nel modello come CommunityValues.previous_gap_days.
+    rows = [
+        {
+            "snapshot_id": 42,
+            "as_of": T0,
+            "layer": "voice",
+            "n_effective": 40,
+            "community_count": 2,
+            "modularity": 0.49,
+            "previous_snapshot_id": 41,
+            "node_overlap": 0.9,
+            "stability_jaccard": 0.75,
+            "previous_gap_days": 7.0,
+            "is_suppressed": False,
+            "is_significant": True,
+            "details": "{}",
+        },
+    ]
+
+    (voice,) = assemble.communities(rows, sizes=[])
+
+    # Colonna letta attraverso il modello dell'API, non attraverso il Record
+    # grezzo: e' cio' che un consumatore vede davvero.
+    assert voice.values.previous_gap_days == 7.0
+    # CommunityValues non ha nessun campo "details": previous_gap_days sta in
+    # values, accanto a stability_jaccard, e non dentro la diagnostica.
+    assert not hasattr(voice.values, "details")
+
+
+def test_previous_gap_days_assente_nella_riga_e_none_nel_modello():
+    # Una riga senza la colonna (o con NULL, cioe' senza chiave nel Record) non
+    # deve far fallire l'assemblaggio: row.get() torna None, come per
+    # stability_jaccard quando la stabilita' non e' calcolabile.
+    rows = [
+        {
+            "snapshot_id": 42,
+            "as_of": T0,
+            "layer": "voice",
+            "n_effective": 40,
+            "community_count": 2,
+            "is_suppressed": False,
+            "is_significant": False,
+            "details": "{}",
+        },
+    ]
+
+    (voice,) = assemble.communities(rows, sizes=[])
+
+    assert voice.values.previous_gap_days is None
+
+
 # --- coorti ----------------------------------------------------------------
 
 

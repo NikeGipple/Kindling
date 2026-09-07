@@ -4,9 +4,15 @@
 #
 # Lanciato da cron il lunedi' mattina presto in UTC (vedi ops/kindling.cron), ma
 # scritto per essere lanciato anche a mano: e' cosi' che verra' debuggato, ed e'
-# un'operazione sicura — rieseguirlo sullo stesso `as_of` RISCRIVE lo snapshot
-# invece di duplicarlo (chiave graph_snapshots (guild_id, as_of, window_start,
-# window_end)), e lo stesso vale per le metriche.
+# un'operazione sicura — rieseguirlo nella stessa settimana RISCRIVE lo snapshot
+# invece di duplicarlo, e lo stesso vale per le metriche.
+#
+# "Nella stessa settimana" e non "nello stesso istante": il job ancora as_of al
+# lunedi' 00:00 UTC della settimana ISO (modello-grafo.md 5.1), ed e' questo che
+# fa ripetere la chiave graph_snapshots (guild_id, as_of, window_start,
+# window_end) e rende raggiungibile l'ON CONFLICT che riscrive. Finche' as_of
+# veniva preso dall'orologio, questa intestazione era falsa: la chiave non si
+# ripeteva mai e ogni lancio a mano lasciava una riga in piu'.
 #
 #     <repo>/ops/kindling-weekly.sh
 #

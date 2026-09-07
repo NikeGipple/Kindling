@@ -460,6 +460,50 @@ relazioni"), e vanno poter essere letti come serie senza aprire un JSON.
 Uno snapshot precedente "vicino ma non identico" nei parametri non viene
 adattato né riscalato: la stabilità semplicemente non è calcolabile, e lo dice.
 
+### 4.7 `previous_gap_days` — la stabilità dichiara la propria cadenza
+
+Ogni riga di `metric_communities` in cui la stabilità viene calcolata porta la
+**distanza in giorni tra i due `as_of` confrontati**, in una colonna tipizzata
+propria — non una chiave di `details`.
+
+Il numero è la differenza `as_of − as_of_precedente` arrotondata a tre
+decimali, scritta **sempre** e senza soglia.
+
+Serve perché `stability_jaccard` non significa la stessa cosa a distanze
+diverse, e da solo non lo dichiara. Lo snapshot precedente è quello
+immediatamente precedente per `as_of` (§4.6), senza nessun requisito di
+distanza: se due snapshot distano un giorno, le rispettive finestre da sette
+giorni si sovrappongono all'85-95%, e il Jaccard che ne esce misura in gran
+parte quella sovrapposizione invece della ricomposizione delle community — pur
+uscendo con `is_significant = true` come qualunque altro. È accaduto davvero,
+sulle righe prodotte dai lanci manuali di sabato e domenica precedenti
+all'ancoraggio di `as_of` (`modello-grafo.md` §5.1).
+
+Con `as_of` ancorato al lunedì il valore atteso è `7.0`, ma il campo resta:
+serve proprio a distinguere le righe calcolate quando l'ancoraggio non c'era, e
+a rendere visibile ogni futura esecuzione fuori cadenza (un `--as-of` esplicito,
+un recupero dopo una settimana saltata).
+
+**Nessuna soglia, nessun `reason`, e `is_significant` non viene toccato.** Vale
+identico l'argomento del §5.3 sulla cadenza della serie di snapshot: una soglia
+inventata oggi su poche settimane di dati sarebbe un parametro senza base messo
+davanti a un numero che si legge benissimo da solo. Il valore nudo basta —
+quello che cambia è che non viaggia più senza l'informazione che dice quanto
+vale, e chi legge decide.
+
+**Colonna, non `details`, e non per igiene.** `api/models.py` dichiara
+esplicitamente che `details` è DIAGNOSTICA, NON CONTRATTO: il suo contenuto
+cambia insieme al codice del job, nessun consumatore deve dipendere dalle sue
+chiavi, e non è una struttura su cui costruire un grafico. `previous_snapshot_id`,
+`node_overlap` e `stability_jaccard` sono già colonne tipizzate — cioè un
+contratto su cui l'API costruisce. Lasciare `previous_gap_days` in `details`
+avrebbe voluto dire che l'unico dei quattro dati del confronto che dice se gli
+altri tre valgono qualcosa era anche l'unico su cui il contratto invita a NON
+contare: un qualificatore che il consumatore non può leggere in modo affidabile
+non qualifica niente. La colonna è `metric_communities.previous_gap_days`
+(migration `0011`), esposta dall'API come `CommunityValues.previous_gap_days`,
+accanto a `stability_jaccard` — non dentro `details`.
+
 ## 5. Onboarding e retention per coorte (catalogo §5)
 
 ### 5.1 Coorte
@@ -1264,6 +1308,7 @@ metric_communities
   previous_snapshot_id   BIGINT           -- NULL se non confrontabile
   node_overlap           DOUBLE PRECISION
   stability_jaccard      DOUBLE PRECISION
+  previous_gap_days      DOUBLE PRECISION -- distanza in giorni dal precedente (§4.7)
   communities_born       INTEGER
   communities_dissolved  INTEGER
   communities_merged     INTEGER

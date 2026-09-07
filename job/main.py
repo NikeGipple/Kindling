@@ -7,6 +7,11 @@ Uso:
 
 Il job non e' un servizio: parte, calcola, scrive e muore. Nessun processo
 sempre acceso in piu' sulla droplet oltre a bot e Postgres.
+
+Senza --as-of, lo snapshot e' quello della settimana ISO corrente e non
+dell'istante di esecuzione: as_of e' il lunedi' 00:00 UTC (modello-grafo.md
+5.1), quindi due esecuzioni nella stessa settimana riscrivono la stessa riga
+invece di affiancarne una nuova.
 """
 
 from __future__ import annotations
@@ -24,7 +29,7 @@ from typing import Optional
 from dotenv import load_dotenv
 
 from . import db
-from .cohorts import series_spacing
+from .cohorts import cohort_start_of, series_spacing
 from .communities import partition_of
 from .config import (
     ALL_LAYERS,
@@ -55,6 +60,31 @@ def _parse_instant(value: str) -> datetime:
     return parsed
 
 
+def _week_aligned_now() -> datetime:
+    """L'as_of di default: il lunedi' 00:00 UTC della settimana ISO corrente.
+
+    Non l'istante di esecuzione (modello-grafo.md 5.1). Preso da now(), as_of
+    non si ripete mai al microsecondo, quindi la chiave
+    (guild_id, as_of, window_start, window_end) e' sempre nuova e l'ON CONFLICT
+    di write_snapshot non viene MAI raggiunto: l'idempotenza promessa dal
+    runbook e dall'intestazione di ops/kindling-weekly.sh era falsa, e ogni
+    lancio a mano lasciava in tabella una riga in piu'.
+
+    L'ancora e' cohort_start_of, la STESSA funzione che definisce le coorti, e
+    non un calcolo del lunedi' riscritto qui: e' questo che fa coincidere i
+    confini delle finestre con quelli delle coorti invece di sfalsarli, e due
+    implementazioni separate della stessa nozione divergono al primo che ne
+    tocca una.
+
+    Nessun flag per disattivare l'allineamento: --as-of e' gia' la via di fuga,
+    e ha il pregio di costringere a dichiarare l'istante invece di ereditare
+    quello dell'orologio.
+    """
+    return datetime.combine(
+        cohort_start_of(datetime.now(timezone.utc)), time.min, tzinfo=timezone.utc
+    )
+
+
 def _code_version() -> Optional[str]:
     """Versione del codice che ha prodotto lo snapshot.
 
@@ -81,7 +111,7 @@ def _database_url() -> str:
 
 
 async def run_snapshot(args: argparse.Namespace, params: GraphParams) -> None:
-    as_of = _parse_instant(args.as_of) if args.as_of else datetime.now(timezone.utc)
+    as_of = _parse_instant(args.as_of) if args.as_of else _week_aligned_now()
     window_end = _parse_instant(args.window_end) if args.window_end else as_of
     window_start = (
         _parse_instant(args.window_start)
@@ -93,7 +123,11 @@ async def run_snapshot(args: argparse.Namespace, params: GraphParams) -> None:
 
     # Il margine di lettura oltre l'inizio della finestra serve a ricostruire
     # intera una sessione a cavallo del confine; verso il futuro il confine e'
-    # as_of, perche' oltre non c'e' nulla da sapere.
+    # as_of, che con l'ancoraggio alla settimana e' nel passato (lunedi' 00:00
+    # UTC, mentre il cron gira alle 04:15). Non e' un buco: una sessione che
+    # finisce in quelle ore resta "ancora aperta" per questo snapshot ed entra
+    # nel prossimo — regola 4.2 di modello-grafo.md — dove viene riletta intera
+    # grazie al lookback margin, che dal lunedi' seguente arriva alla domenica.
     read_since = window_start - params.lookback_margin
     read_until = max(as_of, window_end)
 
@@ -320,8 +354,14 @@ async def _previous_partition(
         )
         for layer in ALL_LAYERS
     }
+    # Anche l'as_of, non solo l'id: e' quello che permette alla riga di
+    # community di dichiarare a che distanza la stabilita' e' stata calcolata
+    # (modello-metriche.md 4.7). L'id da solo non basta, perche' a valle
+    # nessuno rilegge graph_snapshots per risalire all'istante.
     return PreviousPartition(
-        snapshot_id=previous_row["id"], membership_by_layer=membership
+        snapshot_id=previous_row["id"],
+        as_of=previous_row["as_of"],
+        membership_by_layer=membership,
     ), None
 
 
@@ -488,7 +528,10 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot.add_argument(
         "--as-of",
         default=None,
-        help="istante rispetto a cui decadere i pesi (ISO 8601, default: adesso)",
+        help=(
+            "istante rispetto a cui decadere i pesi (ISO 8601; default: lunedi' "
+            "00:00 UTC della settimana corrente)"
+        ),
     )
     snapshot.add_argument("--window-start", default=None, help="inizio finestra (ISO 8601)")
     snapshot.add_argument("--window-end", default=None, help="fine finestra (ISO 8601)")

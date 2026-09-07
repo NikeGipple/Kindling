@@ -37,6 +37,8 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "ops" / "kindling-weekly.sh"
+CRON = REPO / "ops" / "kindling.cron"
+LOGROTATE = REPO / "ops" / "kindling.logrotate"
 
 BASH = shutil.which("bash")
 pytestmark = pytest.mark.skipif(BASH is None, reason="bash non disponibile")
@@ -191,3 +193,70 @@ def test_snapshot_fallito_non_fa_partire_metrics(tmp_path):
     assert esito.status == 1
     assert "ABORT metrics non eseguito" in esito.log
     assert "metrics" not in esito.docker_args
+
+
+# --- i due file di configurazione che cron e logrotate leggono ---------------
+#
+# Non sono lo script, ma sbagliano nello stesso modo: in silenzio. /etc/cron.d
+# scarta una riga malformata senza dirlo a nessuno, e una stanza di logrotate
+# che non nomina un file semplicemente non lo ruota. Qui si legge il file
+# committato, che e' esattamente quello che viene copiato sulla droplet.
+
+
+def _riga_del_job() -> str:
+    righe = [
+        riga
+        for riga in CRON.read_text(encoding="utf-8").splitlines()
+        if riga.strip() and not riga.lstrip().startswith("#") and "=" not in riga.split()[0]
+    ]
+    assert len(righe) == 1, f"attesa una sola riga di job, trovate {righe}"
+    return righe[0]
+
+
+def test_il_cron_non_prova_a_mandare_mail():
+    # Sulla droplet non c'e' nessun MTA: senza MAILTO="" l'output di
+    # un'esecuzione fallita finisce in una mail che nessuno consegnera' mai, e
+    # l'unica traccia resta una riga di /var/log/syslog che nessuno guarda.
+    testo = CRON.read_text(encoding="utf-8")
+    assert 'MAILTO=""' in testo
+
+
+def test_l_output_del_cron_finisce_in_journald_e_non_in_un_file():
+    # La pipe a logger, non una redirezione: la shell aprirebbe il file PRIMA di
+    # eseguire il comando, quindi una cartella mancante non darebbe un log vuoto
+    # ma un job che non parte — e con MAILTO="" senza una riga da nessuna parte.
+    # La cartella oggi se la ripara lo script (mkdir -p), e quella condizione
+    # deve restare dentro lo script.
+    riga = _riga_del_job()
+
+    assert "| /usr/bin/logger -t kindling-cron" in riga, riga
+    assert "2>&1" in riga, "anche stderr deve passare da logger: " + riga
+    assert ">>" not in riga, "nessuna redirezione su file: " + riga
+    # Percorso assoluto anche per logger, benche' PATH sia dichiarato nel file:
+    # e' la stessa disciplina applicata a docker, e due regole diverse nello
+    # stesso file sono un invito a sbagliare quella che conta.
+    assert "/usr/bin/logger" in riga, riga
+
+
+def test_la_riga_del_cron_ha_il_campo_utente_e_il_comando_al_settimo_posto():
+    # In /etc/cron.d le colonne sono sei (m h dom mon dow utente) e il comando
+    # comincia alla settima. Il controllo del runbook estrae proprio $7: se la
+    # forma della riga cambiasse, quel controllo verificherebbe un'altra cosa
+    # senza smettere di passare — ed e' gia' successo con $NF, diventato
+    # l'argomento di logger quando e' arrivata la pipe.
+    campi = _riga_del_job().split()
+
+    assert campi[:5] == ["15", "4", "*", "*", "1"], campi
+    assert campi[5] == "root", "manca il campo utente: " + " ".join(campi)
+    assert campi[6].endswith("kindling-weekly.sh"), campi[6]
+    assert Path(campi[6]).name == SCRIPT.name
+
+
+def test_logrotate_copre_tutti_i_log_della_cartella():
+    # Il glob e non il singolo job.log: un log nuovo che nessuno si ricorda di
+    # aggiungere alla stanza e' il modo in cui una rotazione smette di coprire
+    # quello che dovrebbe.
+    testo = LOGROTATE.read_text(encoding="utf-8")
+
+    assert "/var/log/kindling/*.log {" in testo
+    assert "/var/log/kindling/job.log {" not in testo

@@ -839,12 +839,13 @@ async def write_metrics(
                 n_effective, community_count, modularity,
                 modularity_random_mean, modularity_random_sd, modularity_z,
                 previous_snapshot_id, node_overlap, stability_jaccard,
+                previous_gap_days,
                 communities_born, communities_dissolved,
                 communities_merged, communities_split,
                 is_suppressed, suppression_reason, is_significant, details
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                    $14, $15, $16, $17, $18, $19::jsonb)
+                    $14, $15, $16, $17, $18, $19, $20::jsonb)
             """,
             [
                 (
@@ -859,6 +860,7 @@ async def write_metrics(
                     c.previous_snapshot_id,
                     c.node_overlap,
                     c.stability_jaccard,
+                    c.previous_gap_days,
                     c.communities_born,
                     c.communities_dissolved,
                     c.communities_merged,

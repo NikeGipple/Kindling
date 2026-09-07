@@ -156,6 +156,7 @@ def communities(
                     modularity_z=row.get("modularity_z"),
                     node_overlap=row.get("node_overlap"),
                     stability_jaccard=row.get("stability_jaccard"),
+                    previous_gap_days=row.get("previous_gap_days"),
                     communities_born=row.get("communities_born"),
                     communities_dissolved=row.get("communities_dissolved"),
                     communities_merged=row.get("communities_merged"),

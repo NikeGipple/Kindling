@@ -138,6 +138,20 @@ class CommunityValues(BaseModel):
     modularity_z: Optional[float] = None
     node_overlap: Optional[float] = None
     stability_jaccard: Optional[float] = None
+    previous_gap_days: Optional[float] = Field(
+        default=None,
+        description=(
+            "Giorni tra questo as_of e quello dello snapshot con cui e' "
+            "calcolata stability_jaccard. Qualifica il valore: con cadenza "
+            "settimanale ci si aspetta 7. Un numero diverso non e' un errore, "
+            "e' l'informazione che il confronto e' tra finestre a una "
+            "distanza diversa da quella attesa — con finestre da 7 giorni, "
+            "un gap di 1-2 giorni significa finestre sovrapposte all'85-95%, "
+            "e stability_jaccard misura in gran parte quella sovrapposizione "
+            "invece della ricomposizione delle community. None quando "
+            "stability_jaccard e' None."
+        ),
+    )
     communities_born: Optional[int] = None
     communities_dissolved: Optional[int] = None
     communities_merged: Optional[int] = None
