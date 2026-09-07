@@ -222,3 +222,7 @@ __marimo__/
 # sbaglio. Con --identified contiene id Discord reali.
 exports/
 *.graphml
+
+
+*.dump
+*.sql.gz
