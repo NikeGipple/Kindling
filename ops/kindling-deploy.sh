@@ -66,12 +66,14 @@ mkdir -p "$(dirname "$LOG_FILE")"
 # --- codici di uscita --------------------------------------------------
 #
 # Distinti e non tradotti in un generico 1: un deploy fermato per migration
-# mancanti, uno fermato perche' il ledger stesso manca, e uno fallito per un
-# errore imprevisto sono tre situazioni diverse, e chi legge l'esito da fuori
+# mancanti, uno fermato perche' il ledger stesso manca, uno fermato perche' il
+# perimetro del ruolo kindling_api non e' quello atteso, e uno fallito per un
+# errore imprevisto sono situazioni diverse, e chi legge l'esito da fuori
 # (una shell interattiva, o in futuro un monitoraggio) deve poterle
 # distinguere senza andare a leggere il log.
 MIGRATIONS_MISSING_EXIT=10
 MIGRATIONS_NO_LEDGER_EXIT=11
+PERIMETER_BROKEN_EXIT=12
 
 log "=== deploy ==="
 
@@ -107,31 +109,41 @@ log "code_version=$KINDLING_CODE_VERSION"
 check_migrations() {
     log "START check-migrations"
 
-    local esito
+    # to_regclass non fallisce mai per una tabella assente: torna NULL (stampa
+    # vuoto con -tAc). Prima si guardava il TESTO dell'errore di psql
+    # ('... "schema_migrations" does not exist', in inglese, prodotto per un
+    # umano) per distinguere "il ledger non c'e'" da "qualcos'altro e' andato
+    # storto" — la stessa fragilita' che questo branch toglie altrove
+    # (CLAUDE.md 7). Con to_regclass i due casi si separano da soli: un psql
+    # che fallisce qui vuol dire davvero "qualcos'altro non va" (postgres non
+    # ancora su, credenziali sbagliate), non "il ledger manca".
+    local ledger
     local stato
     set +e
-    esito="$("$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" \
+    ledger="$("$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" \
         exec -T postgres psql -U kindling -d kindling \
-        -tAc 'SELECT filename FROM schema_migrations ORDER BY filename' 2>&1)"
+        -tAc "SELECT to_regclass('schema_migrations')" 2>&1)"
     stato=$?
     set -e
 
     if [ "$stato" -ne 0 ]; then
-        # "la tabella non esiste" e "qualcos'altro e' andato storto" (postgres
-        # non ancora su, credenziali sbagliate) non sono lo stesso caso: solo
-        # il primo ha un rimedio noto (applicare 0012), il secondo va guardato
-        # a mano. Confuderli darebbe l'istruzione sbagliata.
-        if printf '%s' "$esito" | grep -q 'schema_migrations" does not exist'; then
-            log "ABORT nessun ledger schema_migrations: applicare prima 0012"
-            echo "Il ledger delle migration (schema_migrations) non esiste ancora." >&2
-            echo "Applicare 0012 prima di tutto il resto:" >&2
-            echo "  docker compose exec postgres psql -U kindling -d kindling \\" >&2
-            echo "    -f /docker-entrypoint-initdb.d/0012_schema_migrations.sql" >&2
-            exit "$MIGRATIONS_NO_LEDGER_EXIT"
-        fi
-        log "ABORT verifica migration fallita: $esito"
+        log "ABORT verifica migration fallita: $ledger"
         exit 1
     fi
+
+    if [ -z "$ledger" ]; then
+        log "ABORT nessun ledger schema_migrations: applicare prima 0012"
+        echo "Il ledger delle migration (schema_migrations) non esiste ancora." >&2
+        echo "Applicare 0012 prima di tutto il resto:" >&2
+        echo "  docker compose exec postgres psql -U kindling -d kindling \\" >&2
+        echo "    -f /docker-entrypoint-initdb.d/0012_schema_migrations.sql" >&2
+        exit "$MIGRATIONS_NO_LEDGER_EXIT"
+    fi
+
+    local esito
+    esito="$("$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" \
+        exec -T postgres psql -U kindling -d kindling \
+        -tAc 'SELECT filename FROM schema_migrations ORDER BY filename')"
 
     local mancanti=()
     local percorso
@@ -191,10 +203,20 @@ log "END   up-api"
 
 # --- passo 6: verifiche ------------------------------------------------
 #
-# Stampate, non usate per decidere l'esito dello script: sono la stessa
-# checklist del runbook (sezione "Avvio e verifica"), qui automatizzata perche'
-# rileggerla a mano dopo ogni deploy e' esattamente il tipo di passo che si
-# salta quando si ha fretta.
+# Due tipi, e non vanno confusi. Le prime quattro sono INFORMATIVE: stampate
+# per rileggere a colpo d'occhio la stessa checklist del runbook (sezione
+# "Avvio e verifica") senza doverla ricopiare a mano — se una va male lo si
+# vede, ma lo script prosegue, perche' un'immagine con una data strana o un
+# health check lento non sono di per se' un deploy fallito.
+#
+# Le ultime due NON lo sono: sono il perimetro del ruolo `kindling_api`, il
+# primo invariante non negoziabile del progetto (runbook-droplet.md dice
+# testualmente "fermarsi li', perche' in quello stato l'API puo' leggere le
+# tabelle interne"). Prima qui si stampava solo `ATTENZIONE` e si usciva 0 — in
+# fondo a una schermata lunga, dopo un build: il posto esatto in cui un avviso
+# non viene letto. Un deploy che lascia l'API in grado di leggere le tabelle
+# interne non e' un deploy riuscito con una nota a margine, quindi adesso
+# ferma lo script con un codice di uscita dedicato.
 log "START verifiche"
 
 echo ""
@@ -215,22 +237,43 @@ echo "--- health dell'API ---"
     || echo "(fallito)"
 
 echo ""
-echo "--- perimetro del ruolo kindling_api: deve FALLIRE ---"
-"$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" exec -T postgres psql \
-    -U kindling_api -d kindling -c "SELECT count(*) FROM graph_edges" \
-    && echo "ATTENZIONE: kindling_api legge graph_edges, non dovrebbe" \
-    || echo "(fallito come atteso: permission denied)"
-
-echo ""
-echo "--- perimetro del ruolo kindling_api: deve RIUSCIRE ---"
-"$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" exec -T postgres psql \
-    -U kindling_api -d kindling -c "SELECT count(*) FROM metric_runs" \
-    || echo "ATTENZIONE: kindling_api non legge metric_runs, dovrebbe"
-
-echo ""
 echo "--- API_DATABASE_URL usa davvero kindling_api ---"
 "$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" exec -T api sh -c \
     'echo "$API_DATABASE_URL" | sed "s#:[^:@]*@#:***@#"'
+
+# --- perimetro del ruolo kindling_api: non informativo, decide l'esito -----
+#
+# `if cmd; then` e non `set +e`/`set -e`: sotto `set -e` il comando in
+# condizione di un `if` e' gia' esente dall'aborto immediato, quindi non serve
+# disattivarlo. perimetro_rotto accumula invece di uscire al primo problema,
+# cosi' chi legge vede ENTRAMBI gli esiti prima che lo script si fermi, non
+# solo il primo.
+perimetro_rotto=0
+
+echo ""
+echo "--- perimetro del ruolo kindling_api: deve FALLIRE ---"
+if "$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" exec -T postgres psql \
+    -U kindling_api -d kindling -c "SELECT count(*) FROM graph_edges"; then
+    log "ABORT kindling_api legge graph_edges: perimetro compromesso"
+    echo "ATTENZIONE: kindling_api legge graph_edges, non dovrebbe" >&2
+    perimetro_rotto=1
+else
+    echo "(fallito come atteso: permission denied)"
+fi
+
+echo ""
+echo "--- perimetro del ruolo kindling_api: deve RIUSCIRE ---"
+if ! "$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" exec -T postgres psql \
+    -U kindling_api -d kindling -c "SELECT count(*) FROM metric_runs"; then
+    log "ABORT kindling_api non legge metric_runs: perimetro compromesso"
+    echo "ATTENZIONE: kindling_api non legge metric_runs, dovrebbe" >&2
+    perimetro_rotto=1
+fi
+
+if [ "$perimetro_rotto" -ne 0 ]; then
+    log "ABORT perimetro di kindling_api compromesso, vedi sopra"
+    exit "$PERIMETER_BROKEN_EXIT"
+fi
 
 log "END   verifiche"
 log "=== fine (ok) ==="

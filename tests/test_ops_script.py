@@ -265,14 +265,17 @@ def test_logrotate_copre_tutti_i_log_della_cartella():
 # --- ops/kindling-deploy.sh --------------------------------------------------
 #
 # Stesso criterio dello script settimanale: non un test di ``git`` o ``docker``,
-# ma di come lo script usa il loro esito. Due difetti reali lo hanno reso
-# necessario (entrambi in produzione il 07/09/2026, CLAUDE.md 7):
+# ma di come lo script usa il loro esito. Difetti reali lo hanno reso
+# necessario e poi corretto (07/09/2026, CLAUDE.md 7):
 #
 # - ``docker compose build`` non ricostruiva ``job`` (profiles: ["tools"]),
 #   senza nessun errore — il job ha girato con un'immagine di tre giorni prima;
 # - non esisteva nessun modo di sapere se le migration in ``migrations/`` erano
 #   davvero applicate sul database della droplet, quindi nessuno lo verificava
-#   prima di costruire il codice nuovo sopra.
+#   prima di costruire il codice nuovo sopra;
+# - il perimetro del ruolo ``kindling_api`` rotto veniva solo stampato
+#   (``ATTENZIONE``) senza fermare niente, in fondo a una schermata lunga —
+#   il posto esatto in cui un avviso non viene letto.
 
 DEPLOY_SCRIPT = REPO / "ops" / "kindling-deploy.sh"
 
@@ -295,20 +298,38 @@ GIT_STUB = '\n'.join([
 #
 # Il contenuto del ledger e' parametrico via STUB_SCHEMA_MIGRATIONS: una lista
 # di nomi separati da spazio, o la stringa "MISSING_TABLE" per simulare
-# l'assenza della tabella (l'errore esatto che Postgres darebbe).
+# l'assenza della tabella. Lo stub risponde a `to_regclass` (la query che lo
+# script usa per accorgersene, senza dover leggere un messaggio d'errore) E a
+# `SELECT filename FROM schema_migrations`, coerentemente tra loro.
+#
+# STUB_GRAPH_EDGES_LEAKS e STUB_METRIC_RUNS_DENIED simulano il perimetro del
+# ruolo kindling_api rotto nei due versi possibili: legge quello che non
+# dovrebbe, o non legge quello che dovrebbe.
 DOCKER_STUB_DEPLOY = '\n'.join([
     "#!/usr/bin/env bash",
     'printf "%s\\n" "$*" >>"$DEPLOY_DOCKER_ARGS_FILE"',
     'printf "KINDLING_CODE_VERSION=%s\\n" "${KINDLING_CODE_VERSION:-<unset>}" >>"$DEPLOY_DOCKER_ENV_FILE"',
     'case "$*" in',
-    '    *"schema_migrations ORDER BY filename"*)',
+    '    *"to_regclass"*)',
     '        if [ "$STUB_SCHEMA_MIGRATIONS" = "MISSING_TABLE" ]; then',
-    '            echo \'ERROR:  relation "schema_migrations" does not exist\' >&2',
-    "            exit 1",
+    '            echo ""',
+    "        else",
+    '            echo "schema_migrations"',
     "        fi",
+    "        exit 0 ;;",
+    '    *"schema_migrations ORDER BY filename"*)',
     '        for nome in $STUB_SCHEMA_MIGRATIONS; do printf "%s\\n" "$nome"; done',
     "        exit 0 ;;",
-    '    *"graph_edges"*) echo "ERROR: permission denied" >&2 ; exit 1 ;;',
+    '    *"graph_edges"*)',
+    '        if [ "${STUB_GRAPH_EDGES_LEAKS:-}" = "1" ]; then',
+    '            echo "5" ; exit 0',
+    "        fi",
+    '        echo "ERROR: permission denied" >&2 ; exit 1 ;;',
+    '    *"metric_runs"*)',
+    '        if [ "${STUB_METRIC_RUNS_DENIED:-}" = "1" ]; then',
+    '            echo "ERROR: permission denied" >&2 ; exit 1',
+    "        fi",
+    '        echo "5" ; exit 0 ;;',
     '    *"images --format"*)',
     '        echo "kindling-bot	2026-09-07T10:00:00Z"',
     '        echo "kindling-api	2026-09-07T10:00:00Z"',
@@ -334,6 +355,8 @@ def _run_deploy(
     migrations: tuple[str, ...] = ("0001_a.sql", "0002_b.sql"),
     schema_migrations: str = "0001_a.sql 0002_b.sql",
     git_body: str = GIT_STUB,
+    graph_edges_leaks: bool = False,
+    metric_runs_denied: bool = False,
 ) -> EsitoDeploy:
     binaries = tmp_path / "bin"
     binaries.mkdir(exist_ok=True)
@@ -354,6 +377,8 @@ def _run_deploy(
         DEPLOY_DOCKER_ARGS_FILE=str(args_file),
         DEPLOY_DOCKER_ENV_FILE=str(env_file),
         STUB_SCHEMA_MIGRATIONS=schema_migrations,
+        STUB_GRAPH_EDGES_LEAKS="1" if graph_edges_leaks else "0",
+        STUB_METRIC_RUNS_DENIED="1" if metric_runs_denied else "0",
         KINDLING_DOCKER_BIN=str(binaries / "docker"),
         KINDLING_GIT_BIN=str(binaries / "git"),
         KINDLING_PROJECT_DIR=str(project_dir),
@@ -451,6 +476,48 @@ def test_kindling_code_version_arriva_al_build_dal_git_pullato_non_da_env(tmp_pa
     assert righe_env, "il docker stub deve aver registrato qualcosa"
     for riga in righe_env:
         assert riga == "KINDLING_CODE_VERSION=deadbee", riga
+
+
+def test_si_ferma_se_kindling_api_legge_graph_edges(tmp_path):
+    # Il primo invariante non negoziabile del progetto: se il ruolo di sola
+    # lettura legge una tabella interna, non e' un dettaglio da segnalare a
+    # margine, e' un deploy da considerare fallito.
+    esito = _run_deploy(tmp_path, graph_edges_leaks=True)
+
+    assert esito.status == 12
+    assert "perimetro compromesso" in esito.log
+    assert "ATTENZIONE" in esito.log or "graph_edges" in esito.log
+
+
+def test_si_ferma_se_kindling_api_non_legge_metric_runs(tmp_path):
+    # Il verso opposto dello stesso invariante: se il ruolo non legge nemmeno
+    # quello che DEVE poter leggere, l'API in produzione e' rotta, non solo il
+    # perimetro.
+    esito = _run_deploy(tmp_path, metric_runs_denied=True)
+
+    assert esito.status == 12
+    assert "perimetro compromesso" in esito.log
+
+
+def test_il_controllo_del_perimetro_mostra_entrambi_gli_esiti_prima_di_fermarsi(tmp_path):
+    # Non deve uscire al primo problema: se sono rotti entrambi i controlli,
+    # chi legge deve vedere tutti e due, non solo il primo che ha fatto fallire
+    # lo script.
+    esito = _run_deploy(tmp_path, graph_edges_leaks=True, metric_runs_denied=True)
+
+    assert esito.status == 12
+    assert esito.log.count("perimetro compromesso") == 2, esito.log
+
+
+def test_le_verifiche_informative_non_fermano_lo_script(tmp_path):
+    # Il resto del passo 6 (date immagini, health, code_version,
+    # API_DATABASE_URL) resta informativo: solo il perimetro del ruolo decide
+    # l'esito. Qui nessuna delle due condizioni di rottura e' simulata, quindi
+    # lo script deve arrivare in fondo.
+    esito = _run_deploy(tmp_path)
+
+    assert esito.status == 0
+    assert "=== fine (ok) ===" in esito.log
 
 
 def test_pull_fallito_non_chiama_nessun_docker(tmp_path):

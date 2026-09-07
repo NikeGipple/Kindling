@@ -81,9 +81,16 @@ Per il caso comune, non a mano: lo script fa da solo `git pull`, calcola
 `KINDLING_CODE_VERSION` dal commit appena preso e lo passa al build (vedi
 `Dockerfile`), **si ferma** se `migrations/` contiene file non ancora applicati
 sul database (li elenca, non li applica), costruisce `bot`/`api` **e** `job`
-(due comandi distinti — vedi sotto il perché), riavvia solo `api`, e stampa le
-verifiche di fine deploy (date delle immagini, `KINDLING_CODE_VERSION` dentro
-il container `job`, i controlli sul perimetro di `kindling_api`).
+(due comandi distinti — vedi sotto il perché), riavvia solo `api`, e infine
+verifica. Le verifiche non sono tutte dello stesso tipo: le prime quattro
+(date delle immagini, `KINDLING_CODE_VERSION` dentro il container `job`,
+health dell'API, `API_DATABASE_URL`) sono **informative** — stampate, non
+decidono niente. Le ultime due, sul **perimetro del ruolo `kindling_api`**
+(`graph_edges` deve restare illeggibile, `metric_runs` deve essere leggibile),
+non lo sono: sono il primo invariante non negoziabile del progetto (vedi
+sotto, "Controllo che il perimetro sia davvero in piedi"), e se una delle due
+dà l'esito sbagliato lo script **si ferma** con un codice di uscita dedicato
+invece di limitarsi a stamparlo in fondo a una schermata lunga.
 
 Quello che **non** fa, di proposito — restano passi separati, a mano:
 
@@ -102,12 +109,13 @@ Quello che **non** fa, di proposito — restano passi separati, a mano:
 ./ops/kindling-deploy.sh
 ```
 
-Tre codici di uscita distinti da conoscere, oltre a `0`:
+Quattro codici di uscita distinti da conoscere, oltre a `0`:
 
 | Codice | Significato |
 |---|---|
 | `10` | una o più migration in `migrations/` non sono nel ledger: applicarle (comando stampato) e rilanciare |
 | `11` | il ledger `schema_migrations` stesso non esiste: applicare prima `0012_schema_migrations.sql` |
+| `12` | il perimetro del ruolo `kindling_api` non è quello atteso (legge tabelle interne, o non legge `metric_runs`): **non è un deploy riuscito**, va guardato a mano prima di considerarlo finito |
 | altro | `git pull`, il build o l'`up` sono falliti: il log dice dove |
 
 ### Procedura manuale, passo per passo
