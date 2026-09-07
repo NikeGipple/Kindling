@@ -90,6 +90,12 @@ services:
   job:
     build: .
     profiles: ["tools"]
+    # env_file carica GIA' ogni riga di .env nel container, KINDLING_CODE_VERSION
+    # e KINDLING_PSEUDONYM_SALT comprese: non serve restarle qui sotto
+    # `environment`, che e' riservato ai valori che devono essere DIVERSI da
+    # quelli di .env (vedi DATABASE_URL sotto). Il gap vero non era qui: era
+    # che sulla droplet quella riga di .env restava vuota — vedi
+    # runbook-droplet.md, procedura di deploy, passo 4.
     env_file:
       - .env
     environment:
