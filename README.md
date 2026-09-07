@@ -1,206 +1,196 @@
 # Kindling
-Community intelligence platform for Discord
 
-Architettura e razionale delle scelte tecniche: `docs/architettura/architettura.md`.
+Community intelligence platform per Discord.
 
-## Bot di ingestion (`bot/`)
+Misura la **salute sociale** di una community — come nascono, si rafforzano e
+si mantengono le relazioni tra i membri — a partire dal grafo delle
+interazioni, non dalle vanity metrics di attività.
 
-Bot discord.py che cattura eventi grezzi (messaggi, reply, reazioni, thread,
-voice join/leave, RSVP a eventi) e li scrive, senza mai modificarli, nella
-tabella append-only `raw_events`. Nessuna logica di metriche/grafo qui: quel
-calcolo legge `raw_events` a valle, a batch.
+---
+
+## Come funziona, in breve
 
 ```
-bot/
-  client.py        # classe del bot: intents, pool DB, caricamento cog
-  config.py        # configurazione da variabili d'ambiente
-  db.py             # pool asyncpg + insert_raw_event() + stato members
-  event_types.py    # tipi di evento canonici
-  main.py           # entrypoint (python -m bot.main)
-  backfill.py       # backfill interno di members (nessun comando)
-  cogs/
-    ingestion.py    # listener discord.py -> raw_events (+ stato members)
+Discord ──▶ bot/ ──▶ raw_events ──▶ job/ ──▶ graph_snapshots   ──▶ api/ ──▶ dashboard
+          (sempre     (append-only,  (batch,   + metric_*                  (non ancora
+           acceso)     mai modificata) settimanale)                          esistente)
 ```
 
-### Setup locale
+| Componente | Cosa fa | Quando gira |
+|---|---|---|
+| `bot/` | cattura eventi grezzi da Discord e li scrive in `raw_events` | sempre acceso |
+| `job/` | costruisce il grafo, salva uno snapshot, calcola le metriche aggregate | a batch, cron settimanale |
+| `api/` | serve gli aggregati in sola lettura | sempre acceso |
+
+Tre confini che spiegano quasi tutte le scelte del codice:
+
+1. **`raw_events` non si modifica mai.** Nessuna logica di metriche nel bot.
+2. **Il job legge solo Postgres**, mai l'API Discord. Parte, calcola, scrive, muore.
+3. **L'API non calcola niente** e non legge nessuna tabella con dati riferibili
+   a una persona — è una garanzia del database (ruolo di sola lettura,
+   migration `0010`), non una convenzione del codice.
+
+---
+
+## Dove sta la fonte di verità
+
+Questo README dice **come si usa** il progetto. Il **perché** delle scelte sta
+altrove, ed è quella la documentazione autorevole quando c'è un dubbio:
+
+| Documento | Argomento |
+|---|---|
+| `docs/architettura/architettura.md` | architettura e razionale delle scelte tecniche |
+| `docs/architettura/modello-grafo.md` | costruzione degli archi (spec del grafo) |
+| `docs/architettura/modello-metriche.md` | definizione delle metriche |
+| `docs/architettura/api.md` | perimetro e contratto dell'API |
+| `docs/architettura/runbook-droplet.md` | operazioni sulla droplet, deploy, verifica del cron |
+| `CLAUDE.md` | regole non negoziabili ed errori già commessi |
+| commenti dentro `migrations/*.sql` | razionale di ogni colonna, indice e vincolo |
+
+---
+
+## Struttura del repository
+
+```
+bot/                  ingestion Discord -> raw_events
+  client.py           bot: intents, pool DB, caricamento cog
+  config.py           configurazione da variabili d'ambiente
+  db.py               pool asyncpg, insert_raw_event(), stato members
+  event_types.py      tipi di evento canonici
+  backfill.py         backfill interno di members (automatico, nessun comando)
+  cogs/ingestion.py   listener discord.py -> raw_events
+  main.py             entrypoint (python -m bot.main)
+
+job/                  grafo e metriche
+  config.py           tutti i parametri del modello, in un posto solo
+  intervals.py        eventi vocali -> intervalli di presenza
+  sessions.py         intervalli -> sessioni per canale
+  edges.py            sessioni e interazioni -> archi pesati per layer
+  decay.py            decadimento del legame rispetto all'as_of
+  graph.py            grafo igraph + export GraphML
+  snapshot.py         orchestrazione dello snapshot (funzione pura)
+  admission.py        quali coppie entrano in una metrica
+  robustness.py       robustezza strutturale + baseline casuale
+  communities.py      Leiden + matching tra snapshot successivi
+  cohorts.py          coorti di ingresso, Kaplan-Meier, retention
+  suppression.py      soglia N: dove una cella diventa NULL
+  metrics.py          orchestrazione delle metriche (funzione pura)
+  pseudonyms.py       pseudonimi stabili per gli export
+  db.py               tutto il SQL, e nient'altro
+  main.py             CLI: snapshot | metrics | export
+
+api/                  FastAPI di sola lettura sugli aggregati
+  config.py           parametri e perimetro delle tabelle leggibili
+  models.py           modelli di risposta: quality accanto a values
+  assemble.py         da riga a risposta (funzioni pure, nessun DB)
+  db.py               tutto il SQL, e nient'altro
+  main.py             applicazione FastAPI
+
+migrations/           schema SQL, numerato e additivo
+ops/                  script di deploy ed esecuzione settimanale
+tests/                fixture sintetiche, nessun database (salvo 2 file)
+```
+
+---
+
+## Setup
+
+### 1. Ambiente Python
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env  # poi valorizzare DISCORD_TOKEN e DATABASE_URL
+cp .env.example .env
 ```
 
-Nel Discord Developer Portal, sul bot vanno abilitati i Privileged Gateway
-Intent **Message Content** e **Server Members**, altrimenti `on_message` e
-gli eventi legati ai membri non arrivano.
+Valorizzare in `.env` almeno `DISCORD_TOKEN` e `DATABASE_URL`. Ogni variabile
+è commentata in `.env.example`; le trappole note (in particolare
+`KINDLING_CODE_VERSION`, che **non va aggiunta**) sono spiegate lì.
 
-### Database
+### 2. Permessi del bot
 
-Lo schema si applica con psql (nessun framework di migrazione per l'MVP,
-coerente con la scelta di restare semplici a questa scala):
+Nel Discord Developer Portal vanno abilitati i Privileged Gateway Intent
+**Message Content** e **Server Members**: senza, `on_message` e gli eventi
+legati ai membri non arrivano.
+
+### 3. Schema del database
+
+Le migration si applicano **a mano, in ordine**, e sono additive e
+idempotenti:
 
 ```bash
-psql "$DATABASE_URL" -f migrations/0001_raw_events.sql
-psql "$DATABASE_URL" -f migrations/0002_members.sql
-psql "$DATABASE_URL" -f migrations/0003_referenced_channel_id.sql
-psql "$DATABASE_URL" -f migrations/0004_graph_snapshots.sql
-psql "$DATABASE_URL" -f migrations/0005_snapshot_stats.sql
+for f in migrations/[0-9]*.sql; do psql "$DATABASE_URL" -f "$f"; done
 ```
 
-`migrations/0001_raw_events.sql` crea `raw_events`: vedi i commenti nel file
-per il razionale di ogni colonna e indice (incluso il flag `forgotten_at` per
-il diritto all'oblio richiesto dai Discord Developer ToS).
+- Su un **volume Postgres vuoto** avviato con Docker Compose vengono applicate
+  da sole al primo avvio (`docker-entrypoint-initdb.d`). Su un database già
+  esistente — la droplet — mai: sempre a mano.
+- `schema_migrations` (dalla `0012`) tiene traccia di cosa è applicato su un
+  dato database; ogni migration registra da sé il proprio nome file.
+  `ops/kindling-deploy.sh` legge quella tabella e si ferma se manca qualcosa.
+- Prerequisiti per componente: `metrics` richiede `0006`, l'API richiede `0010`
+  più la password del ruolo `kindling_api` impostata a mano (vedi
+  `runbook-droplet.md`).
 
-`migrations/0002_members.sql` crea `members` (stato corrente joined_at/left_at
-per calcolare la retention, non append-only come raw_events). I membri già
-presenti quando Kindling arriva su un server non hanno mai prodotto un evento
-di ingresso: il loro `joined_at` viene recuperato dal **backfill interno**
-(`bot/backfill.py`), che gira da solo quando il bot entra in un server e
-all'avvio per ogni server non ancora backfillato. Non c'è nessun comando da
-lanciare, ed è voluto: un backfill rieseguito su un server già osservato
-riscriverebbe `joined_at` osservati con quelli storici, rompendo senza errori
-la distinzione tra membri osservati e backfillati su cui poggiano le metriche
-di coorte. Il percorso di backfill inserisce soltanto, non aggiorna mai.
+I membri già presenti quando Kindling arriva su un server non hanno mai
+prodotto un evento di ingresso: il loro `joined_at` viene recuperato dal
+backfill interno (`bot/backfill.py`), che parte da solo. **Non esiste un
+comando di backfill, ed è voluto** — rieseguirlo su un server già osservato
+sovrascriverebbe `joined_at` osservati con quelli storici e romperebbe in
+silenzio le metriche di coorte.
 
-`migrations/0003_referenced_channel_id.sql` aggiunge a `raw_events` il canale
-del messaggio a cui una reply risponde (Discord permette reply cross-canale).
+---
 
-`migrations/0004_graph_snapshots.sql` crea le tabelle del grafo calcolato
-(`graph_snapshots`, `graph_edges`, `voice_sessions`,
-`voice_session_participants`, `message_authors`). Sono tutte derivate e
-ricostruibili da `raw_events`, e tutte **interne**: non vengono mai esposte da
-un endpoint API.
+## Collegarsi al database
 
-`migrations/0005_snapshot_stats.sql` aggiunge a `graph_snapshots` la colonna
-`stats` (JSONB) con i contatori diagnostici dell'esecuzione che ha prodotto lo
-snapshot: ricostruzione degli intervalli e copertura della risoluzione dei
-layer direzionali. Servono confrontati tra snapshot successivi — è la loro
-variazione a dire se un problema è nell'ingestion o nel calcolo — e in una
-riga di log quella serie storica non esiste.
+C'è un solo modo di lavorare in locale sui dati veri, e vale per psql, per un
+client SQL grafico, per il job e per l'API: **tunnel SSH verso la droplet**.
+Postgres non pubblica mai la porta se non sul loopback.
 
-Le migrazioni vengono applicate automaticamente solo al **primo** avvio di un
-volume Postgres vuoto (`docker-entrypoint-initdb.d`). Su un database già
-esistente — la droplet — vanno applicate a mano con `psql`, in ordine.
-
-### Avvio del bot
-
-```bash
-python -m bot.main
-```
-
-### In alternativa: Docker Compose (locale)
-
-`docker-compose.yml` fa girare il bot contro un Postgres locale, utile per
-sviluppo isolato senza dipendere dalla droplet online. Al primo avvio,
-Postgres applica automaticamente `migrations/0001_raw_events.sql` (monta la
-cartella `migrations/` come `docker-entrypoint-initdb.d`).
-
-```bash
-cp .env.example .env  # valorizzare almeno DISCORD_TOKEN e POSTGRES_PASSWORD;
-                       # DATABASE_URL viene sovrascritto dal compose per
-                       # puntare al postgres locale
-docker compose up --build
-```
-
-Il servizio `postgres` pubblica la porta **solo sul loopback dell'host**
-(`127.0.0.1:5432:5432`), mai su tutte le interfacce: non è raggiungibile
-dall'esterno in nessun caso, ma è raggiungibile da un tunnel SSH aperto sulla
-stessa macchina — vedi `CLAUDE.md`. Dall'interno del compose resta comodo
-`docker compose exec postgres psql -U kindling -d kindling`.
-
-### Connettersi al Postgres online (Fase 1: bot + DB sulla droplet)
-
-In Fase 1 (vedi `docs/architettura/architettura.md`) il bot e Postgres
-girano sempre accesi sulla droplet DigitalOcean, senza porte pubblicate: per
-analizzare i dati in locale ci si collega via tunnel SSH invece di far
-girare un Postgres locale:
-
-```bash
-ssh -L 5432:localhost:5432 utente@ip-droplet
-# in un altro terminale, con il tunnel aperto:
-psql "postgresql://kindling:<password>@localhost:5432/kindling"
-```
-
-Qualunque tool locale (psql, un client SQL grafico, uno script Python) può
-allo stesso modo puntare a `localhost:5432` finché il tunnel resta aperto.
-
-## Job di calcolo del grafo (`job/`)
-
-Costruisce il grafo sociale dagli eventi grezzi, ne salva uno snapshot, e da
-quello calcola le metriche aggregate destinate all'API. Due specifiche, ed è
-quella la fonte di verità, non questo codice: `modello-grafo.md` per la
-costruzione degli archi, `modello-metriche.md` per le metriche.
-
-Quattro layer, calcolati separatamente e **mai sommati tra loro**:
-
-| Layer | Direzione | Unità di peso |
-|---|---|---|
-| `voice` | non diretto | minuti di sovrapposizione reale |
-| `reply` | A→B | numero di reply |
-| `mention` | A→B | numero di menzioni |
-| `reaction` | A→B | numero di reazioni |
-
-```
-job/
-  config.py      # tutti i parametri del modello, in un posto solo
-  decay.py       # decadimento del legame rispetto all'as_of dello snapshot
-  intervals.py   # eventi vocali -> intervalli di presenza (+ riconciliazione)
-  sessions.py    # intervalli -> sessioni per canale
-  edges.py       # sessioni e interazioni -> archi pesati per layer
-  snapshot.py    # orchestrazione e attribuzione temporale (funzione pura)
-  graph.py       # grafo igraph + export GraphML
-  admission.py   # quali coppie entrano in una metrica: una regola, tutti i percorsi
-  robustness.py  # robustezza strutturale, con il baseline della rimozione casuale
-  communities.py # Leiden, e il matching tra partizioni di snapshot successivi
-  cohorts.py     # coorti di ingresso, Kaplan-Meier, retention
-  suppression.py # soglia N: dove una cella diventa NULL invece di un numero
-  metrics.py     # orchestrazione delle metriche (funzione pura)
-  pseudonyms.py  # pseudonimi stabili per gli export
-  db.py          # tutto il SQL, e nient'altro
-  main.py        # CLI (snapshot | metrics | export)
-
-ops/
-  kindling-weekly.sh   # esecuzione settimanale (flock + nice, snapshot -> metrics)
-  kindling.cron        # -> /etc/cron.d/kindling
-  kindling.logrotate   # -> /etc/logrotate.d/kindling
-```
-
-Il job **legge solo Postgres**: non chiama mai l'API Discord. Non è un servizio
-sempre acceso — parte, calcola, scrive e muore.
-
-### Lanciarlo sulla droplet
-
-```bash
-docker compose run --rm job python -m job.main snapshot
-```
-
-Il servizio `job` è nello stesso `docker-compose.yml` di `postgres` e `bot`, ma
-sotto il profilo `tools`: `docker compose up` non lo avvia, `docker compose
-run` sì.
-
-### Lanciarlo in locale contro il Postgres della droplet (tunnel SSH)
-
-Il modo normale di lavorarci durante lo sviluppo: il codice gira sul laptop, i
-dati restano sulla droplet. In un terminale, apri il tunnel e lascialo aperto:
+In un terminale, da lasciare aperto:
 
 ```bash
 ssh -L 5432:localhost:5432 utente@ip-droplet
 ```
 
-In un secondo terminale, con il tunnel attivo:
+In un secondo terminale, finché il tunnel è attivo:
 
 ```bash
 export DATABASE_URL="postgresql://kindling:<password>@localhost:5432/kindling"
-python -m job.main snapshot --dry-run
+psql "$DATABASE_URL"
 ```
 
-`--dry-run` calcola e stampa tutto (sessioni ricostruite, archi per layer,
-copertura della risoluzione degli autori) senza scrivere niente: è il modo di
-guardare cosa produrrebbe uno snapshot prima di produrlo davvero, soprattutto
-contro il database di produzione.
+In alternativa, per sviluppo isolato senza toccare i dati veri:
 
-Opzioni principali di `snapshot`:
+```bash
+docker compose up --build     # bot + postgres + api locali
+docker compose exec postgres psql -U kindling -d kindling
+```
+
+---
+
+## Uso
+
+### Bot
+
+```bash
+python -m bot.main                      # in locale
+docker compose up -d bot                # sulla droplet
+```
+
+### Job — snapshot del grafo
+
+```bash
+python -m job.main snapshot --dry-run   # calcola e stampa, senza scrivere
+python -m job.main snapshot
+docker compose run --rm job python -m job.main snapshot   # sulla droplet
+```
+
+`--dry-run` è il modo di guardare cosa produrrebbe uno snapshot prima di
+produrlo davvero, soprattutto contro il database di produzione. Rieseguire con
+lo stesso `as_of` e la stessa finestra riscrive lo snapshot esistente invece di
+duplicarlo.
 
 | Opzione | Default |
 |---|---|
@@ -210,117 +200,61 @@ Opzioni principali di `snapshot`:
 | `--window-start` / `--window-end` | derivate da `as_of` e `--window-days` |
 | `--dry-run` | disattivo |
 
-Rieseguire il job con lo stesso `as_of` e la stessa finestra riscrive lo
-snapshot esistente invece di duplicarlo.
+Il grafo ha quattro layer, calcolati separatamente e **mai sommati tra loro**:
 
-### Metriche aggregate
+| Layer | Direzione | Unità di peso |
+|---|---|---|
+| `voice` | non diretto | minuti di sovrapposizione reale |
+| `reply` | A→B | numero di reply |
+| `mention` | A→B | numero di menzioni |
+| `reaction` | A→B | numero di reazioni |
+
+### Job — metriche aggregate
 
 ```bash
 python -m job.main metrics --dry-run
 python -m job.main metrics
 ```
 
-Senza argomenti lavora su **tutte** le guild con almeno uno snapshot, prendendo
-l'ultimo di ciascuna — stesso contratto di `snapshot`. `--guild-id` restringe a
-una community e `--snapshot-id` a uno snapshot preciso; sono mutuamente
-esclusivi.
+Legge uno snapshot già scritto e calcola le tre metriche di
+`modello-metriche.md` (robustezza strutturale, community Leiden, coorti e
+retention). Non ricalcola il grafo: si possono ritarare i parametri senza
+rifare la ricostruzione delle sessioni, che è la parte costosa.
 
-Legge uno snapshot già scritto e ne
-calcola le tre metriche di `modello-metriche.md`: robustezza strutturale,
-struttura e stabilità delle community (Leiden), onboarding e retention per
-coorte. Non ricalcola il grafo: si possono ritarare i parametri delle metriche
-senza rifare la ricostruzione delle sessioni, che è la parte costosa.
+Senza argomenti lavora su tutte le guild con almeno uno snapshot, prendendo
+l'ultimo di ciascuna. `--guild-id` restringe a una community, `--snapshot-id` a
+uno snapshot preciso; sono mutuamente esclusivi.
 
-Richiede la migration `0006_metrics.sql` applicata.
-
-Le tabelle `metric_*` sono le **uniche** pensate per essere lette dall'API, ed è
-il motivo per cui la soglia di cardinalità vive nel calcolo e non nella
-dashboard: una cella sotto soglia arriva in tabella già a `NULL`, con un flag,
-**mai a zero** — zero è un valore legittimo e diverso da "non mostrabile". Il
-vincolo è imposto da un trigger nella migration, non dal codice che scrive.
-
-Tre stati diversi da non confondere leggendo una riga:
-
-| Stato | Come si presenta |
-|---|---|
-| Buona | valori presenti, `is_significant = true` |
-| Pubblicata ma inaffidabile | valori presenti, `is_significant = false`, motivo in `details` |
-| Soppressa | tutto `NULL` tranne la chiave, `is_suppressed = true` |
-
-Con i dati di oggi (tre giorni, nove nodi) ci si aspetta il secondo stato per le
-righe strutturali e il terzo per quasi tutte le coorti. È il comportamento
-corretto, non un difetto da correggere.
-
-Nessun output per-nodo sopravvive al calcolo: centralità, appartenenza alle
-community e conteggio connessioni del singolo membro sono passaggi interni, non
-finiscono in nessuna tabella e non compaiono in nessun log, a nessun livello.
-
-### Esecuzione settimanale
-
-Sulla droplet il job gira da cron il lunedì alle 04:15 UTC. Lo script è in
-`ops/kindling-weekly.sh` — `flock` perché due esecuzioni sovrapposte su 1 vCPU
-rubano l'heartbeat del gateway al bot, `nice` come da `architettura.md`, e
-`metrics` solo se `snapshot` è riuscito. Installazione, verifica e — soprattutto
-— come accorgersi che il cron ha smesso di funzionare sono in
-`docs/architettura/runbook-droplet.md`.
-
-La cadenza non è un dettaglio operativo: con `--window-days 7` ogni sette giorni
-le finestre si affiancano senza sovrapporsi, ed è la condizione in cui
-`stability_jaccard` misura la ricomposizione delle community e non la
-sovrapposizione delle finestre.
-
-### Export per Gephi
+### Job — export per Gephi
 
 ```bash
 python -m job.main export --snapshot-id 42 --out-dir exports
 ```
 
-Un file GraphML **per layer** (i layer non si fondono, nemmeno per comodità di
-ispezione), con i pesi come attributi d'arco: `weight` (normalizzato e
-decaduto), `weight_undecayed`, `raw_units`, `interaction_count`,
-`last_interaction_at`, `is_reconciled`.
+Un file GraphML **per layer**, con i pesi come attributi d'arco (`weight`,
+`weight_undecayed`, `raw_units`, `interaction_count`, `last_interaction_at`,
+`is_reconciled`).
 
-I nodi portano **id pseudonimi** per default: un export identificato è una
-mappa sociale nominativa della community e non deve poter finire per sbaglio in
-un repository o in una cartella condivisa. Serve `KINDLING_PSEUDONYM_SALT` nel
-`.env` (vedi `.env.example`) — senza salt il comando si rifiuta di partire,
-perché l'hash di un id Discord senza salt è invertibile per forza bruta. Per
-gli id reali serve il flag esplicito `--identified`.
+I nodi portano **id pseudonimi** per default e serve `KINDLING_PSEUDONYM_SALT`
+nel `.env`: senza salt il comando si rifiuta di partire, perché l'hash di un id
+Discord senza salt è invertibile per forza bruta. Gli id reali richiedono il
+flag esplicito `--identified` — un export identificato è una mappa sociale
+nominativa della community e non deve poter finire per sbaglio in un repository
+o in una cartella condivisa. `exports/` è in `.gitignore`.
 
-`exports/` è in `.gitignore`.
+### API
 
-## API (`api/`)
+Sulla droplet parte con gli altri servizi (`docker compose up -d`) e **non
+pubblica porte**: è raggiungibile dagli altri container e, per lo sviluppo, via
+tunnel SSH. Niente TLS né autenticazione, perché non c'è ancora niente di
+esposto — sono il prerequisito del momento in cui esisterà il dashboard.
 
-Serve gli aggregati al dashboard. Non calcola niente: legge tabelle già pronte.
-La nota di progettazione è `docs/architettura/api.md` — è quella la fonte di
-verità, non questo codice.
+In locale, con il tunnel aperto:
 
+```bash
+API_DATABASE_URL="postgresql://kindling_api:<password>@localhost:5432/kindling" \
+  uvicorn api.main:app --reload
 ```
-api/
-  config.py     # parametri e perimetro delle tabelle leggibili
-  models.py     # modelli di risposta: quality accanto a values
-  assemble.py   # da riga a risposta (funzioni pure, nessun database)
-  db.py         # tutto il SQL, e nient'altro
-  main.py       # applicazione FastAPI
-```
-
-**Due vincoli, ed è da lì che discende tutto il resto.**
-
-L'API **non legge nessuna tabella che contenga dati riferibili a una persona**.
-È un criterio, non una lista: `members` resta fuori anche se sembra una tabella
-di date, perché la chiave è `(guild_id, author_id)` e ogni riga dice quando *una
-persona* è entrata e quando se n'è andata. `guilds` entra, perché
-`first_seen_at`, `backfilled_at`, `left_at` e `rejoined_at` sono fatti sul server
-e sul deployment del bot. Il criterio non è una convenzione: la migration `0010`
-crea un ruolo Postgres di sola lettura che ha `SELECT` sulle sole sette tabelle
-ammesse, e un endpoint scritto per errore contro `graph_edges` fallisce con un
-errore di permessi.
-
-**Un valore non viaggia mai senza i flag che dicono quanto vale.** Ogni riga è
-`{chiave…, quality, values}`: per arrivare a un numero bisogna passare da
-`values`, e `quality` è lì come suo fratello. Su una riga soppressa `values`
-resta, con tutti i campi a `null` — se sparisse, "soppressa" somiglierebbe ad
-"assente".
 
 | Endpoint | Risponde a |
 |---|---|
@@ -334,26 +268,54 @@ resta, con tutti i campi a `null` — se sparisse, "soppressa" somiglierebbe ad
 
 Documentazione interattiva su `/docs` (generata da FastAPI).
 
-### Lanciarla
+### Esecuzione settimanale e deploy
 
-Sulla droplet il servizio `api` è nello stesso `docker-compose.yml` degli altri e
-parte con `docker compose up -d`. **Non pubblica porte**: è raggiungibile dagli
-altri container e, per lo sviluppo, via tunnel SSH. Niente TLS e niente
-autenticazione, perché non c'è ancora niente di esposto da autenticare — TLS e
-autenticazione sono il prerequisito del momento in cui l'API diventerà
-raggiungibile da fuori, cioè quando esisterà il dashboard.
+Sulla droplet il job gira da cron il lunedì alle **04:15 UTC**
+(`ops/kindling-weekly.sh`: `flock`, `nice`, e `metrics` solo se `snapshot` è
+riuscito). Il deploy di una modifica già pushata si fa con
+`ops/kindling-deploy.sh`, che **non applica migration**: le elenca e si ferma
+se ne manca qualcuna.
 
-In locale, con il tunnel aperto:
+Installazione, verifica e — soprattutto — come accorgersi che il cron ha smesso
+di funzionare sono in `docs/architettura/runbook-droplet.md`.
 
-```bash
-API_DATABASE_URL="postgresql://kindling_api:<password>@localhost:5432/kindling" uvicorn api.main:app --reload
-```
+La cadenza settimanale non è un dettaglio operativo: con `--window-days 7` le
+finestre si affiancano senza sovrapporsi, ed è la condizione in cui
+`stability_jaccard` misura la ricomposizione delle community e non la
+sovrapposizione delle finestre.
 
-Serve la migration `0010` applicata e la password del ruolo impostata (vedi
-`docs/architettura/runbook-droplet.md`).
+---
 
-### Test
+## Come leggere i risultati
 
+Ogni riga di metrica può trovarsi in **tre stati diversi**, da non confondere:
+
+| Stato | Come si presenta |
+|---|---|
+| Buona | valori presenti, `is_significant = true` |
+| Pubblicata ma inaffidabile | valori presenti, `is_significant = false`, motivo in `details` |
+| Soppressa | tutto `NULL` tranne la chiave, `is_suppressed = true` |
+
+Una cella sotto soglia di cardinalità arriva in tabella già a `NULL`, con un
+flag, **mai a zero**: zero è un valore legittimo e diverso da "non mostrabile".
+Il vincolo è imposto da un trigger nella migration, non dal codice che scrive.
+
+> Con i dati attuali (pochi giorni, pochi nodi) ci si aspetta il secondo stato
+> per le righe strutturali e il terzo per quasi tutte le coorti. È il
+> comportamento corretto, non un difetto da correggere.
+
+**Nessun output per-nodo sopravvive al calcolo**: centralità, appartenenza alle
+community e conteggio connessioni del singolo membro sono passaggi interni, non
+finiscono in nessuna tabella e non compaiono in nessun log, a nessun livello.
+
+Sul lato API, un valore non viaggia mai senza i flag che dicono quanto vale:
+ogni riga è `{chiave…, quality, values}`, e su una riga soppressa `values`
+resta con tutti i campi a `null` — se sparisse, "soppressa" somiglierebbe ad
+"assente".
+
+---
+
+## Test
 
 ```bash
 pip install -r requirements-dev.txt
@@ -363,23 +325,21 @@ pytest
 Fixture sintetiche, nessun database: coprono i casi limite della ricostruzione
 delle sessioni (intervalli vicini ma mai sovrapposti, sessioni a cavallo del
 confine di uno snapshot, sessioni ancora aperte, sessioni orfane, spostamenti
-tra canali) e le regole su normalizzazione, decadimento e self-loop. Per le
-metriche, grafi piccoli di cui si conosce la risposta giusta: una stella che si
-frammenta togliendo il centro, due cricche unite da un solo arco, una coorte
-sotto soglia soppressa e **non** azzerata.
+tra canali), le regole su normalizzazione, decadimento e self-loop, e — per le
+metriche — grafi piccoli di cui si conosce la risposta giusta.
 
-Un solo file fa eccezione, `tests/test_metrics_schema.py`: verifica che sia il
-**database** a rifiutare una riga soppressa con un valore dentro, che è una
-garanzia dello schema e non del codice, e quindi non è verificabile su fixture.
-Si salta da solo senza Postgres. Per eseguirlo serve un database di prova — mai
-quello di produzione, crea e distrugge uno schema:
+Due file fanno eccezione e richiedono un Postgres di prova, perché verificano
+garanzie dello **schema** e non del codice (si saltano da soli se il database
+non c'è):
 
 ```bash
 KINDLING_TEST_DATABASE_URL=postgresql://kindling:...@localhost:5432/kindling_test pytest
 ```
 
-Lo stesso vale per `tests/test_api_role_schema.py`, che prova la garanzia su cui
-poggia il perimetro dell'API: che il ruolo di sola lettura **non possa** leggere
-`graph_edges` e `members`, non possa scrivere, e possa leggere `guilds` e le
-`metric_*`. Verificarla leggendo `api/db.py` e constatando che non nomina quelle
-tabelle proverebbe la convenzione, non la garanzia.
+- `tests/test_metrics_schema.py` — che sia il database a rifiutare una riga
+  soppressa con un valore dentro.
+- `tests/test_api_role_schema.py` — che il ruolo di sola lettura **non possa**
+  leggere `graph_edges` e `members`, non possa scrivere, e possa leggere
+  `guilds` e le `metric_*`.
+
+Mai contro il database di produzione: creano e distruggono uno schema.
