@@ -715,11 +715,13 @@ La regola si applica quindi su due livelli, e vanno tenuti distinti:
   sarebbe la retta che la regola 4 vieta; ometterli toglierebbe dati veri.
 
 Quando le serie di un grafico condividono i punti disegnabili **per
-costruzione**, i due livelli coincidono e la vista ne implementa uno solo. È il
-caso di Robustezza: le tre frazioni di un layer esistono tutte o nessuna, e la
-soppressione vale per l'intero layer, quindi le tre serie hanno sempre lo stesso
-numero di punti. Il secondo livello resta scritto qui perché non è una regola di
-quella vista, ed è esigibile dove le serie di un grafico misurano cose diverse.
+costruzione**, i due livelli coincidono e la vista ne **esercita** uno solo:
+l'altro resta nel codice come ramo difensivo, sotto la regola della sottosezione
+"I rami difensivi". È il caso di Robustezza: le tre frazioni di un layer esistono
+tutte o nessuna, e la soppressione vale per l'intero layer, quindi le tre serie
+hanno sempre lo stesso numero di punti. Il secondo livello resta scritto qui
+perché non è una regola di quella vista, ed è esigibile dove le serie di un
+grafico misurano cose diverse.
 
 Resta valido ciò che la regola 4 dice e non dice: tre punti bastano a
 *disegnare*, non a *dire* che c'è una tendenza. Nessuna freccia, nessuna parola
