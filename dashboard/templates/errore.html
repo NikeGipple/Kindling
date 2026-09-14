@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block titolo %}Errore{% endblock %}
+{% block contenuto %}
+<div class="errore" role="alert">
+  <h1>{{ titolo }}</h1>
+  <p>{{ messaggio }}</p>
+  <p><code>{{ dettaglio }}</code></p>
+</div>
+{% endblock %}

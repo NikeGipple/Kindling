@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block titolo %}Guild non osservata{% endblock %}
+{% block contenuto %}
+<h1>Guild non osservata</h1>
+<p>Il server <code>{{ guild_id }}</code> non risulta tra quelli osservati da Kindling:
+il bot non l'ha mai visto.</p>
+<p class="nota">È diverso da un server osservato e ancora senza metriche, che ha
+una sua pagina di stato.</p>
+<p><a href="/">Server osservati</a></p>
+{% endblock %}

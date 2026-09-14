@@ -333,8 +333,20 @@ DOCKER_STUB_DEPLOY = '\n'.join([
     '    *"images --format"*)',
     '        echo "kindling-bot	2026-09-07T10:00:00Z"',
     '        echo "kindling-api	2026-09-07T10:00:00Z"',
+    '        echo "kindling-dashboard	2026-09-07T10:00:00Z"',
     '        echo "kindling-job	2026-09-07T10:00:00Z"',
     "        exit 0 ;;",
+    # Container dashboard: STUB_DASHBOARD_MISSING=1 simula un container che non
+    # esiste, STUB_DASHBOARD_INSPECT_FAILS=1 un inspect che fallisce, e
+    # STUB_DASHBOARD_ENV (righe separate da `;`) l'environment del container.
+    '    *"ps -a -q dashboard"*)',
+    '        if [ "${STUB_DASHBOARD_MISSING:-}" = "1" ]; then exit 0; fi',
+    '        echo "c0ffee" ; exit 0 ;;',
+    '    "inspect "*)',
+    '        if [ "${STUB_DASHBOARD_INSPECT_FAILS:-}" = "1" ]; then',
+    '            echo "Error: no such object" >&2 ; exit 1',
+    "        fi",
+    '        printf "%s\\n" "$STUB_DASHBOARD_ENV" | tr ";" "\\n" ; exit 0 ;;',
     "esac",
     "exit 0",
     "",
@@ -357,6 +369,9 @@ def _run_deploy(
     git_body: str = GIT_STUB,
     graph_edges_leaks: bool = False,
     metric_runs_denied: bool = False,
+    dashboard_env: str = "PATH=/usr/local/bin:/usr/bin;KINDLING_API_BASE_URL=http://api:8000",
+    dashboard_missing: bool = False,
+    dashboard_inspect_fails: bool = False,
 ) -> EsitoDeploy:
     binaries = tmp_path / "bin"
     binaries.mkdir(exist_ok=True)
@@ -379,6 +394,9 @@ def _run_deploy(
         STUB_SCHEMA_MIGRATIONS=schema_migrations,
         STUB_GRAPH_EDGES_LEAKS="1" if graph_edges_leaks else "0",
         STUB_METRIC_RUNS_DENIED="1" if metric_runs_denied else "0",
+        STUB_DASHBOARD_ENV=dashboard_env,
+        STUB_DASHBOARD_MISSING="1" if dashboard_missing else "0",
+        STUB_DASHBOARD_INSPECT_FAILS="1" if dashboard_inspect_fails else "0",
         KINDLING_DOCKER_BIN=str(binaries / "docker"),
         KINDLING_GIT_BIN=str(binaries / "git"),
         KINDLING_PROJECT_DIR=str(project_dir),
@@ -409,7 +427,7 @@ def test_procede_se_tutte_le_migration_sono_applicate(tmp_path):
 
     assert esito.status == 0
     assert "=== fine (ok) ===" in esito.log
-    assert "up -d api" in esito.docker_args
+    assert "up -d api dashboard" in esito.docker_args
 
 
 def test_si_ferma_se_manca_una_migration_e_non_costruisce_niente(tmp_path):
@@ -455,7 +473,7 @@ def test_build_normale_e_build_del_profilo_tools_vanno_sempre_insieme(tmp_path):
 
 def test_non_lancia_mai_up_d_nudo(tmp_path):
     # Ricreerebbe anche `bot`, facendo cadere il gateway Discord per una
-    # modifica che non lo riguarda. Solo `up -d api`.
+    # modifica che non lo riguarda. Solo `up -d api dashboard`.
     esito = _run_deploy(tmp_path)
 
     invocazioni_up = [
@@ -463,7 +481,63 @@ def test_non_lancia_mai_up_d_nudo(tmp_path):
     ]
     assert invocazioni_up, "lo script deve invocare up almeno una volta"
     for riga in invocazioni_up:
-        assert riga.endswith("up -d api"), riga
+        assert riga.endswith("up -d api dashboard"), riga
+
+
+# --- la dashboard non ha variabili di database (dashboard.md 1, punto 2) -----
+
+
+def test_dashboard_con_database_url_ferma_il_deploy(tmp_path):
+    esito = _run_deploy(
+        tmp_path,
+        dashboard_env="PATH=/usr/bin;KINDLING_API_BASE_URL=http://api:8000;DATABASE_URL=postgresql://kindling:segreta@postgres:5432/kindling",
+    )
+
+    assert esito.status == 13
+    assert "DATABASE_URL" in esito.log
+    assert "=== fine (ok) ===" not in esito.log
+    # Il valore non si stampa mai: il nome basta a dire cosa togliere.
+    assert "segreta" not in esito.log
+
+
+def test_dashboard_con_api_database_url_vuota_ferma_il_deploy(tmp_path):
+    # Anche vuota: una riga nell'environment e' gia' una variabile ricevuta.
+    esito = _run_deploy(tmp_path, dashboard_env="PATH=/usr/bin;API_DATABASE_URL=")
+
+    assert esito.status == 13
+    assert "API_DATABASE_URL" in esito.log
+
+
+def test_nome_simile_non_e_una_variabile_di_database(tmp_path):
+    # Il confronto e' sul nome esatto a inizio riga: KINDLING_API_BASE_URL
+    # contiene "API_" e "URL" e non deve far scattare niente.
+    esito = _run_deploy(tmp_path, dashboard_env="MY_DATABASE_URL_NOTE=x;KINDLING_API_BASE_URL=http://api:8000")
+
+    assert esito.status == 0, esito.log
+
+
+def test_dashboard_assente_non_passa_per_verificata(tmp_path):
+    esito = _run_deploy(tmp_path, dashboard_missing=True)
+
+    assert esito.status == 14
+    assert "non verificabili" in esito.log
+    assert "=== fine (ok) ===" not in esito.log
+
+
+def test_inspect_fallito_non_passa_per_verificato(tmp_path):
+    esito = _run_deploy(tmp_path, dashboard_inspect_fails=True)
+
+    assert esito.status == 14
+
+
+def test_perimetro_e_dashboard_rotti_si_vedono_entrambi(tmp_path):
+    # Come per i due controlli del perimetro: chi legge vede tutti i problemi
+    # prima che lo script si fermi. Il codice resta quello del perimetro.
+    esito = _run_deploy(tmp_path, graph_edges_leaks=True, dashboard_env="DATABASE_URL=x")
+
+    assert esito.status == 12
+    assert "perimetro compromesso" in esito.log
+    assert "la dashboard ha la variabile DATABASE_URL" in esito.log
 
 
 def test_kindling_code_version_arriva_al_build_dal_git_pullato_non_da_env(tmp_path):

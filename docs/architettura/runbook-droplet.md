@@ -80,17 +80,20 @@ accorge. Migration prima, sempre.
 Per il caso comune, non a mano: lo script fa da solo `git pull`, calcola
 `KINDLING_CODE_VERSION` dal commit appena preso e lo passa al build (vedi
 `Dockerfile`), **si ferma** se `migrations/` contiene file non ancora applicati
-sul database (li elenca, non li applica), costruisce `bot`/`api` **e** `job`
-(due comandi distinti — vedi sotto il perché), riavvia solo `api`, e infine
-verifica. Le verifiche non sono tutte dello stesso tipo: le prime quattro
-(date delle immagini, `KINDLING_CODE_VERSION` dentro il container `job`,
-health dell'API, `API_DATABASE_URL`) sono **informative** — stampate, non
-decidono niente. Le ultime due, sul **perimetro del ruolo `kindling_api`**
-(`graph_edges` deve restare illeggibile, `metric_runs` deve essere leggibile),
-non lo sono: sono il primo invariante non negoziabile del progetto (vedi
-sotto, "Controllo che il perimetro sia davvero in piedi"), e se una delle due
-dà l'esito sbagliato lo script **si ferma** con un codice di uscita dedicato
-invece di limitarsi a stamparlo in fondo a una schermata lunga.
+sul database (li elenca, non li applica), costruisce `bot`/`api`/`dashboard`
+**e** `job` (due comandi distinti — vedi sotto il perché), riavvia solo `api` e
+`dashboard`, e infine verifica. Le verifiche non sono tutte dello stesso tipo:
+le prime cinque (date delle immagini, `KINDLING_CODE_VERSION` dentro il
+container `job`, health dell'API, stato dei container `api` e `dashboard`,
+`API_DATABASE_URL`) sono **informative** — stampate, non decidono niente. Le
+ultime tre non lo sono: le due sul **perimetro del ruolo `kindling_api`**
+(`graph_edges` deve restare illeggibile, `metric_runs` deve essere leggibile)
+sono il primo invariante non negoziabile del progetto (vedi sotto, "Controllo
+che il perimetro sia davvero in piedi"), e la terza verifica che il container
+`dashboard` **non abbia** `DATABASE_URL` né `API_DATABASE_URL`
+(`dashboard.md` §1). Se una dà l'esito sbagliato lo script **si ferma** con un
+codice di uscita dedicato invece di limitarsi a stamparlo in fondo a una
+schermata lunga.
 
 Quello che **non** fa, di proposito — restano passi separati, a mano:
 
@@ -109,13 +112,15 @@ Quello che **non** fa, di proposito — restano passi separati, a mano:
 ./ops/kindling-deploy.sh
 ```
 
-Quattro codici di uscita distinti da conoscere, oltre a `0`:
+Sei codici di uscita distinti da conoscere, oltre a `0`:
 
 | Codice | Significato |
 |---|---|
 | `10` | una o più migration in `migrations/` non sono nel ledger: applicarle (comando stampato) e rilanciare |
 | `11` | il ledger `schema_migrations` stesso non esiste: applicare prima `0012_schema_migrations.sql` |
 | `12` | il perimetro del ruolo `kindling_api` non è quello atteso (legge tabelle interne, o non legge `metric_runs`): **non è un deploy riuscito**, va guardato a mano prima di considerarlo finito |
+| `13` | il container `dashboard` ha `DATABASE_URL` o `API_DATABASE_URL` nell'environment (il nome è nel log, il valore mai): toglierla da `docker-compose.yml` e rilanciare. **Non è un deploy riuscito** |
+| `14` | non si è potuto verificare l'environment della `dashboard` (container assente o `docker inspect` fallito): non equivale a "nessuna variabile", va guardato a mano |
 | altro | `git pull`, il build o l'`up` sono falliti: il log dice dove |
 
 ### Procedura manuale, passo per passo
@@ -267,19 +272,22 @@ colonna in più che nessuno seleziona ancora. La sequenza:
    verificato che risolve, non uno plausibile: rieseguito subito dopo, ha
    scritto `previous_gap_days = 0.318` su tutti e quattro i layer.
 
-   Verifica che il build abbia coperto tutti e tre i servizi, prima di
-   proseguire:
+   Verifica che il build abbia coperto tutti e quattro i servizi (`bot`,
+   `api`, `dashboard`, `job`), prima di proseguire:
    ```bash
    docker images --format '{{.Repository}}\t{{.CreatedAt}}' | grep kindling
    ```
-   Le tre date devono essere ravvicinate (stesso minuto, tipicamente). Una
+   Le quattro date devono essere ravvicinate (stesso minuto, tipicamente). Una
    `kindling-job` con una data vecchia mentre le altre due sono fresche è
    esattamente questo difetto che si ripete.
-3. `docker compose up -d api` — **solo `api`, non `up -d` senza argomenti**.
-   `bot` e `api` sono immagini distinte (non condivisa: `docker images` le
-   elenca separate), ma nessuna delle due ha un `profiles`, quindi un `up -d`
-   senza argomenti ricrea **entrambi** i container corrispondenti alle immagini
-   appena costruite — non solo quello che serve a questo deploy. Ricreare il
+3. `docker compose up -d api dashboard` — **solo `api` e `dashboard`, non
+   `up -d` senza argomenti**, e nemmeno `up -d api` da solo: `build` costruisce
+   anche l'immagine della `dashboard`, e senza nominarla qui il suo container
+   non parte (o resta quello vecchio) senza nessun errore.
+   `bot`, `api` e `dashboard` sono immagini distinte (non condivisa: `docker
+   images` le elenca separate), ma nessuna ha un `profiles`, quindi un `up -d`
+   senza argomenti ricrea **tutti** i container corrispondenti alle immagini
+   appena costruite — non solo quelli che servono a questo deploy. Ricreare il
    container `bot` fa cadere il gateway Discord per una modifica che non lo
    riguarda. `job` non ha questo problema: `profiles: ["tools"]` lo tiene fuori
    da qualunque `up`, con o senza argomenti — è per questo che non ha un passo

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block titolo %}Server osservati{% endblock %}
+{% block contenuto %}
+<h1>Server osservati</h1>
+{% if guilds %}
+<div class="scorri">
+<table>
+  <thead><tr><th>Server</th><th>Osservato dal</th><th>Ultimo calcolo delle metriche</th></tr></thead>
+  <tbody>
+  {% for g in guilds %}
+    <tr>
+      <td><a href="/guilds/{{ g.guild_id }}"><code>{{ g.guild_id }}</code></a></td>
+      <td>{{ g.first_seen_at | data_ora }}</td>
+      <td>{% if g.latest_metrics_as_of %}{{ g.latest_metrics_as_of | data_ora }}{% else %}nessun calcolo ancora{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p>Kindling non osserva ancora nessun server.</p>
+{% endif %}
+{% endblock %}
