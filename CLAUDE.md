@@ -419,3 +419,27 @@ prossimo cron regolare (lunedì 14/09/2026 04:15 UTC, che scrive un `as_of`
 sicuramente più alto di qualunque snapshot di transizione) non lanciare
 `ops/kindling-weekly.sh` a mano; se serve verificare, lanciare `snapshot` e poi
 `metrics --snapshot-id <id>` separatamente. La finestra si chiude da sola.
+
+### L'ancora di osservabilità ignora il buco di osservazione
+
+Trovato il 14/09/2026 costruendo le coorti del fixture della dashboard con le
+funzioni vere di `job/cohorts.py`.
+
+`db.fetch_observability_anchor` restituisce solo `guilds.first_seen_at`, e
+`is_survivors_only` confronta `cohort_start` con quell'istante e basta.
+`guilds.left_at`/`rejoined_at` non entrano. Ma `modello-metriche.md` §5.6 tratta
+il buco di osservazione — bot uscito e poi rientrato — come una finestra in cui le
+uscite dei membri sono **invisibili esattamente come prima dell'ancora**: una
+coorte entrata durante il buco, o poco prima, conta anche lei solo chi era ancora
+presente al rientro. Il job non la marca `is_survivors_only`, e la sua retention
+risulta calcolabile. `exit=0`, nessun segnale: la classe di difetto di §7.
+
+Oggi non morde in produzione (`…001` non ha buchi), e la vista Stato della
+dashboard dichiara il buco in chiaro. Ma una guild con un'interruzione avrebbe
+coorti qualificate come osservate per intero senza esserlo.
+
+**Fix NON fatto qui**: o l'ancora (e `is_survivors_only`) tiene conto di
+`left_at`/`rejoined_at`, o la specifica dice esplicitamente che non lo fa e perché.
+È una decisione di modello, non di dashboard. Il fixture
+(`tools/fixture_api.py`, scenario `…003`) segue il codice com'è: la coorte di soli
+sopravvissuti è anteriore a `first_seen_at`, non al rientro.

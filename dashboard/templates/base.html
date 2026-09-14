@@ -17,7 +17,12 @@
          color: var(--testo); background: var(--fondo); }
   .pagina { max-width: 60rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
   header.sito { border-bottom: 1px solid var(--riga); margin-bottom: 1.5rem; padding-bottom: .75rem; }
-  header.sito a { color: inherit; text-decoration: none; font-weight: 600; }
+  header.sito { display: flex; flex-wrap: wrap; align-items: baseline; gap: 1.5rem; }
+  header.sito > a { color: inherit; text-decoration: none; font-weight: 600; }
+  nav.viste { display: flex; gap: 1rem; }
+  nav.viste a { color: var(--tenue); text-decoration: none; }
+  nav.viste a[aria-current="page"] { color: var(--testo); border-bottom: 2px solid var(--testo); }
+  h3 { font-size: 1rem; margin: 1.25rem 0 .25rem; }
   h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
   h2 { font-size: 1.1rem; margin: 2rem 0 .5rem; }
   .sottotitolo { color: var(--tenue); margin: 0 0 1rem; }
@@ -54,11 +59,48 @@
   .etichetta--non_significativo { background: var(--grigio-fondo); color: var(--tenue); }
   .etichetta--solo_sopravvissuti { background: var(--avviso-fondo); color: var(--avviso);
                                    white-space: normal; }
+  .qualificazione { display: inline-flex; flex-wrap: wrap; gap: .25rem; }
+
+  /* --- vista Robustezza ---------------------------------------------------- */
+  .blocco { border-top: 1px solid var(--riga); margin-top: 2rem; }
+  .blocco h2 code { color: var(--tenue); font-weight: normal; }
+  .colonna-risposta { font-weight: 600; }
+  .frase-assente, .frase-vuota { color: var(--tenue); font-style: italic; }
+  .grafico { margin: 1rem 0 0; }
+  .grafico svg { width: 100%; height: auto; max-width: 40rem; display: block; }
+  .asse-zero { stroke: var(--grigio); stroke-width: 1; }
+  .tick-x, .tick-y { font-size: 11px; fill: var(--tenue); }
+  .etichetta-grafico { font-size: 12px; fill: var(--tenue); }
+  .serie--0 { --colore: #2f5d8a; }
+  .serie--1 { --colore: #b0601f; }
+  .serie--2 { --colore: #4d7a3a; }
+  .segmento { stroke: var(--colore); stroke-width: 2; }
+  .punto { fill: var(--colore); stroke: var(--colore); stroke-width: 1.5; }
+  /* Non significativo: si disegna, ma dequalificato — punto vuoto, tratto
+     spezzato e chiaro. Un segmento eredita lo stile peggiore dei suoi estremi. */
+  .punto--dequalificato { fill: var(--fondo); opacity: .75; }
+  .segmento--dequalificato { stroke-dasharray: 4 3; opacity: .55; }
+  .legenda { list-style: none; padding: 0; margin: .5rem 0 0; display: flex; flex-wrap: wrap; gap: .25rem 1.25rem; font-size: .85rem; }
+  .campione { display: inline-block; width: 1.25rem; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: .35rem; }
+  .campione--0 { border-color: #2f5d8a; }
+  .campione--1 { border-color: #b0601f; }
+  .campione--2 { border-color: #4d7a3a; }
+  .campione--dequalificato { border-top: 2px dashed var(--grigio); }
 </style>
 </head>
 <body>
 <div class="pagina">
-  <header class="sito"><a href="/">Kindling</a></header>
+  <header class="sito">
+    <a href="/">Kindling</a>
+    {#- Solo le viste che ESISTONO: una voce disabilitata per Community o Coorti
+        sarebbe una promessa, e di cio' che non c'e' non si accenna (dashboard.md 4). -#}
+    {% if guild_id is defined %}
+    <nav class="viste" aria-label="Viste">
+      <a href="/guilds/{{ guild_id }}"{% if vista_corrente is defined and vista_corrente == "stato" %} aria-current="page"{% endif %}>Stato</a>
+      <a href="/guilds/{{ guild_id }}/robustezza"{% if vista_corrente is defined and vista_corrente == "robustezza" %} aria-current="page"{% endif %}>Robustezza</a>
+    </nav>
+    {% endif %}
+  </header>
   {% block contenuto %}{% endblock %}
 </div>
 </body>

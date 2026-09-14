@@ -5,9 +5,9 @@ rete interna del compose (dashboard.md 1). Nessuna connessione a Postgres,
 nessuna variabile di database nell'ambiente — il processo rifiuta di partire se
 ne trova una.
 
-Fase 1 (dashboard.md 8): nessun ``ports:`` pubblicato, raggiungibile solo via
-tunnel SSH, e nessuna autenticazione. Non e' "autenticazione posticcia": e' "non
-esposto", che e' un'altra cosa.
+Fase 1 (dashboard.md 8): porta pubblicata solo sul loopback dell'host,
+raggiungibile via tunnel SSH, e nessuna autenticazione. Non e' "autenticazione
+posticcia": e' "non esposto", che e' un'altra cosa.
 
 Uso:
     uvicorn dashboard.main:app --host 0.0.0.0 --port 8000 --workers 1
@@ -34,6 +34,7 @@ from .client import (
     RispostaNonConforme,
     crea_http,
 )
+from . import robustezza
 from .qualifica import cella
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,8 @@ def crea_templates() -> Environment:
     )
     env.filters["data_ora"] = data_ora
     env.globals["cella"] = cella
+    env.globals["percentuale"] = robustezza.percentuale
+    env.globals["nodi_rimossi"] = robustezza.nodi_rimossi
     return env
 
 
@@ -174,10 +177,24 @@ def crea_app(*, api_http: Optional[httpx.AsyncClient] = None) -> FastAPI:
         runs = await api.runs(guild_id)
         return pagina(
             "stato.html",
+            guild_id=guild_id,
             guild=guild,
             runs=runs,
             ultima=runs[0] if runs else None,
             buco_di_osservazione=guild.left_at is not None and guild.rejoined_at is not None,
+            vista_corrente="stato",
+        )
+
+    @app.get("/guilds/{guild_id}/robustezza", response_class=HTMLResponse)
+    async def vista_robustezza(request: Request, guild_id: int):
+        """Vista Robustezza (dashboard.md 4): la connettivita' dipende da pochi connettori?"""
+        api: ApiClient = request.app.state.api
+        righe = await api.robustness(guild_id)
+        return pagina(
+            "robustezza.html",
+            guild_id=guild_id,
+            vista=robustezza.costruisci(righe),
+            vista_corrente="robustezza",
         )
 
     return app

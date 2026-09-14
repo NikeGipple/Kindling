@@ -228,6 +228,138 @@ raggruppate per `cohort_start`, come nella risposta dell'API. Servirle separate
 inviterebbe a leggerle separate, che è il modo di fallire contro cui la
 duplicazione di `n_effective`/`excluded_rejoins`/`is_survivors_only` esiste.
 
+### La vista Robustezza, in dettaglio
+
+**La domanda a cui risponde.** Una sola: *la connettività di questa community
+dipende da pochi connettori?* Il numero che la risponde è `targeted_excess`
+(`modello-metriche.md` §3.4); tutto il resto della riga è il modo in cui quel
+numero si è formato, e sta lì perché non ci si fidi alla cieca.
+
+**Perché è la prima delle tre che restano**, e non perché sia la più facile: è
+l'unica che oggi ha **tutti i valori popolati** (§6). È quindi l'unica su cui la
+decisione centrale di §5 — *il numero non significativo si mostra,
+dequalificato* — si può giudicare su dodici celle di dati veri invece che sul
+fixture.
+
+**Rotta e dati.** `GET /guilds/{guild_id}/robustezza`, che chiama
+`/guilds/{guild_id}/robustness?limit=12`. Il `limit` conta **snapshot, non
+righe** (il docstring di `api/db.py:fetch_robustness` lo dichiara e la query lo
+fa): dodici snapshot sono dodici settimane, e ognuno porta le sue 12 righe. Serve
+un metodo nuovo su `ApiClient` — `robustness()`, con
+`TypeAdapter(list[RobustnessRow])` e le stesse tre eccezioni degli altri.
+
+**Navigazione.** È la seconda vista, quindi serve il modo di passare da una
+all'altra: una barra in `base.html` con le viste **che esistono**. Community e
+Coorti non compaiono finché non sono costruite: una voce disabilitata è una
+promessa, e §11 dice che di ciò che non c'è non si accenna.
+
+**Tre assenze che non sono la stessa cosa**, e che la vista deve distinguere
+come §6 distingue le quattro:
+
+- guild non osservata → 404 dall'API, pagina `non_osservata.html`. Già gestito.
+- guild osservata, **nessuno snapshot ancora**: l'API risponde `[]` (`api.md`
+  §2). Non è un errore e non è una soppressione: è *il calcolo non è ancora
+  girato*. Frase propria, nessun simbolo di qualificazione.
+- l'API non risponde → `errore.html`. Aspetto diverso da tutto il resto,
+  regola 1.
+
+#### Layout: quattro blocchi, uno per layer
+
+Non una tabella da dodici righe con una colonna `layer`. La robustezza è
+definita **per layer e mai su un grafo fuso** (`modello-metriche.md` §2.1), e una
+tabella unica offre una colonna che attraversa i quattro layer — cioè invita
+esattamente alla lettura che l'invariante 3 vieta. Quattro blocchi separati la
+rendono scomoda per costruzione: è l'invariante 3 tradotto in layout invece che
+in una nota a piè di pagina.
+
+Ogni blocco porta il nome del layer, `quality.n_effective` **una volta sola** —
+è la dimensione del grafo di quel layer, la stessa per le tre frazioni — e tre
+righe, una per frazione:
+
+| rimozione | nodi rimossi | gigante prima | gigante dopo, mirata | gigante dopo, a caso | componenti dopo | eccesso mirato | z |
+
+`eccesso mirato` è `targeted_excess` e va messo in evidenza: è la risposta, le
+altre colonne sono il procedimento che ci porta.
+
+**`z` è l'unica colonna che può mancare su una riga pubblicata.** `targeted_z` è
+`None` quando la deviazione standard del baseline è zero
+(`modello-metriche.md` §3.4): il grafo è così piccolo o così regolare che ogni
+rimozione casuale dà lo stesso risultato. È l'esito `ASSENTE` di `cella()` — "non
+disponibile" — e **non** il simbolo di soppressione, che significa un'altra cosa.
+La riga resta non significativa per `degenerate_baseline`, e tutte le altre
+colonne restano leggibili.
+
+`n_effective` si legge da una riga non soppressa del blocco. Se **tutte** le
+righe del blocco sono soppresse, `n_effective` è `None` su tutte e il blocco
+mostra la sola soppressione: non c'è una dimensione da dichiarare. Che le tre
+righe di un (snapshot, layer) condividano `n_effective` è vero per costruzione —
+la soglia di cardinalità guarda lo stesso `n` — ma è un'assunzione della vista,
+non una garanzia del contratto: va **verificata da un test**, non data per buona.
+
+**Un layer può mancare del tutto, e non è nessuno dei cinque stati.**
+`compute_robustness` restituisce `None` su un grafo vuoto (`job/robustness.py`:
+"una riga di zeri direbbe *rete perfettamente frammentata*, che è un'altra
+cosa"), quindi un layer senza archi in quella settimana **non produce righe** e
+non arriva all'API. Le 12 righe per snapshot dell'inventario di §4 sono un
+massimo, non un fatto: su una community da 14 nodi è del tutto plausibile che
+`voice` o `reaction` siano vuoti per una settimana intera.
+
+Il blocco di quel layer si mostra lo stesso, con la propria frase: *nessuna
+interazione di questo tipo in questa settimana*. Non con il simbolo di
+soppressione — che significa "il dato c'è e non si può mostrare" — e non
+omettendo il blocco, che farebbe sparire dalla pagina la differenza tra un layer
+spento e un layer che nessuno ha calcolato. È la stessa distinzione tra i quattro
+stati di §6, applicata al livello del layer invece che a quello della vista.
+
+**Regola 6, in questo layout.** `rimozione` e `nodi rimossi` sono colonne
+**adiacenti**, e `removal_fraction` non compare mai da sola: né come intestazione
+di un blocco, né come etichetta di una serie, né in un titolo. La regola **non
+può** essere imposta da `cella()`: `removal_fraction` è un campo della riga, non
+di `RobustnessValues`, e `cella(row, "removal_fraction")` solleva `KeyError` di
+proposito. È quindi un invariante di template, e si verifica con un test sul
+markup prodotto, non con un test sul motore.
+
+#### La serie, e perché sta nella stessa fetta
+
+`targeted_excess` per snapshot: **un grafico per layer**, con le tre frazioni
+come tre serie dentro lo stesso grafico. Tre serie nello stesso riquadro sono
+confronti dentro un layer, non tra layer: l'invariante 3 resta intatta.
+
+**Qui la regola 4 si applica per la prima volta.** Con meno di tre punti si
+mostra la tabella, e oggi gli snapshot sono due: **in produzione si vedrà una
+tabella**, e il primo grafico comparirà il 21 settembre. Il codice del grafico si
+scrive lo stesso adesso e si esercita sulla guild `…002` del fixture, che ha
+dodici settimane. Un percorso di rendering che comparisse per la prima volta in
+produzione, da solo, quando nessuno sta guardando, è la classe di difetto di
+`CLAUDE.md` §7 — la stessa ragione per cui il fixture esiste.
+
+**La tabella della serie non si mostra quando duplicherebbe il blocco.** Con un
+solo snapshot la ricaduta della regola 4 conterrebbe le stesse identiche celle
+della tabella del blocco, incolonnate diversamente: due volte lo stesso dato, e
+la seconda volta senza aggiungere niente. La tabella della serie compare da due
+snapshot in su.
+
+**Il grafico è SVG generato dal template, server-side.** Nessun JavaScript,
+nessuna libreria, nessuna risorsa esterna: `base.html` non ne carica, la
+dashboard sta dietro un tunnel SSH e non deve dipendere da internet per
+rendersi. Un grafico che ha bisogno di una CDN è un grafico che un giorno non si
+disegna.
+
+**Regola 6 sulla legenda.** Una serie è fatta di righe con `nodes_removed`
+diversi, quindi la coppia "stessa riga" non è applicabile alla legenda. La voce
+di legenda porta la percentuale **e l'intervallo dei nodi rimossi su quella
+serie**: `5% · da 1 a 3 nodi rimossi`, e `5% · 1 nodo rimosso` quando
+l'intervallo è costante. È l'intervallo a soddisfare la regola 6, non il
+`<title>` del singolo punto: un `<title>` si vede solo passandoci sopra, e
+"accanto" non significa "a richiesta". Il `<title>` per punto — percentuale e
+`nodes_removed` della **sua** riga — si mette lo stesso, come dettaglio in più.
+
+**L'asse y non è ancorato a zero.** `targeted_excess` può essere negativo e non è
+clampato (§5, nota di rendering): il dominio è `[min(valori, 0), max(valori, 0)]`
+con lo zero disegnato come riferimento. Ancorare l'asse a zero nasconderebbe
+proprio il caso in cui i nodi più centrali si sono rivelati meno critici di nodi
+presi a caso, che è un risultato e non un errore.
+
 ## 5. Come si rappresenta la qualificazione
 
 È il cuore di questo documento. Le altre sezioni descrivono un'applicazione web
@@ -404,19 +536,28 @@ ricadrebbe nella regola da sola.
 qualifica **solo** `median_days_to_k`, ed è l'unico caso in cui un valore assente
 non è né soppressione né incalcolabilità.
 
-Nel codice è `median_reached = median is not None`. Vale `False` quando **meno
-di metà della coorte ha raggiunto le k connessioni** entro l'osservazione: la
-mediana della curva di sopravvivenza non esiste perché la curva non scende mai
-sotto il 50%.
+Nel codice è `median_reached = median is not None`, e la mediana è
+`quantile(0.5)` di una curva di Kaplan-Meier: il primo `t` con `S(t) ≤ 0,5`,
+oppure `None`.
 
-Quindi non si mostra come cella vuota né con il simbolo di soppressione — che
-direbbero "manca un dato". Si mostra come **frase affermativa**: *meno di metà
-della coorte ha raggiunto k connessioni*. È un risultato, non un'assenza, ed è
-con ogni probabilità il dato più interessante di quella riga. `p25_days_to_k`,
+**Attenzione a come si dice, perché la formulazione ovvia è falsa.** "Meno di
+metà della coorte ha raggiunto k" **non** è ciò che `median_reached = False`
+significa, e la produzione lo dimostra: sullo snapshot 12 la coorte del 7
+settembre ha `event_count = 1` su `n_effective = 8` — una persona su otto — e
+`median_reached` vale **`True`**, con mediana 4,58 giorni. Non è un difetto del
+job: con la censura amministrativa i membri osservati per meno di 4,58 giorni
+escono dal gruppo a rischio prima dell'evento, e un evento solo su due ancora a
+rischio porta `S(t)` a 0,5 esatti.
+
+Quindi `median_reached = False` vuol dire una cosa più stretta: **entro
+l'osservazione disponibile la curva non è mai scesa al 50%, quindi un tempo
+mediano non è stimabile.** È questa la frase affermativa da mostrare — non una
+cella vuota né il simbolo di soppressione, che direbbero "manca un dato", ma
+nemmeno un conteggio di persone che quel flag non sa. `p25_days_to_k`,
 `p75_days_to_k`, `reached_by_14d` e `reached_by_28d` restano leggibili e vanno
 mostrati accanto: sono il modo in cui quella riga dice ancora qualcosa.
 
-### Sei regole che valgono ovunque
+### Sette regole che valgono ovunque
 
 1. **Niente di tutto questo è un errore.** L'errore è l'API che non risponde, e
    deve avere un aspetto diverso da tutti gli stati sopra. Chi apre la dashboard
@@ -449,15 +590,163 @@ mostrati accanto: sono il modo in cui quella riga dice ancora qualcosa.
    snapshot 11 valeva 1,0 su tutti e quattro i layer, misurata su sette ore e
    mezza.
 6. **`removal_fraction` non si mostra mai senza `nodes_removed` accanto.** La
-   percentuale è l'input; il conteggio è quello che è successo. A 14 nodi il 5%
-   è **zero nodi**, e il `targeted_excess` di `0,00` che ne risulta si legge come
-   "togliere il 5% dei connettori non rompe niente" mentre il fatto è che non è
-   stato tolto nessuno. Il flag `too_few_nodes_removed` scatta, ma il numero
-   resta visibile: è l'etichetta accanto a doverlo disinnescare.
+   percentuale è l'input; il conteggio è quello che è successo. Il job calcola
+   `nodes_removed = max(1, ceil(X · n))` (`job/robustness.py`), quindi **non è
+   mai zero** — ed è proprio per questo che la percentuale mente: a 10 nodi il 5%
+   e il 10% rimuovono **lo stesso unico nodo**, e due righe con percentuali
+   diverse descrivono la stessa identica rimozione; a 14 nodi ne rimuovono 1 e 2.
+   Un `targeted_excess` letto sotto l'intestazione "5%" si legge come "togliere
+   il 5% dei connettori non rompe niente" mentre il fatto è che è stato tolto un
+   nodo solo. Il flag `too_few_nodes_removed` scatta sotto i due nodi rimossi e
+   rende la riga non significativa, ma il numero resta visibile: è l'etichetta
+   accanto a doverlo disinnescare.
+
+7. **`median_days_to_k` non si mostra mai senza `event_count` accanto.** È lo
+   stesso meccanismo delle regole 5 e 6, sul campo in cui morde di più. Una
+   mediana di 4,58 giorni si legge come "in media ci mettono cinque giorni", e in
+   produzione quel numero poggia su **un** evento su otto persone: la curva
+   scende al 50% perché il gruppo a rischio si era ridotto a due, non perché
+   metà della coorte abbia fatto qualcosa. Il numero che disinnesca la lettura è
+   `event_count`, ed è contrattuale. Il gruppo a rischio no — la curva "vive
+   dentro la funzione e viene buttata" (`modello-metriche.md` §8) — quindi
+   `event_count` è tutto ciò che la dashboard ha, e va usato.
 
 Nota di rendering: `targeted_excess` **può essere negativo e non è clampato**
 (significa che i nodi più centrali erano meno critici di nodi presi a caso). Un
 asse y ancorato a zero lo nasconderebbe.
+
+### Dove va l'etichetta di riga
+
+`cella(row, campo)` restituisce le etichette della riga insieme a **ogni** valore,
+ed è giusto così: è la firma che impedisce a un numero di viaggiare senza i suoi
+flag. Ma renderle su ogni cella le moltiplica per il numero di colonne — nella
+tabella di Robustezza sono sette colonne, cioè ventuno "non significativo" per
+blocco e ottantaquattro per pagina — e un avviso ripetuto ottantaquattro volte
+non distingue più niente da niente.
+
+Quindi: **la dequalificazione visiva sta su ogni cella, l'etichetta testuale una
+volta per riga**, in una posizione di riga e non attaccata a un numero.
+Attaccarla al valore principale direbbe una cosa falsa — che è *quel* numero a
+non essere significativo — mentre lo è la riga intera: quasi tutti i flag
+qualificano la riga, non il campo ("La regola strutturale", sopra).
+
+La posizione di riga è **una colonna propria, l'ultima**. Non è una scelta
+estetica: nelle coorti su una stessa riga devono comparire **due** etichette
+distinte — "non significativo" e "solo sopravvissuti" — e hanno bisogno di un
+posto in cui stare insieme senza appoggiarsi a un valore.
+
+**Non si collassa a livello di blocco**, nemmeno quando tutte le righe portano la
+stessa etichetta. Dentro un blocco la significatività varia per riga —
+`too_few_nodes_removed` scatta sulla sola frazione che rimuove meno di due nodi —
+e una regola che sposta l'etichetta a seconda dei dati costringe chi guarda a
+imparare due layout. Il grafico collassa a un'etichetta sola perché dodici punti
+non hanno una posizione per riga; una tabella ce l'ha, ed è per questo che le due
+regole differiscono senza contraddirsi.
+
+**Verifica.** Per ogni riga renderizzata, ogni tipo di etichetta prodotto da
+`cella()` compare **esattamente una volta** nella riga. Va verificato sul markup:
+il macro che omette le etichette sulle celle di valore è anche il modo in cui
+potrebbero sparire del tutto, e la differenza tra "una volta" e "mai" non si vede
+guardando la pagina piena di grigio.
+
+### La qualificazione di una serie
+
+Le sei regole parlano di **celle**. Un grafico non è una cella: è
+un'affermazione costruita da più righe, ognuna con la propria qualificazione.
+Senza una regola propria, la serie le perde tutte — ed è esattamente il modo in
+cui un valore finisce per viaggiare senza i flag che dicono quanto vale
+(invariante 4 del progetto).
+
+Per ogni **punto**:
+
+- **soppresso** → il punto non si disegna, e la linea si interrompe visibilmente.
+  Non c'è un numero: disegnare uno zero e saltare il punto congiungendo i vicini
+  sono due modi diversi di inventarlo, e il secondo è peggiore perché non si
+  vede.
+- **non significativo** → il punto si disegna, dequalificato come la cella
+  corrispondente. Nasconderlo toglierebbe la possibilità di vedere la serie
+  formarsi, che è la ragione per cui in §5 quel numero si mostra.
+
+Non esiste un terzo caso. **Su una riga pubblicata `targeted_excess` non è mai
+`None`**: il job lo calcola sempre che il grafo non sia vuoto
+(`job/robustness.py`), e un baseline degenere annulla `targeted_z`, non
+`targeted_excess`. Il ramo difensivo nel codice resta — un `None` non deve mai
+diventare uno zero né un punto inventato — ma non è uno stato, non si documenta
+come tale e non si prova con una fixture costruita apposta: una fixture del
+genere insegnerebbe alla vista a rendere una riga che l'API non produce, che è
+l'errore che il fixture esiste per non commettere (§7).
+
+Per il **segmento** tra due punti: eredita la qualificazione peggiore dei suoi
+estremi. Una linea continua che attraversa un punto non significativo afferma
+una continuità che quel punto non sostiene.
+
+Per il **grafico intero**, non per la singola serie: se tutti i suoi punti sono
+non significativi, l'etichetta "non significativo" compare **una volta sola**,
+sul grafico. Oggi sarebbe il 100% dei punti di ogni serie, e ripeterla dodici
+volte è il modo di insegnare a ignorarla — lo stesso argomento con cui §5 nega
+un'etichetta a `None`.
+
+Nel caso **misto** — alcuni punti significativi e altri no — non c'è etichetta di
+grafico, e la legenda porta **obbligatoriamente** una voce che spiega lo stile
+dequalificato. Non è un abbellimento: senza, la differenza di tratto è una
+distinzione visibile e non spiegata, che è peggio di nessuna distinzione.
+
+**Un layer assente in uno snapshot intermedio** (la riga non esiste, perché il
+grafo di quel layer era vuoto) si comporta come un punto soppresso: la linea si
+interrompe, e nessun simbolo. Se il layer manca da **tutti** gli snapshot
+mostrati non c'è nessun grafico da disegnare: resta la sola frase del blocco, mai
+una cornice di grafico vuota.
+
+**Che cosa conta la regola 4: i punti disegnabili, non gli snapshot.**
+L'argomento della regola è geometrico — con due punti non esiste nessuna forma
+oltre alla retta — e vale sui punti che finiscono sul grafico, non su quelli che
+esistono in tabella. Dodici snapshot di cui dieci soppressi sono due punti.
+
+La regola si applica quindi su due livelli, e vanno tenuti distinti:
+
+- **grafico o tabella**, per grafico: si disegna il grafico se **almeno una**
+  delle tre serie raggiunge tre punti disegnabili; altrimenti si mostra la
+  tabella della serie. La lettura letterale — "una serie sotto i tre punti e si
+  mostra la tabella" — farebbe sparire il grafico di un intero layer per una
+  sola serie corta, cioè lascerebbe a una soppressione il potere di cancellare
+  ciò che le altre due serie hanno da dire.
+- **linea o punti**, per serie: dentro un grafico disegnato, una serie con meno
+  di tre punti disegnabili si mostra come **punti non congiunti**. Congiungerli
+  sarebbe la retta che la regola 4 vieta; ometterli toglierebbe dati veri.
+
+Quando le serie di un grafico condividono i punti disegnabili **per
+costruzione**, i due livelli coincidono e la vista ne implementa uno solo. È il
+caso di Robustezza: le tre frazioni di un layer esistono tutte o nessuna, e la
+soppressione vale per l'intero layer, quindi le tre serie hanno sempre lo stesso
+numero di punti. Il secondo livello resta scritto qui perché non è una regola di
+quella vista, ed è esigibile dove le serie di un grafico misurano cose diverse.
+
+Resta valido ciò che la regola 4 dice e non dice: tre punti bastano a
+*disegnare*, non a *dire* che c'è una tendenza. Nessuna freccia, nessuna parola
+come "in salita", nessuna retta di tendenza sovrapposta. Quelle appartengono
+alla metrica 7 del catalogo, che non esiste.
+
+### I rami difensivi, e perché non si provano
+
+Tre punti del codice della dashboard gestiscono stati che **il job non produce**,
+ma che il contratto dell'API non vieta:
+
+- `targeted_excess` a `None` su una riga pubblicata — il job lo calcola sempre
+  che il grafo non sia vuoto;
+- `n_effective` diverso tra le righe di uno stesso `(snapshot, layer)` — il job
+  usa lo stesso `graph.vcount()` per tutte;
+- una serie con meno punti disegnabili delle sue sorelle nello stesso grafico —
+  le tre frazioni di un layer esistono tutte o nessuna.
+
+Il ramo resta nel codice, perché il contratto non li esclude e perché in tutti e
+tre i casi fallisce in sicurezza: non mostra un numero inventato, mostra meno. Ma
+**non si costruisce una fixture per provarlo**: una fixture così insegnerebbe
+alla dashboard a rendere una risposta che l'API non può emettere, cioè il difetto
+che il fixture esiste per non commettere (§7).
+
+La distinzione va tenuta ferma, perché è facile usarla come scusa: un ramo che
+**non si può raggiungere** si tiene e non si prova; un ramo che si raggiunge e
+non è provato è un percorso di cui non si sa niente, e va provato.
 
 ## 6. Lo stato di oggi non è "vuoto": sono quattro stati diversi
 
@@ -473,19 +762,21 @@ sono numeri veri da mostrare. Quello che manca davvero è altro.
 | Vista | Stato reale | Cosa deve dire la UI |
 |---|---|---|
 | **Stato** | Piena e corretta | *Il bot osserva dal 28 agosto, l'ultimo calcolo è di lunedì.* Nessun caveat. |
-| **Robustezza** | 12 righe, **tutti i valori popolati**, tutte non significative | *Questi numeri esistono ma il grafo è troppo piccolo perché siano distinguibili dal rumore.* |
-| **Community** | Metà popolata: `community_count`, `modularity`, `modularity_z` ci sono; **tutta la stabilità è NULL** finché non esistono due snapshot | *La struttura si vede; quanto sia stabile non si può ancora dire, serve un secondo snapshot.* |
+| **Robustezza** | 12 righe, **tutti i valori popolati**, tutte non significative | *Questi numeri esistono e non sono distinguibili dal rumore.* Il perché resta fuori: sta in `details`, e §5 lo vieta finché non è una colonna. |
+| **Community** | Popolata, stabilità compresa. Lo snapshot 11 porta `stability_jaccard` 1,0 su tutti e quattro i layer con `previous_gap_days` **0,3125** — sette ore e mezza, non una settimana; lo snapshot 12 la calcola contro l'11 con un gap di **6,82** giorni | *La struttura si vede. La stabilità c'è, ma sullo snapshot più vecchio misura due finestre quasi sovrapposte, quindi dice molto meno di quanto sembri.* |
 | **Coorti** | Quasi tutto assente: soppressione a N=5, `is_mature` richiede 14 giorni dall'ultimo iscritto, `has_snapshot_coverage=False` sulle coorti anteriori all'ancora | *Non ci sono ancora coorti abbastanza numerose e abbastanza osservate.* |
 
 Sono quattro frasi diverse, e la differenza tra "non attendibile", "non ancora
 calcolabile", "troppo pochi per essere mostrati" e "nessun caveat" è
 precisamente l'informazione che la dashboard esiste per trasmettere.
 
-**Due date che cambiano il quadro**, utili per non descrivere il presente come
-se fosse permanente: con il secondo snapshot la riga di stabilità si popola per
-la prima volta (a condizione che `node_overlap ≥ 0,50`, altrimenti resta NULL
-con `node_overlap_below_minimum`); le coorti diventano leggibili solo quando la
-prima coorte posteriore all'ancora raggiunge i 14 giorni di osservazione. La
+**Le date che cambiano il quadro**, utili per non descrivere il presente come se
+fosse permanente. La stabilità **è già popolata**: è successo con il secondo
+snapshot, e il primo valore che ha prodotto è proprio quello che la regola 5
+esiste per disinnescare — 1,0 su sette ore e mezza. Resta da venire il momento in
+cui la si legge su una cadenza regolare, cioè quando i gap saranno tutti intorno
+a 7. Le coorti diventano leggibili solo quando la prima coorte posteriore
+all'ancora raggiunge i 14 giorni di osservazione. La
 significatività strutturale non arriva con nessuna delle due: richiede 30 nodi,
 **e** per le community anche `modularity_z ≥ 2,0`. Superare i 30 nodi non
 accende tutto insieme, e la UI non deve promettere che lo faccia.
@@ -508,8 +799,8 @@ flusso di autorizzazione richiede:
 
 | Guild | Scenario |
 |---|---|
-| `900000000000000001` | Lo stato reale di oggi: un punto, niente di significativo |
-| `900000000000000002` | Dodici settimane di serie, valori significativi, stabilità calcolata |
+| `900000000000000001` | Lo stato reale di oggi: **due** snapshot — l'11 pre-ancoraggio e il 12 ancorato — niente di significativo |
+| `900000000000000002` | Dodici settimane di serie e stabilità calcolata. Tre layer grandi e significativi; `voice` è il layer a basso traffico — assente in due snapshot, sotto soglia in un altro — ed è quello che esercita l'interruzione della linea e il caso misto |
 | `900000000000000003` | I casi che mordono: soppressione, `targeted_excess` negativo, baseline degenere, `node_overlap` sotto soglia, mediana non raggiunta, buco di osservazione, `code_version` assente |
 
 **Si costruisce contro `…003`**, che è il caso peggiore, e si controlla su

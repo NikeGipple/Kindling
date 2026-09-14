@@ -1,13 +1,21 @@
-{#- Il rendering di una Cella (dashboard/qualifica.py). Si usa sempre cosi':
+{#- Il rendering di una Cella (dashboard/qualifica.py). Due macro, e la chiamata
+    dice cosa fa (dashboard.md 5, "Dove va l'etichetta di riga"):
 
-      {% from "_cella.html" import mostra %}
-      {{ mostra(cella(riga, "targeted_excess")) }}
+      {% from "_cella.html" import mostra, etichette %}
+      <td>{{ mostra(cella(riga, "targeted_excess")) }}</td>    cella di valore
+      <td>{{ etichette(cella(riga, "targeted_excess")) }}</td> colonna di qualificazione
 
-    mai con il numero estratto a mano da riga.values. Il macro decide solo
+    - mostra(c): il valore, DEQUALIFICATO visivamente se la riga non e'
+      significativa, e SENZA etichette. Ripeterle su ogni colonna le
+      moltiplicherebbe fino a non distinguere piu' niente da niente.
+    - etichette(c): le etichette della riga, una volta per riga, nell'ultima
+      colonna. Non attaccate a un numero: qualificano la riga, non il campo.
+
+    Mai con il numero estratto a mano da riga.values. I macro decidono solo
     l'aspetto: quale stato e' la cella lo ha gia' deciso cella(row, campo). -#}
 {% macro mostra(c) -%}
 {%- set dequalificata = c.etichette | selectattr("tipo", "equalto", "non_significativo") | list -%}
-<span class="cella cella--{{ c.esito }}{% if dequalificata %} cella--dequalificata{% endif %}" data-stati="{{ c.stati | sort | join(' ') }}">
+<span class="cella cella--{{ c.esito }}{% if dequalificata %} cella--dequalificata{% endif %}" data-esito="{{ c.esito }}">
   {%- if c.esito == "soppresso" -%}
     <span class="cella__simbolo" aria-hidden="true">⊘</span>
     <span class="cella__testo">soppresso</span>
@@ -19,6 +27,11 @@
   {%- else -%}
     <span class="cella__testo">{{ c.testo }}</span>
   {%- endif -%}
+</span>
+{%- endmacro %}
+
+{% macro etichette(c) -%}
+<span class="qualificazione">
   {%- for e in c.etichette %}
     <span class="etichetta etichetta--{{ e.tipo }}">{{ e.testo }}</span>
   {%- endfor -%}
