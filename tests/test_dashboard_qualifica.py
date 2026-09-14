@@ -380,6 +380,28 @@ def _primo_campo(riga) -> str:
 
 
 def _rendi(c: Cella) -> str:
+    """La cella come la rende una riga di tabella: valore piu' colonna di qualificazione.
+
+    I due macro sono separati (dashboard.md 5, "Dove va l'etichetta di riga"):
+    ``mostra`` non rende piu' le etichette, ``etichette`` si. Rendere solo
+    ``mostra`` qui farebbe sparire le etichette da questi test senza che nessuno
+    se ne accorga.
+    """
     env = Environment(loader=FileSystemLoader(TEMPLATES_DIR),
                       autoescape=select_autoescape(["html"]))
-    return env.from_string('{% from "_cella.html" import mostra %}{{ mostra(c) }}').render(c=c)
+    return env.from_string(
+        '{% from "_cella.html" import mostra, etichette %}{{ mostra(c) }}{{ etichette(c) }}'
+    ).render(c=c)
+
+
+def test_mostra_non_rende_le_etichette_e_etichette_si():
+    env = Environment(loader=FileSystemLoader(TEMPLATES_DIR),
+                      autoescape=select_autoescape(["html"]))
+    c = cella(onboarding(significant=False, survivors=True), "event_count")
+    valore = env.from_string('{% from "_cella.html" import mostra %}{{ mostra(c) }}').render(c=c)
+    colonna = env.from_string('{% from "_cella.html" import etichette %}{{ etichette(c) }}').render(c=c)
+
+    assert "etichetta--" not in valore
+    assert "cella--dequalificata" in valore  # la dequalificazione resta sul valore
+    assert "etichetta--non_significativo" in colonna
+    assert "etichetta--solo_sopravvissuti" in colonna

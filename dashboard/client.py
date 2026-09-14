@@ -25,7 +25,7 @@ from typing import Any, Optional, TypeVar
 import httpx
 from pydantic import TypeAdapter, ValidationError
 
-from api.models import GuildRow, Health, RunRow
+from api.models import GuildRow, Health, RobustnessRow, RunRow
 
 from .config import API_TIMEOUT_SECONDS
 
@@ -36,6 +36,9 @@ T = TypeVar("T")
 # Lo stesso default dell'API (api/config.py): la vista Stato mostra lo storico
 # recente, non tutto.
 DEFAULT_RUNS_LIMIT = 12
+# Il limite delle serie conta SNAPSHOT, non righe (api/db.py): dodici snapshot
+# sono dodici settimane, ognuna con fino a 12 righe di robustezza.
+DEFAULT_SERIES_LIMIT = 12
 
 
 class ErroreApi(Exception):
@@ -126,6 +129,16 @@ class ApiClient:
         return await self._get(
             f"/guilds/{guild_id}/runs",
             TypeAdapter(list[RunRow]),
+            params={"limit": limit},
+            guild_id=guild_id,
+        )
+
+    async def robustness(
+        self, guild_id: int, *, limit: int = DEFAULT_SERIES_LIMIT
+    ) -> list[RobustnessRow]:
+        return await self._get(
+            f"/guilds/{guild_id}/robustness",
+            TypeAdapter(list[RobustnessRow]),
             params={"limit": limit},
             guild_id=guild_id,
         )

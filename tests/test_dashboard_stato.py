@@ -45,7 +45,7 @@ def test_guild_limite_dichiara_il_buco_di_osservazione(dashboard):
     assert r.status_code == 200
     html = r.text
     # L'ancora di osservabilita', con la sua spiegazione.
-    assert "lunedì 12 gennaio 2026, 11:00 UTC" in html
+    assert "lunedì 20 aprile 2026, 11:00 UTC" in html
     assert "ancora di osservabilità" in html
     # left_at E rejoined_at valorizzati: dichiarato in chiaro, con le due date.
     assert "C'è un buco di osservazione" in html
@@ -64,10 +64,22 @@ def test_guild_di_oggi_non_ha_caveat(dashboard):
     html = dashboard.get(f"/guilds/{GUILD_TODAY}").text
 
     assert "venerdì 28 agosto 2026, 15:28 UTC" in html
-    assert "lunedì 7 settembre 2026, 00:00 UTC" in html
-    assert "<code>dfc1696</code>" in html
+    # Ultimo calcolo: lo snapshot 12, il primo ancorato al lunedi'.
+    assert "Le metriche arrivano al <strong>lunedì 14 settembre 2026, 00:00 UTC</strong>" in html
+    assert "<code>d65262a</code>" in html
     assert 'class="avviso"' not in html
     assert "buco di osservazione" not in html
+
+
+def test_guild_di_oggi_ha_due_run_e_il_primo_non_e_a_mezzanotte(dashboard):
+    # La prima cronologia con piu' di una riga. Lo snapshot 11 ha as_of 04:15,
+    # preso da now() prima dell'ancoraggio: la vista lo mostra com'e'.
+    html = dashboard.get(f"/guilds/{GUILD_TODAY}").text
+    storico = html[html.index("Storico delle esecuzioni"):html.index("Diagnostica dell")]
+
+    assert storico.count("<tr>") == 3
+    assert storico.index("<code>12</code>") < storico.index("<code>11</code>")
+    assert "lunedì 7 settembre 2026, 04:15 UTC" in storico
 
 
 def test_guild_matura_mostra_lo_storico_delle_esecuzioni(dashboard):
