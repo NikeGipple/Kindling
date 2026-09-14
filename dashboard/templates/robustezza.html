@@ -69,12 +69,14 @@ ancora nessuno snapshot delle metriche.</p>
         <td colspan="8">{{ mostra(cella(r, "nodes_removed")) }}</td>
       {% else %}
         <td>{{ mostra(cella(r, "nodes_removed")) }}</td>
-        <td>{{ mostra(cella(r, "giant_before")) }}</td>
-        <td>{{ mostra(cella(r, "giant_after_targeted")) }}</td>
-        <td>{{ mostra(cella(r, "giant_after_random_mean")) }}</td>
+        {#- I decimali sono della COLONNA di questa tabella (b.decimali), non del
+            singolo valore: dashboard.md 5, "La precisione di una colonna numerica". -#}
+        <td>{{ mostra(cella(r, "giant_before", b.decimali["giant_before"])) }}</td>
+        <td>{{ mostra(cella(r, "giant_after_targeted", b.decimali["giant_after_targeted"])) }}</td>
+        <td>{{ mostra(cella(r, "giant_after_random_mean", b.decimali["giant_after_random_mean"])) }}</td>
         <td>{{ mostra(cella(r, "components_after_targeted")) }}</td>
-        <td class="colonna-risposta">{{ mostra(cella(r, "targeted_excess")) }}</td>
-        <td>{{ mostra(cella(r, "targeted_z")) }}</td>
+        <td class="colonna-risposta">{{ mostra(cella(r, "targeted_excess", b.decimali["targeted_excess"])) }}</td>
+        <td>{{ mostra(cella(r, "targeted_z", b.decimali["targeted_z"])) }}</td>
         <td>{{ etichette(cella(r, "targeted_excess")) }}</td>
       {% endif %}
       </tr>
@@ -153,7 +155,7 @@ ancora nessuno snapshot delle metriche.</p>
         <td>{{ snap.as_of | data_ora }}</td>
         <td>{{ percentuale(r.removal_fraction) }}</td>
         <td>{{ mostra(cella(r, "nodes_removed")) }}</td>
-        <td class="colonna-risposta">{{ mostra(cella(r, "targeted_excess")) }}</td>
+        <td class="colonna-risposta">{{ mostra(cella(r, "targeted_excess", b.decimali_serie["targeted_excess"])) }}</td>
         <td>{{ etichette(cella(r, "targeted_excess")) }}</td>
       </tr>
       {% endif %}

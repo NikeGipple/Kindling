@@ -120,7 +120,7 @@ def test_non_significativo_mostra_il_numero_con_l_etichetta():
     c = cella(robustezza(significant=False, excess=0.31), "targeted_excess")
 
     assert c.esito == VALORE
-    assert c.testo == "0,31"  # il numero si mostra: nasconderlo toglierebbe la serie
+    assert c.testo == "0,310"  # il numero si mostra: nasconderlo toglierebbe la serie
     assert c.stati == {VALORE, NON_SIGNIFICATIVO}
 
 
@@ -133,7 +133,7 @@ def test_non_valutato_e_uno_stato_diverso_da_non_significativo():
     c = cella(retention(), "retained_fraction")
 
     assert c.esito == VALORE
-    assert c.testo == "0,73"
+    assert c.testo == "0,730"
     assert c.stati == {VALORE}
     assert c.etichette == ()
 
@@ -224,7 +224,7 @@ def test_mediana_non_raggiunta_e_una_frase_non_un_assenza():
     assert SOPPRESSO not in c.stati and ASSENTE not in c.stati
     # Il flag e' puntuale: gli altri valori della riga restano leggibili.
     assert cella(riga, "p25_days_to_k").stati == {VALORE}
-    assert cella(riga, "reached_by_28d").testo == "0,61"
+    assert cella(riga, "reached_by_28d").testo == "0,610"
 
 
 # --- difese contro gli accessi sbagliati ------------------------------------
@@ -267,7 +267,57 @@ def test_none_su_riga_pubblicata_non_somiglia_alla_soppressione():
 
 
 def test_targeted_excess_negativo_conserva_il_segno():
-    assert cella(robustezza(excess=-0.07), "targeted_excess").testo == "-0,07"
+    # Senza colonna il valore e' una colonna di un solo valore: tre decimali.
+    assert cella(robustezza(excess=-0.07), "targeted_excess").testo == "-0,070"
+
+
+# --- precisione di colonna (dashboard.md 5) ---------------------------------
+
+
+@pytest.mark.parametrize("valore,atteso", [
+    (-0.0004, "-0,0004"),
+    (-0.00001, "-0,00001"),
+    (-0.0, "0,0"),
+    (0.0, "0,0"),
+])
+def test_formatta_non_produce_mai_uno_zero_con_segno(valore, atteso):
+    testo = qualifica.formatta(valore)
+    assert testo == atteso
+    assert not (testo.startswith("-") and float(testo.replace(",", ".")) == 0)
+
+
+def test_con_una_precisione_troppo_bassa_il_segno_sparisce_non_la_regola():
+    # La colonna non lo permette mai (la regola 1 sale finche' serve), ma se un
+    # chiamante passasse meno decimali del necessario il risultato resta senza
+    # segno: -0,000 non deve esistere in nessun caso.
+    assert qualifica.formatta(-0.0004, 3) == "0,000"
+    assert qualifica.formatta(-0.0, 4) == "0,0000"
+
+
+def test_colonna_con_zero_esatto_e_valore_minuscolo():
+    colonna = [0.0, -0.0004, -0.0]
+    d = qualifica.precisione_colonna(colonna)
+    assert d == 4
+    assert [qualifica.formatta(v, d) for v in colonna] == ["0,0000", "-0,0004", "0,0000"]
+
+
+def test_colonna_il_minimo_e_un_pavimento_non_toglie_cifre():
+    colonna = [1.0, 0.92, 0.8]
+    d = qualifica.precisione_colonna(colonna)
+    assert d == 3
+    assert [qualifica.formatta(v, d) for v in colonna] == ["1,000", "0,920", "0,800"]
+
+
+def test_colonna_di_soli_zeri():
+    d = qualifica.precisione_colonna([0.0, -0.0, 0.0])
+    assert d == 1
+    assert qualifica.formatta(-0.0, d) == "0,0"
+
+
+def test_la_precisione_sale_fino_al_valore_non_nullo_piu_piccolo():
+    assert qualifica.precisione_colonna([0.31, -0.00001]) == 5
+    # Interi e None non entrano nella scelta.
+    assert qualifica.precisione_colonna([3, None, 0.5]) == 3
 
 
 def test_motivo_sconosciuto_si_mostra_letterale():

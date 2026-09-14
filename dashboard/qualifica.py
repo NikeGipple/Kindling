@@ -42,7 +42,7 @@ letterale.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from pydantic import BaseModel
 
@@ -117,8 +117,12 @@ class Cella:
         return frozenset({self.esito, *(e.tipo for e in self.etichette)})
 
 
-def cella(row: BaseModel, campo: str) -> Cella:
-    """La cella di ``campo`` nella riga ``row`` (una riga con ``quality`` e ``values``)."""
+def cella(row: BaseModel, campo: str, decimali: Optional[int] = None) -> Cella:
+    """La cella di ``campo`` nella riga ``row`` (una riga con ``quality`` e ``values``).
+
+    ``decimali`` e' la precisione della colonna a cui la cella appartiene, calcolata
+    da chi ha la colonna intera (``precisione_colonna``). La riga non la conosce.
+    """
     quality = getattr(row, "quality", None)
     values = getattr(row, "values", None)
     if not isinstance(quality, Quality) or not isinstance(values, BaseModel):
@@ -173,7 +177,7 @@ def cella(row: BaseModel, campo: str) -> Cella:
     valore = getattr(values, campo)
     if valore is None:
         return Cella(esito=ASSENTE, testo="non disponibile", etichette=etichette)
-    return Cella(esito=VALORE, testo=formatta(valore), etichette=etichette)
+    return Cella(esito=VALORE, testo=formatta(valore, decimali), etichette=etichette)
 
 
 def _etichette_di_riga(quality: Quality) -> tuple[Etichetta, ...]:
@@ -202,11 +206,60 @@ def _traduci(codice: Optional[str], tabella: dict[str, str]) -> str:
     return tabella.get(codice, codice)
 
 
-def formatta(valore: Any) -> str:
+# Decimali minimi di una colonna numerica (dashboard.md 5, "La precisione di una
+# colonna numerica"). Un pavimento, non un bersaglio.
+DECIMALI_MINIMI = 3
+# Tetto di sicurezza al rialzo: oltre, un float non ha cifre significative in piu'
+# da mostrare, e un ciclo senza tetto su un valore patologico non terminerebbe.
+_DECIMALI_MASSIMI = 15
+
+
+def _vale_zero(valore: float, decimali: int) -> bool:
+    return float(f"{valore:.{decimali}f}") == 0.0
+
+
+def precisione_colonna(valori: Iterable[Any]) -> int:
+    """I decimali di una COLONNA: la decisione si prende sull'insieme, non sul valore.
+
+    Tre regole, in quest'ordine (dashboard.md 5):
+
+    1. **nessun valore diverso da zero si rende come zero**: si parte da
+       ``DECIMALI_MINIMI`` e si sale finche' ogni valore non nullo della colonna ha
+       almeno una cifra visibile. E' questa regola a rendere impossibile ``-0,0``;
+    2. uno zero esatto prende i decimali della colonna, senza segno: siccome
+       nessun valore non nullo si arrotonda a zero, ``0,0000`` significa
+       esattamente zero;
+    3. le cifre si allineano, e il minimo non toglie cifre: ``0,92`` accanto a
+       ``1,0`` resta ``0,920``.
+
+    Una colonna di soli zeri esatti ha un decimale: ``0,0``. Contano solo i float;
+    interi e None non entrano nella scelta.
+
+    La precisione vive qui, calcolata da chi ha la colonna, e non dentro
+    ``formatta()``: indovinarla dal singolo numero sarebbe la stessa forma di
+    ``cella(valore)`` invece di ``cella(row, campo)``.
+    """
+    numeri = [v for v in valori if isinstance(v, float)]
+    if numeri and all(v == 0 for v in numeri):
+        return 1
+    non_nulli = [v for v in numeri if v != 0]
+    decimali = DECIMALI_MINIMI
+    while decimali < _DECIMALI_MASSIMI and any(_vale_zero(v, decimali) for v in non_nulli):
+        decimali += 1
+    return decimali
+
+
+def formatta(valore: Any, decimali: Optional[int] = None) -> str:
     """Un valore numerico in forma leggibile, con la virgola decimale.
 
-    Il segno si conserva sempre: ``targeted_excess`` puo' essere negativo e non e'
-    clampato (dashboard.md 5).
+    ``decimali`` e' la precisione della colonna (``precisione_colonna``). Senza,
+    il valore e' trattato come una colonna di un solo valore — non un'euristica a
+    parte, la stessa regola applicata all'unica riga che c'e'.
+
+    Il segno si conserva quando c'e' una cifra che lo sostiene, e si toglie ogni
+    volta che il valore reso VALE zero: ``-0.0`` in Python e' un float con il bit
+    di segno, e ``f"{-0.0:.4f}"`` da' ``-0.0000``. Il confronto e' ``== 0``, non
+    sul testo.
     """
     if isinstance(valore, bool):
         # bool e' sottoclasse di int: senza questo ramo True diventerebbe "1".
@@ -214,8 +267,10 @@ def formatta(valore: Any) -> str:
     if isinstance(valore, int):
         return str(valore)
     if isinstance(valore, float):
-        testo = f"{valore:.3f}".rstrip("0")
-        if testo.endswith("."):
-            testo += "0"
+        if decimali is None:
+            decimali = precisione_colonna([valore])
+        testo = f"{valore:.{decimali}f}"
+        if float(testo) == 0.0:
+            testo = testo.lstrip("-")
         return testo.replace(".", ",")
     return str(valore)

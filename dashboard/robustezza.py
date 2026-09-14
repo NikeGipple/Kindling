@@ -23,10 +23,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
-from api.models import RobustnessRow
+from api.models import RobustnessRow, RobustnessValues
 from job.config import ALL_LAYERS, MetricParams
 
-from .qualifica import formatta
+from .qualifica import DECIMALI_MINIMI, formatta, precisione_colonna
 
 # I layer e le frazioni del job, importati e non ricopiati: la vista mostra un
 # blocco per ogni layer che il job PUO' calcolare, anche quando l'API non ne porta
@@ -85,6 +85,8 @@ class Punto:
     riga: Optional[RobustnessRow]
     x: float = 0.0
     y: float = 0.0
+    # La precisione del grafico a cui il punto appartiene, fissata da _grafico().
+    decimali: Optional[int] = None
 
     @property
     def disegnabile(self) -> bool:
@@ -113,7 +115,7 @@ class Punto:
         return " · ".join([
             f"{self.snapshot.as_of:%d/%m/%Y}",
             f"{percentuale(riga.removal_fraction)} · {nodi_rimossi(riga.values.nodes_removed)}",
-            f"eccesso mirato {formatta(riga.values.targeted_excess)}",
+            f"eccesso mirato {formatta(riga.values.targeted_excess, self.decimali)}",
         ])
 
 
@@ -182,6 +184,9 @@ class Grafico:
     tutto_non_significativo: bool
     # Caso misto: la legenda spiega obbligatoriamente lo stile dequalificato.
     misto: bool
+    # La precisione della "colonna" del grafico: i suoi punti. Etichette dell'asse
+    # e <title> dei punti la seguono.
+    decimali: int = DECIMALI_MINIMI
     larghezza: int = LARGHEZZA
     altezza: int = ALTEZZA
 
@@ -200,6 +205,12 @@ class Blocco:
     tabella_serie: list[tuple[Snapshot, Optional[RobustnessRow]]]
     # Il layer non ha righe in nessuno snapshot mostrato: solo la frase.
     assente_ovunque: bool
+    # Decimali per campo, calcolati su QUESTA tabella (dashboard.md 5, "La
+    # precisione di una colonna numerica"): la tabella del blocco sulle sue righe,
+    # la tabella della serie sulle sue. Mai sulla pagina: una precisione comune ai
+    # quattro blocchi sarebbe una colonna che attraversa i layer.
+    decimali: dict[str, int] = field(default_factory=dict)
+    decimali_serie: dict[str, int] = field(default_factory=dict)
 
     @property
     def assente(self) -> bool:
@@ -303,9 +314,26 @@ def costruisci(righe: list[RobustnessRow]) -> Vista:
                 grafico=grafico,
                 tabella_serie=tabella,
                 assente_ovunque=assente_ovunque,
+                decimali=decimali_per_campo(righe_ultimo),
+                decimali_serie=decimali_per_campo([r for _s, r in tabella if r is not None]),
             )
         )
     return Vista(snapshot=snapshot, blocchi=blocchi)
+
+
+def decimali_per_campo(righe: list[RobustnessRow]) -> dict[str, int]:
+    """La precisione di ogni colonna di una tabella, calcolata sulle SUE righe.
+
+    Una chiave per ogni campo di ``RobustnessValues``: i campi interi non la usano
+    (``formatta`` li rende senza decimali), ma averla sempre evita che il template
+    chieda una chiave che non c'e'. Le righe soppresse non contano: i loro valori
+    sono tutti None.
+    """
+    pubblicate = [r for r in righe if not r.quality.suppressed]
+    return {
+        campo: precisione_colonna(getattr(r.values, campo) for r in pubblicate)
+        for campo in RobustnessValues.model_fields
+    }
 
 
 def dominio_y(valori: list[float]) -> tuple[float, float]:
@@ -362,14 +390,21 @@ def _grafico(serie: list[Serie], snapshot: list[Snapshot]) -> Grafico:
     tutti_dequalificati = all(p.dequalificato for p in disegnabili)
     nessuno_dequalificato = not any(p.dequalificato for p in disegnabili)
 
-    ticks = [TickY(y_di(hi), formatta(round(hi, 3))), TickY(y_di(lo), formatta(round(lo, 3)))]
+    # Nel grafico i valori sono coordinate, non testo: la precisione riguarda solo
+    # le etichette dell'asse e i <title>, e si calcola sui punti di QUESTO grafico.
+    decimali = precisione_colonna(valori)
+    for p in disegnabili:
+        p.decimali = decimali
+
+    ticks = [TickY(y_di(hi), formatta(hi, decimali)), TickY(y_di(lo), formatta(lo, decimali))]
     y_zero = y_di(0.0)
-    # L'etichetta "0" solo se non si sovrappone a quelle degli estremi; la linea
-    # di riferimento dello zero si disegna comunque.
+    # L'etichetta dello zero solo se non si sovrappone a quelle degli estremi; la
+    # linea di riferimento dello zero si disegna comunque.
     if lo < 0 < hi and all(abs(y_zero - t.y) >= 14 for t in ticks):
-        ticks.append(TickY(y_zero, "0"))
+        ticks.append(TickY(y_zero, formatta(0.0, decimali)))
 
     return Grafico(
+        decimali=decimali,
         serie=serie,
         y_min=lo,
         y_max=hi,

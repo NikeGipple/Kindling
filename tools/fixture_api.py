@@ -218,7 +218,11 @@ def _robustness_layer(
         is_degenerate = rf in degenerate
         value = excess[rf]
         giant_before = 1.0
-        giant_targeted = round(max(0.0, giant_before - value - 0.12), 3)
+        # Nessun arrotondamento qui ne' sotto: il job non arrotonda, e un round()
+        # nel fixture renderebbe uguali gigante mirato e gigante a caso proprio
+        # quando l'eccesso e' minuscolo (-0,0004), cioe' nascondendo la grandezza
+        # che la precisione per colonna esiste per mostrare.
+        giant_targeted = max(0.0, giant_before - value - 0.12)
         sd = 0.0 if is_degenerate else 0.041
 
         reasons: list[str] = []
@@ -251,7 +255,7 @@ def _robustness_layer(
                     giant_before=giant_before,
                     giant_after_targeted=giant_targeted,
                     components_after_targeted=max(1, removed * 2),
-                    giant_after_random_mean=round(giant_targeted + value, 3),
+                    giant_after_random_mean=giant_targeted + value,
                     giant_after_random_sd=sd,
                     components_after_random_mean=round(max(1.0, removed * 1.3), 2),
                     # Puo' essere negativo e non e' clampato. Su una riga
@@ -260,7 +264,7 @@ def _robustness_layer(
                     targeted_excess=value,
                     # Senza dispersione lo z non esiste: e' un None che significa
                     # "non calcolabile", non "zero".
-                    targeted_z=None if is_degenerate else round(value / sd, 2),
+                    targeted_z=None if is_degenerate else value / sd,
                 ),
             )
         )
@@ -678,10 +682,12 @@ def _scenario_today() -> dict[str, Any]:
     ):
         for layer in LAYERS:
             n = n_by_layer[layer]
-            robustness += _robustness_layer(
-                sid, as_of, layer, n=n,
-                excess={rf: round(v + offset[layer], 3) for rf, v in excess.items()},
-            )
+            excess_layer = {rf: round(v + offset[layer], 3) for rf, v in excess.items()}
+            if sid == 12 and layer == "voice":
+                # Il valore vero di produzione (14/09): -0,0004 su tutte e tre le
+                # frazioni. E' quello che la pagina rendeva "-0,0".
+                excess_layer = {rf: -0.0004 for rf in excess}
+            robustness += _robustness_layer(sid, as_of, layer, n=n, excess=excess_layer)
             communities.append(
                 _community_layer(
                     sid, as_of, layer, n=n, dimensioni=_partizione(n),

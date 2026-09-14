@@ -431,6 +431,71 @@ def test_non_significativo_dequalifica_ogni_cella_della_riga(dashboard):
     assert valori and all("cella--dequalificata" in s.classi for s in valori)
 
 
+# --- precisione di colonna (dashboard.md 5) ---------------------------------
+
+
+_NUMERO = re.compile(r"^-?\d+,(\d+)$")
+_ZERO_CON_SEGNO = re.compile(r"(?<![\d,])-0,0+(?![\d])")
+
+
+def _decimali(testo: str) -> Optional[int]:
+    m = _NUMERO.match(testo.strip())
+    return len(m.group(1)) if m else None
+
+
+def test_nessuno_zero_con_segno_in_nessuna_pagina(api):
+    for nome, html in _pagine(api):
+        corpo = html.split("<body>", 1)[1]
+        assert not _ZERO_CON_SEGNO.search(corpo), (nome, _ZERO_CON_SEGNO.search(corpo).group(0))
+
+
+def test_il_valore_vero_di_produzione_si_vede(dashboard):
+    # ...001, snapshot 12, voice: -0,0004 su tutte e tre le frazioni. Era "-0,0".
+    html = dashboard.get(f"/guilds/{GUILD_TODAY}/robustezza").text
+    voice = next(_albero(html).radice.trova("section", data_layer="voice"))
+    blocco = next(voice.trova("table", classe="tabella-blocco"))
+    eccessi = [td.testo().strip() for td in blocco.trova("td", classe="colonna-risposta")]
+    assert eccessi == ["-0,0004"] * 3
+
+
+def test_ogni_colonna_ha_lo_stesso_numero_di_decimali(api):
+    tabelle_viste = 0
+    for nome, html in _pagine(api):
+        albero = _albero(html).radice
+        for classe in ("tabella-blocco", "tabella-serie"):
+            for tabella in albero.trova("table", classe=classe):
+                per_colonna: dict[int, set[int]] = {}
+                for tr in tabella.trova("tr", classe="riga-rimozione"):
+                    celle = [f for f in tr.figli if isinstance(f, Nodo) and f.tag == "td"]
+                    if any("colspan" in td.attrs for td in celle):
+                        continue  # riga soppressa: nessun valore
+                    for i, td in enumerate(celle):
+                        testo = next((s.testo() for s in td.trova("span", classe="cella__testo")), "")
+                        d = _decimali(testo)
+                        if d is not None:
+                            per_colonna.setdefault(i, set()).add(d)
+                disallineate = {i: ds for i, ds in per_colonna.items() if len(ds) > 1}
+                assert not disallineate, (nome, classe, disallineate)
+                tabelle_viste += 1
+        # Le etichette dell'asse seguono la stessa regola, sui punti del grafico.
+        for figura in albero.trova("figure", classe="grafico"):
+            ticks = {_decimali(t.testo()) for t in figura.trova("text", classe="tick-y")}
+            assert len(ticks) == 1, (nome, figura.attrs.get("data-grafico"), ticks)
+    assert tabelle_viste > 50
+
+
+def test_la_colonna_e_la_tabella_non_la_pagina():
+    # Due blocchi della stessa pagina possono avere decimali diversi per lo stesso
+    # campo: una precisione comune sarebbe una colonna che attraversa i layer.
+    vista = robustezza.costruisci(SCENARIOS[GUILD_TODAY]["robustness"])
+    per_layer = {b.layer: b.decimali["targeted_excess"] for b in vista.blocchi}
+    assert per_layer["voice"] == 4
+    assert per_layer["reply"] == 3
+    # Tabella del blocco e tabella della serie sono tabelle diverse.
+    voice = next(b for b in vista.blocchi if b.layer == "voice")
+    assert voice.decimali_serie["targeted_excess"] == 4
+
+
 # --- navigazione e perimetro --------------------------------------------------
 
 
