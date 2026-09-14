@@ -615,6 +615,81 @@ Nota di rendering: `targeted_excess` **può essere negativo e non è clampato**
 (significa che i nodi più centrali erano meno critici di nodi presi a caso). Un
 asse y ancorato a zero lo nasconderebbe.
 
+### La precisione di una colonna numerica
+
+**Un valore non si mostra mai come zero con segno.** `-0,0` mostra il segno e
+butta via la grandezza: è il peggiore dei due mondi, perché afferma una direzione
+e nega il numero che dovrebbe sostenerla. È successo al primo sguardo sui dati
+veri (14/09): lo snapshot 12 ha `targeted_excess = -0,0004` su tutte e tre le
+frazioni di `voice`, e la pagina diceva `-0,0`.
+
+La regola che lo risolve è una sola, e risolve anche il resto: **la precisione si
+sceglie per colonna, non per valore.** Il minimo è **tre** decimali, e sale
+finché nessun valore diverso da zero si arrotonda a zero. Ne seguono tre cose,
+in quest'ordine — la prima comanda, le altre due la seguono:
+
+- **nessun valore diverso da zero si rende come zero**, quindi uno zero con segno
+  non può comparire: il segno si mostra solo dove c'è una cifra che lo sostiene.
+  Il segno va tolto ogni volta che il valore *vale* zero, non solo quando è
+  scritto `0.0`: in Python `-0.0` è un float con il bit di segno, e `f"{-0.0:.4f}"`
+  restituisce `-0.0000`;
+- **uno zero esatto prende le cifre della colonna** — `0,0000` in una colonna a
+  quattro decimali — e non il segno. Non è una perdita, ed è la prima regola a
+  renderlo vero: siccome nella colonna nessun valore diverso da zero si arrotonda
+  a zero, `0,0000` significa **esattamente zero** e non "troppo piccolo per
+  vedersi". La forma `0,0` è quella di una colonna di soli zeri, o di una
+  formattazione senza colonna;
+- **le cifre decimali si allineano.** `1,0`, `0,92` e `0,8` nella stessa colonna
+  si confrontano peggio di `1,000`, `0,920` e `0,800`, perché la larghezza del
+  numero smette di essere un indizio della sua grandezza. Il minimo della colonna
+  è un **pavimento, non un bersaglio**: non si abbassa la precisione della colonna
+  per adeguarla al valore più corto — `0,92` non diventa `0,9` perché la colonna
+  contiene `1,0`. Un valore **più lungo** della precisione della colonna si
+  arrotonda normalmente: `0,8571…` a tre decimali è `0,857`, e va bene — è la
+  colonna a dichiarare la propria risoluzione, non il singolo valore a imporla.
+
+Così la colonna dichiara da sola la propria risoluzione: quattro decimali su
+`eccesso mirato` dicono, senza una parola in più, che lì si guardano i
+decimillesimi.
+
+**Le colonne legate da un'operazione condividono la precisione.** Quando in una
+tabella una colonna è **calcolata** dalle altre, quelle colonne formano un gruppo
+e prendono tutte la precisione più alta del gruppo. Senza questa regola la riga si
+contraddice da sola: nel blocco `voice` del 14/09, `gigante dopo, mirata` e
+`gigante dopo, a caso` valgono `0,8800` e `0,8796`, e a tre decimali diventano
+**entrambe `0,880`** mentre la colonna accanto dichiara un `eccesso mirato` di
+`-0,0004`. Il lettore vede `0,880 − 0,880 = −0,0004`, cioè una pagina che sembra
+rotta — che è la regola 1 letta al contrario, e il difetto peggiore che questa
+vista possa avere.
+
+Le colonne che formano il gruppo in Robustezza sono quattro: `gigante prima`,
+`gigante dopo, mirata`, `gigante dopo, a caso` ed `eccesso mirato`, che è
+`(a caso − mirata) / prima`. **`z` non ne fa parte**: il suo denominatore è
+`giant_after_random_sd`, che non si mostra, quindi `z` non è ricavabile dalla
+tabella in nessun caso e la sua precisione resta la propria. Lo stesso vale per
+`componenti dopo`.
+
+Il criterio, non l'elenco: un gruppo esiste dove un numero mostrato si ottiene da
+altri numeri mostrati. Dove il calcolo passa da una quantità che la tabella non
+espone, gruppo non ce n'è.
+
+**Che cosa è "la colonna": una tabella sola, non la pagina.** La precisione si
+calcola sulle righe di *quella* tabella — il blocco di un layer sulle sue tre
+righe, la tabella della serie sulle sue, un grafico sui propri punti per le
+etichette dell'asse. Non sulla pagina intera.
+
+Uniformare la precisione fra i quattro blocchi darebbe colonne omogenee, ma
+creerebbe **un'unica colonna che attraversa i quattro layer** — cioè esattamente
+la lettura che il layout a blocchi esiste per rendere scomoda (invariante 3, e
+§4). Il prezzo è che due layer possono avere decimali diversi e la pagina risulta
+un po' irregolare: è lo stesso prezzo dei quattro blocchi separati, pagato una
+seconda volta e per la stessa ragione.
+
+**Questo non è un modo per qualificare il numero, e non deve diventarlo.**
+`-0,0004` su un grafo da 25 nodi è cento volte più piccolo di un nodo, che vale
+`1/25 = 0,04`. A dirlo sono `nodes_removed` e `n_effective`, già sulla riga per
+la regola 6: è esattamente il loro mestiere, e non serve un'etichetta nuova.
+
 ### Dove va l'etichetta di riga
 
 `cella(row, campo)` restituisce le etichette della riga insieme a **ogni** valore,
