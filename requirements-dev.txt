@@ -3,5 +3,9 @@
 # framework di test.
 -r requirements.txt
 pytest>=7.4,<9
-# Client HTTP per i test dell'API (fastapi.testclient lo richiede).
-httpx>=0.27,<0.29
+# httpx (richiesto da fastapi.testclient) e' ora in requirements.txt: la
+# dashboard lo usa a runtime come client verso l'API.
+# Letto dai test che ispezionano docker-compose.yml (test_code_version.py,
+# test_dashboard_deploy.py). Mancava: quei test fallivano con ModuleNotFoundError
+# su un ambiente installato da questo file.
+pyyaml>=6,<7

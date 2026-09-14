@@ -1,10 +1,10 @@
 # Immagine unica per il bot di ingestion (bot/), il job di calcolo del grafo
-# (job/) e l'API di sola lettura (api/). Usata sia per lo sviluppo locale via
-# docker-compose sia, invariata, per il deploy sulla droplet DigitalOcean —
-# vedi docs/architettura/architettura.md.
+# (job/), l'API di sola lettura (api/) e la dashboard (dashboard/). Usata sia
+# per lo sviluppo locale via docker-compose sia, invariata, per il deploy sulla
+# droplet DigitalOcean — vedi docs/architettura/architettura.md.
 #
-# Un'immagine sola e non tre: il job importa python-igraph, che bot e api non
-# caricano mai, quindi il costo a runtime sugli altri due e' nullo e resta un
+# Un'immagine sola e non quattro: il job importa python-igraph, che bot, api e
+# dashboard non caricano mai, quindi il costo a runtime sugli altri e' nullo e resta un
 # solo artefatto da costruire e tenere allineato sulla droplet. requirements.txt
 # include gia' fastapi/uvicorn/pydantic per lo stesso motivo.
 FROM python:3.12-slim
@@ -17,6 +17,18 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY bot/ ./bot/
 COPY job/ ./job/
 COPY api/ ./api/
+# dashboard/ importa api/models.py per validare le risposte dell'API: senza la
+# riga sopra non partirebbe. Aggiunta nello stesso commit della cartella, non al
+# primo deploy (CLAUDE.md, errore n. 5). I template stanno dentro dashboard/ e
+# arrivano con questa riga.
+COPY dashboard/ ./dashboard/
+
+# tools/ NON va copiata qui, ed e' l'inverso esatto dell'errore n. 5 di
+# CLAUDE.md: li' api/ andava aggiunta ai COPY e nessuno lo fece. Qui
+# tools/fixture_api.py e' un attrezzo di sviluppo — il server di dati
+# sintetici contro cui si costruisce la dashboard — che non gira mai in un
+# container. Aggiungerlo "per coerenza" con le tre righe qui sopra sarebbe
+# l'errore, non la correzione.
 
 # Versione del codice INCISA nell'immagine, non letta da .env a runtime: il
 # job scrive questo valore in graph_snapshots.code_version e metric_runs.code_version

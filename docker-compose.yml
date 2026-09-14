@@ -83,6 +83,60 @@ services:
       postgres:
         condition: service_healthy
 
+  # Dashboard server-rendered (docs/architettura/dashboard.md 8, fase 1). Parla
+  # SOLO con l'API, via HTTP sulla rete interna del compose: il browser non chiama
+  # mai l'API.
+  #
+  # Porta pubblicata SOLO sul loopback dell'host ("127.0.0.1:8000:8000"), come
+  # postgres: non raggiungibile da internet in nessun caso, ma e' cio' a cui si
+  # appoggia il tunnel SSH (`ssh -L 8000:localhost:8000 ...`). Senza nessun
+  # `ports:` il tunnel trova `connection refused` pur funzionando — l'errore n. 3
+  # di CLAUDE.md (dashboard.md 8). La regola e' "mai su tutte le interfacce", non
+  # "mai una sezione ports:".
+  #
+  # L'esposizione pubblica non passa mai da qui: in fase 2 davanti alla dashboard
+  # ci va Caddy, e solo quando i cinque prerequisiti di dashboard.md 8 (dominio,
+  # Caddy con TLS, Cloud Firewall, OAuth Discord, flow verificato) sono gia'
+  # fatti. Allargare questo binding prima e' la versione dashboard dell'incidente
+  # descritto in CLAUDE.md. tests/test_dashboard_deploy.py fallisce su un binding
+  # senza IP o su 0.0.0.0.
+  dashboard:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    # NESSUN env_file, e non e' una dimenticanza: .env contiene DATABASE_URL e
+    # API_DATABASE_URL, e dashboard.md 1 vuole che questo container NON le abbia,
+    # non solo che non le usi. L'environment qui sotto e' l'elenco completo di
+    # cio' che il container riceve; il processo rifiuta di partire se trova una
+    # variabile di database (dashboard/config.py).
+    environment:
+      # Nessun default: e' configurazione, non codice (dashboard.md 1). `:-` e
+      # non `:?`: Compose interpola l'intero file per QUALUNQUE comando, quindi
+      # `:?` farebbe fallire anche `docker compose run job` del cron settimanale
+      # su un .env che non ha ancora questa riga. Vuota, la fa fallire la
+      # dashboard stessa all'avvio, con un messaggio che la nomina.
+      KINDLING_API_BASE_URL: ${KINDLING_API_BASE_URL:-}
+    # Margine sopra i 54 MB misurati, ma un tetto (dashboard.md 9).
+    mem_limit: 150m
+    # 1 worker, per la stessa ragione dell'API: 1 vCPU condiviso con l'heartbeat
+    # del gateway Discord.
+    command:
+      ["uvicorn", "dashboard.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+    # /health della dashboard verifica di saper raggiungere l'API: un container
+    # vivo che non legge dati non e' un container sano.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # La previsione di api.md 2 ("serve al depends_on: condition: service_healthy
+    # del compose quando arrivera' il dashboard") si incassa qui.
+    depends_on:
+      api:
+        condition: service_healthy
+
   # Il job non e' un servizio sempre acceso: si lancia a mano o da cron con
   # `docker compose run --rm job ...`. E' definito qui, nello stesso compose di
   # postgres e bot, perche' l'ambiente di riferimento e' la droplet e non

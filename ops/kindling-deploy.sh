@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
 # Deploy di una modifica gia' pushata su GitHub: pull, controllo migration,
-# build, riavvio del solo servizio che serve, verifiche.
+# build, riavvio dei soli servizi che servono, verifiche.
 #
 # Stesso argomento di ops/kindling-weekly.sh, e per lo stesso motivo: una
 # procedura di sei passi con un ordine che conta, un comando controintuitivo
-# (`up -d api` e non `up -d`) e un valore calcolato (l'hash del commit) non si
+# (`up -d api dashboard` e non `up -d`) e un valore calcolato (l'hash del commit) non si
 # legge, non si prova a mano e non si commenta se sta in una riga di
 # istruzioni copiaincollate dal runbook. Qui invece ogni scelta ha il suo
 # perche' accanto, e lo script si puo' rileggere, provare e correggere come
@@ -67,13 +67,22 @@ mkdir -p "$(dirname "$LOG_FILE")"
 #
 # Distinti e non tradotti in un generico 1: un deploy fermato per migration
 # mancanti, uno fermato perche' il ledger stesso manca, uno fermato perche' il
-# perimetro del ruolo kindling_api non e' quello atteso, e uno fallito per un
-# errore imprevisto sono situazioni diverse, e chi legge l'esito da fuori
-# (una shell interattiva, o in futuro un monitoraggio) deve poterle
+# perimetro del ruolo kindling_api non e' quello atteso, uno fermato perche' la
+# dashboard ha variabili di database (o non si e' potuto verificarlo), e uno
+# fallito per un errore imprevisto sono situazioni diverse, e chi legge l'esito
+# da fuori (una shell interattiva, o in futuro un monitoraggio) deve poterle
 # distinguere senza andare a leggere il log.
 MIGRATIONS_MISSING_EXIT=10
 MIGRATIONS_NO_LEDGER_EXIT=11
 PERIMETER_BROKEN_EXIT=12
+DASHBOARD_DB_VARS_EXIT=13
+DASHBOARD_UNVERIFIED_EXIT=14
+
+# Le variabili che il container dashboard non deve AVERE (dashboard.md 1). Stesso
+# elenco di dashboard/config.py DATABASE_VARIABLES: tests/test_dashboard_deploy.py
+# fallisce se i due divergono, perche' un elenco aggiornato in un posto solo e'
+# esattamente il difetto di CLAUDE.md 7.
+DASHBOARD_FORBIDDEN_VARS="DATABASE_URL API_DATABASE_URL"
 
 log "=== deploy ==="
 
@@ -188,18 +197,26 @@ log "START build"
 "$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" --profile tools build job
 log "END   build"
 
-# --- passo 5: riavviare solo il servizio che serve --------------------------
+# --- passo 5: riavviare solo i servizi che servono --------------------------
 #
-# `up -d api`, MAI `up -d` nudo. `bot` e `api` sono immagini distinte (non
-# condivisa: `docker images` le elenca separate), ma nessuna delle due ha un
-# `profiles`, quindi un `up -d` senza argomenti ricrea ENTRAMBI i container
-# corrispondenti alle immagini appena costruite — non solo quello che serve a
-# questo deploy. Ricreare `bot` fa cadere il gateway Discord per una modifica
-# che non lo riguarda. `job` non ha bisogno di un `up`: non e' un servizio
-# sempre acceso, prende l'immagine appena costruita al prossimo `run`.
-log "START up-api"
-"$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" up -d api
-log "END   up-api"
+# `up -d api dashboard`, MAI `up -d` nudo. `bot`, `api` e `dashboard` sono
+# immagini distinte (non condivisa: `docker images` le elenca separate), ma
+# nessuna ha un `profiles`, quindi un `up -d` senza argomenti ricrea TUTTI i
+# container corrispondenti alle immagini appena costruite — non solo quelli che
+# servono a questo deploy. Ricreare `bot` fa cadere il gateway Discord per una
+# modifica che non lo riguarda. `job` non ha bisogno di un `up`: non e' un
+# servizio sempre acceso, prende l'immagine appena costruita al prossimo `run`.
+#
+# L'elenco e' esplicito, quindi va tenuto allineato a mano: `build` qui sopra
+# costruisce ogni servizio senza profiles, e un servizio sempre acceso che manca
+# da questa riga ha l'immagine nuova e il container vecchio (o nessun
+# container), con exit=0. E' successo in bozza con `dashboard`, aggiunta al
+# compose mentre questa riga diceva ancora `up -d api` — la stessa forma del
+# difetto di `profiles`/`job` in CLAUDE.md 7. tests/test_dashboard_deploy.py
+# confronta questa riga con i servizi del compose.
+log "START up-api-dashboard"
+"$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" up -d api dashboard
+log "END   up-api-dashboard"
 
 # --- passo 6: verifiche ------------------------------------------------
 #
@@ -237,6 +254,15 @@ echo "--- health dell'API ---"
     || echo "(fallito)"
 
 echo ""
+echo "--- stato dei container api e dashboard ---"
+# `ps` e non un health check via exec: subito dopo `up -d` la dashboard puo'
+# essere ancora in avvio, e un "(fallito)" che compare a ogni deploy insegna a
+# ignorarlo. `ps` distingue "Up (health: starting)" da "Restarting", che e' il
+# sintomo di una dashboard che non parte (es. KINDLING_API_BASE_URL vuota).
+"$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" ps api dashboard \
+    || echo "(fallito)"
+
+echo ""
 echo "--- API_DATABASE_URL usa davvero kindling_api ---"
 "$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" exec -T api sh -c \
     'echo "$API_DATABASE_URL" | sed "s#:[^:@]*@#:***@#"'
@@ -270,9 +296,67 @@ if ! "$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" exec -T postgres p
     perimetro_rotto=1
 fi
 
+# --- la dashboard non ha variabili di database: non informativo -------------
+#
+# dashboard.md 1: la dashboard parla solo con l'API, e il suo container non
+# RICEVE nessuna variabile di database — non "non le usa": non le ha. Una
+# variabile aggiunta al compose per comodita' durante un debug e mai tolta e'
+# esattamente il genere di cosa che nessuno rilegge.
+#
+# `docker inspect` sulla configurazione del container, NON `exec ... env`: se una
+# variabile c'e', dashboard/config.py rifiuta di partire e il container va in
+# restart, quindi un `exec` fallirebbe — e un exec fallito letto come "nessuna
+# variabile trovata" sarebbe un controllo che passa proprio quando la regola e'
+# violata (CLAUDE.md 7). Per lo stesso motivo "non si e' potuto verificare" ha un
+# codice suo e non passa mai per "tutto a posto".
+#
+# Si confrontano i NOMI (`NOME=` a inizio riga), anche con valore vuoto: una riga
+# `DATABASE_URL=` e' gia' una variabile ricevuta. I valori non si stampano mai.
+dashboard_rotta=0
+dashboard_non_verificata=0
+
+echo ""
+echo "--- la dashboard non ha variabili di database: deve essere VUOTO ---"
+dashboard_id="$("$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" ps -a -q dashboard || true)"
+if [ -z "$dashboard_id" ]; then
+    log "ABORT container dashboard non trovato: variabili di database non verificabili"
+    echo "ATTENZIONE: nessun container dashboard, controllo non eseguito" >&2
+    dashboard_non_verificata=1
+elif ! dashboard_env="$("$DOCKER_BIN" inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$dashboard_id")"; then
+    log "ABORT docker inspect della dashboard fallito: variabili di database non verificabili"
+    echo "ATTENZIONE: docker inspect fallito, controllo non eseguito" >&2
+    dashboard_non_verificata=1
+else
+    for nome in $DASHBOARD_FORBIDDEN_VARS; do
+        # Here-string e non `printf | grep -q`: con pipefail, grep -q che esce al
+        # primo match puo' far morire printf di SIGPIPE e rendere FALSA la
+        # pipeline proprio quando la variabile c'e'.
+        if grep -q "^${nome}=" <<<"$dashboard_env"; then
+            log "ABORT la dashboard ha la variabile $nome: il perimetro di dashboard.md 1 e' violato"
+            echo "ATTENZIONE: il container dashboard ha $nome." >&2
+            echo "  Toglierla da docker-compose.yml (services.dashboard: nessun env_file," >&2
+            echo "  environment con la sola KINDLING_API_BASE_URL), poi rilanciare lo script." >&2
+            dashboard_rotta=1
+        fi
+    done
+    if [ "$dashboard_rotta" -eq 0 ]; then
+        echo "(nessuna variabile di database)"
+    fi
+fi
+
 if [ "$perimetro_rotto" -ne 0 ]; then
     log "ABORT perimetro di kindling_api compromesso, vedi sopra"
     exit "$PERIMETER_BROKEN_EXIT"
+fi
+
+if [ "$dashboard_rotta" -ne 0 ]; then
+    log "ABORT variabili di database nella dashboard, vedi sopra"
+    exit "$DASHBOARD_DB_VARS_EXIT"
+fi
+
+if [ "$dashboard_non_verificata" -ne 0 ]; then
+    log "ABORT variabili di database della dashboard non verificate, vedi sopra"
+    exit "$DASHBOARD_UNVERIFIED_EXIT"
 fi
 
 log "END   verifiche"

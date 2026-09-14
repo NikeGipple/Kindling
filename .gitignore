@@ -226,3 +226,11 @@ exports/
 
 *.dump
 *.sql.gz
+
+# Sviluppo della dashboard: screenshot, export CSV, dump di risposte JSON
+# presi da dati reali. Il repo e' pubblico, e cinque dump con dati di persone
+# reali sono gia' stati trovati nella cartella di lavoro, a un `git add -A`
+# dal finire online. Questa cartella esiste perche' quel materiale abbia un
+# posto coperto dal primo giorno, non dal giorno dopo l'incidente.
+# Vedi docs/architettura/dashboard.md 10.
+dashboard-dev/

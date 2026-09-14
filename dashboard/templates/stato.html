@@ -1,0 +1,110 @@
+{#- Vista Stato (dashboard.md 4). La vista iniziale, non un pannello di servizio:
+    e' quella che spiega tutte le altre, perche' first_seen_at e' la ragione dei
+    caveat che compaiono altrove. Servire i caveat senza la ragione dei caveat e'
+    peggio che non servirli (api.md 2).
+
+    Legge solo campi tipizzati di GuildRow e RunRow. params e stats si mostrano
+    come testo letterale: stats e' diagnostica, non contratto (api.md 3), e le sue
+    chiavi non possono diventare etichette ne' condizioni. -#}
+{% extends "base.html" %}
+{% block titolo %}Stato {{ guild.guild_id }}{% endblock %}
+{% block contenuto %}
+<h1>Stato</h1>
+<p class="sottotitolo">Server <code>{{ guild.guild_id }}</code></p>
+
+<section aria-labelledby="osservazione">
+  <h2 id="osservazione">Da quando osserviamo</h2>
+  <p>Il bot osserva questo server dal <strong>{{ guild.first_seen_at | data_ora }}</strong>.</p>
+  <p class="nota">È l'<em>ancora di osservabilità</em>: prima di questa data chi è
+  uscito dal server non ha lasciato traccia. Per questo le coorti entrate prima
+  contano solo chi era ancora presente (<em>solo sopravvissuti</em>), e la loro
+  retention non è calcolabile.</p>
+
+  {% if guild.backfilled_at %}
+  <p>Membri già presenti all'arrivo del bot registrati il {{ guild.backfilled_at | data_ora }}.</p>
+  {% else %}
+  <p>Registrazione dei membri già presenti all'arrivo del bot: non ancora eseguita.</p>
+  {% endif %}
+
+  {% if buco_di_osservazione %}
+  <div class="avviso" role="note">
+    <strong>C'è un buco di osservazione.</strong>
+    Il bot ha lasciato il server il {{ guild.left_at | data_ora }} ed è rientrato il
+    {{ guild.rejoined_at | data_ora }}. Le uscite avvenute in quell'intervallo sono
+    invisibili, esattamente come quelle precedenti all'ancora: l'osservazione di
+    questo server non parte da un istante solo, e questo cambia la lettura di ogni
+    metrica di coorte.
+  </div>
+  {% elif guild.left_at %}
+  <div class="avviso" role="note">
+    <strong>Il bot non è più sul server.</strong>
+    Ha lasciato il server il {{ guild.left_at | data_ora }} e non risulta rientrato:
+    da quella data non c'è osservazione.
+  </div>
+  {% elif guild.rejoined_at %}
+  <div class="avviso" role="note">
+    <strong>Rientro senza uscita registrata.</strong>
+    Risulta un rientro del bot il {{ guild.rejoined_at | data_ora }} ma nessuna data di
+    uscita: l'intervallo in cui il bot era assente non è noto.
+  </div>
+  {% endif %}
+</section>
+
+<section aria-labelledby="calcolo">
+  <h2 id="calcolo">Ultimo calcolo</h2>
+  {% if ultima %}
+  <p>Le metriche arrivano al <strong>{{ ultima.as_of | data_ora }}</strong>
+  (snapshot <code>{{ ultima.snapshot_id }}</code>), calcolate il
+  {{ ultima.created_at | data_ora }}.</p>
+  <table>
+    <tbody>
+      <tr>
+        <th scope="row">Versione del codice</th>
+        <td>{% if ultima.code_version %}<code>{{ ultima.code_version }}</code>{% else %}<em>non registrata</em> — non si può dire quale codice ha prodotto questi numeri{% endif %}</td>
+      </tr>
+      <tr>
+        <th scope="row">Parametri</th>
+        <td>{% if ultima.params %}{% for chiave, valore in ultima.params | dictsort %}<code>{{ chiave }}={{ valore }}</code>{% if not loop.last %}, {% endif %}{% endfor %}{% else %}<em>nessuno registrato</em>{% endif %}</td>
+      </tr>
+    </tbody>
+  </table>
+  {% else %}
+  <p>Nessun calcolo di metriche ancora eseguito per questo server. Il bot sta
+  osservando; i numeri arriveranno con la prima esecuzione settimanale.</p>
+  {% endif %}
+</section>
+
+{% if runs %}
+<section aria-labelledby="storico">
+  <h2 id="storico">Storico delle esecuzioni</h2>
+  <div class="scorri">
+  <table>
+    <thead><tr><th>Snapshot</th><th>Metriche al</th><th>Calcolate il</th><th>Versione del codice</th></tr></thead>
+    <tbody>
+    {% for r in runs %}
+      <tr>
+        <td><code>{{ r.snapshot_id }}</code></td>
+        <td>{{ r.as_of | data_ora }}</td>
+        <td>{{ r.created_at | data_ora }}</td>
+        <td>{% if r.code_version %}<code>{{ r.code_version }}</code>{% else %}<em>non registrata</em>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% set params_diversi = runs | map(attribute="params") | map("tojson") | unique | list %}
+  {% if params_diversi | length > 1 %}
+  <div class="avviso" role="note">
+    <strong>Parametri diversi tra le esecuzioni.</strong>
+    Due esecuzioni con parametri diversi non sono confrontabili tra loro.
+  </div>
+  {% endif %}
+
+  <h2 id="diagnostica">Diagnostica dell'ultima esecuzione</h2>
+  <p class="nota">Testo letterale di <code>stats</code>: è la scatola nera
+  dell'esecuzione, utile quando un numero sembra sbagliato. Le sue chiavi cambiano
+  con il codice del job.</p>
+  <pre>{{ ultima.stats | tojson(indent=2) }}</pre>
+</section>
+{% endif %}
+{% endblock %}

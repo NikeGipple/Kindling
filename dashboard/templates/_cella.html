@@ -1,0 +1,26 @@
+{#- Il rendering di una Cella (dashboard/qualifica.py). Si usa sempre cosi':
+
+      {% from "_cella.html" import mostra %}
+      {{ mostra(cella(riga, "targeted_excess")) }}
+
+    mai con il numero estratto a mano da riga.values. Il macro decide solo
+    l'aspetto: quale stato e' la cella lo ha gia' deciso cella(row, campo). -#}
+{% macro mostra(c) -%}
+{%- set dequalificata = c.etichette | selectattr("tipo", "equalto", "non_significativo") | list -%}
+<span class="cella cella--{{ c.esito }}{% if dequalificata %} cella--dequalificata{% endif %}" data-stati="{{ c.stati | sort | join(' ') }}">
+  {%- if c.esito == "soppresso" -%}
+    <span class="cella__simbolo" aria-hidden="true">⊘</span>
+    <span class="cella__testo">soppresso</span>
+    <span class="cella__spiegazione">{{ c.spiegazione }}</span>
+  {%- elif c.esito == "non_calcolabile" -%}
+    <span class="cella__simbolo" aria-hidden="true">∅</span>
+    <span class="cella__testo">non calcolabile</span>
+    <span class="cella__spiegazione">{{ c.spiegazione }}</span>
+  {%- else -%}
+    <span class="cella__testo">{{ c.testo }}</span>
+  {%- endif -%}
+  {%- for e in c.etichette %}
+    <span class="etichetta etichetta--{{ e.tipo }}">{{ e.testo }}</span>
+  {%- endfor -%}
+</span>
+{%- endmacro %}
