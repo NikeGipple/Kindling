@@ -3,28 +3,89 @@
 Sono controlli sul testo dei file di deploy, e lo sono di proposito: le regole che
 verificano non producono nessun errore quando vengono violate. Un ``env_file``
 aggiunto per comodita' da' al container ``DATABASE_URL`` e la dashboard continua a
-funzionare; un ``ports:`` la pubblica e continua a funzionare; un ``COPY tools/``
-mette il fixture nell'immagine e continua a funzionare. Qui falliscono.
+funzionare; un ``ports:`` su tutte le interfacce la pubblica su internet e
+continua a funzionare; un ``COPY tools/`` mette il fixture nell'immagine e
+continua a funzionare. Qui falliscono.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional, Union
 
+import pytest
 import yaml
 
 REPO = Path(__file__).resolve().parent.parent
 
+LOOPBACK = {"127.0.0.1", "::1"}
+
+
+def _compose() -> dict:
+    return yaml.safe_load((REPO / "docker-compose.yml").read_text(encoding="utf-8"))
+
 
 def _servizio() -> dict:
-    compose = yaml.safe_load((REPO / "docker-compose.yml").read_text(encoding="utf-8"))
-    return compose["services"]["dashboard"]
+    return _compose()["services"]["dashboard"]
 
 
-def test_dashboard_non_pubblica_porte():
+def _ip_del_binding(voce: Union[str, int, dict]) -> Optional[str]:
+    """L'IP dell'host su cui Compose pubblica una voce di ``ports:``, o None.
+
+    None significa "nessun IP esplicito", che per Docker e' TUTTE le interfacce:
+    ``"8000:8000"`` equivale a ``"0.0.0.0:8000:8000"``. Copre le due sintassi di
+    Compose — breve (``"IP:HOST:CONTAINER[/proto]"``, anche ``"[::1]:..."``) e
+    lunga (``{target, published, host_ip}``).
+    """
+    if isinstance(voce, dict):
+        return voce.get("host_ip")
+    testo = str(voce).split("/", 1)[0]
+    if testo.startswith("["):
+        return testo[1:testo.index("]")]
+    parti = testo.split(":")
+    return parti[0] if len(parti) == 3 else None
+
+
+@pytest.mark.parametrize(
+    "voce",
+    ["8000:8000", "8000", 8000, "0.0.0.0:8000:8000", "[::]:8000:8000",
+     "8000:8000/tcp", {"target": 8000, "published": 8000},
+     {"target": 8000, "published": 8000, "host_ip": "0.0.0.0"}],
+)
+def test_il_controllo_riconosce_i_binding_su_tutte_le_interfacce(voce):
+    # Un controllo che non fallisce su nessuna delle forme vietate non controlla
+    # niente (CLAUDE.md 7): qui si prova che le riconosce tutte.
+    assert _ip_del_binding(voce) not in LOOPBACK
+
+
+@pytest.mark.parametrize(
+    "voce", ["127.0.0.1:8000:8000", "[::1]:8000:8000", "127.0.0.1:8000:8000/tcp",
+             {"target": 8000, "published": 8000, "host_ip": "127.0.0.1"}],
+)
+def test_il_controllo_accetta_il_loopback(voce):
+    assert _ip_del_binding(voce) in LOOPBACK
+
+
+def test_dashboard_pubblica_solo_sul_loopback():
+    # dashboard.md 8: "127.0.0.1:8000:8000", non nessun ports:. Senza porta sul
+    # loopback il tunnel SSH trova connection refused (CLAUDE.md, errore n. 3);
+    # con una porta su tutte le interfacce la dashboard e' su internet senza TLS
+    # ne' autenticazione.
     servizio = _servizio()
-    assert "ports" not in servizio
+    assert servizio.get("ports") == ["127.0.0.1:8000:8000"]
     assert "network_mode" not in servizio
+
+
+def test_nessun_servizio_pubblica_su_tutte_le_interfacce():
+    # La regola del progetto, applicata a ogni servizio e non solo alla
+    # dashboard: un ports: aggiunto domani su api o bot fallisce qui.
+    esposti = [
+        (nome, voce)
+        for nome, servizio in _compose()["services"].items()
+        for voce in servizio.get("ports", [])
+        if _ip_del_binding(voce) not in LOOPBACK
+    ]
+    assert esposti == [], f"porte pubblicate su tutte le interfacce: {esposti}"
 
 
 def test_dashboard_non_riceve_variabili_di_database():

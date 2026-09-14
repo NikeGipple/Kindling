@@ -87,14 +87,24 @@ services:
   # SOLO con l'API, via HTTP sulla rete interna del compose: il browser non chiama
   # mai l'API.
   #
-  # NESSUN `ports:` pubblicato: in fase 1 si raggiunge solo via tunnel SSH, come
-  # l'api oggi. Il giorno in cui compare un `ports:` o Caddy, i cinque
-  # prerequisiti di dashboard.md 8 (dominio, Caddy con TLS, Cloud Firewall, OAuth
-  # Discord, flow verificato) devono essere gia' fatti: aggiungere la porta prima
-  # e' la versione dashboard dell'incidente descritto in CLAUDE.md.
+  # Porta pubblicata SOLO sul loopback dell'host ("127.0.0.1:8000:8000"), come
+  # postgres: non raggiungibile da internet in nessun caso, ma e' cio' a cui si
+  # appoggia il tunnel SSH (`ssh -L 8000:localhost:8000 ...`). Senza nessun
+  # `ports:` il tunnel trova `connection refused` pur funzionando — l'errore n. 3
+  # di CLAUDE.md (dashboard.md 8). La regola e' "mai su tutte le interfacce", non
+  # "mai una sezione ports:".
+  #
+  # L'esposizione pubblica non passa mai da qui: in fase 2 davanti alla dashboard
+  # ci va Caddy, e solo quando i cinque prerequisiti di dashboard.md 8 (dominio,
+  # Caddy con TLS, Cloud Firewall, OAuth Discord, flow verificato) sono gia'
+  # fatti. Allargare questo binding prima e' la versione dashboard dell'incidente
+  # descritto in CLAUDE.md. tests/test_dashboard_deploy.py fallisce su un binding
+  # senza IP o su 0.0.0.0.
   dashboard:
     build: .
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
     # NESSUN env_file, e non e' una dimenticanza: .env contiene DATABASE_URL e
     # API_DATABASE_URL, e dashboard.md 1 vuole che questo container NON le abbia,
     # non solo che non le usi. L'environment qui sotto e' l'elenco completo di

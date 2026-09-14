@@ -528,12 +528,39 @@ darà su richiesta una coorte soppressa o un `previous_gap_days` anomalo.
 
 ## 8. Deploy, in due fasi
 
-**Fase 1 — sviluppo, nessuna esposizione.** Il servizio `dashboard` si aggiunge
-allo stesso `docker-compose.yml`, **senza `ports:` pubblicati**: raggiungibile
-via tunnel SSH, esattamente la postura che `api` ha oggi. Non è
-"autenticazione posticcia" vietata da `api.md` §5 — è "non esposto", che è
+**Fase 1 — sviluppo, nessuna esposizione pubblica.** Il servizio `dashboard` si
+aggiunge allo stesso `docker-compose.yml`, con la porta pubblicata **solo sul
+loopback dell'host**:
+
+```yaml
+ports:
+  - "127.0.0.1:8000:8000"
+```
+
+Non è "autenticazione posticcia" vietata da `api.md` §5 — è "non esposto", che è
 un'altra cosa. In questa fase l'OAuth si può sviluppare ma non è ancora il
 guardiano di niente.
+
+**`127.0.0.1:8000:8000` e non nessun `ports:`, ed è la differenza che questo
+progetto ha già pagato.** Una prima stesura di questa nota diceva "senza
+`ports:` pubblicati, raggiungibile via tunnel SSH": le due cose sono
+incompatibili. Senza **nessuna** porta pubblicata, nemmeno sul loopback,
+`localhost:8000` sulla droplet non risponde, quindi un `ssh -L
+8000:localhost:8000` — che si appoggia proprio al `localhost` della droplet —
+fallisce con `connection refused` pur essendo il tunnel perfettamente
+funzionante. È l'errore n. 3 di `CLAUDE.md`, costato ore di debug su fail2ban e
+formato della chiave prima di arrivare alla causa vera.
+
+La regola del progetto è **"mai su tutte le interfacce"**, non "mai una sezione
+`ports:`". Un binding su `127.0.0.1` non è raggiungibile da internet in nessun
+caso — lo stesso che Postgres ha dal primo giorno — ed è ciò che rende
+possibile guardare la dashboard prima che esista un dominio.
+
+**Nota su `api`**: oggi non ha nessun `ports:`, e `api.md` §5 gli attribuisce lo
+stesso "via tunnel SSH" che qui era sbagliato. Non è un problema attivo — nessuno
+ha ancora avuto bisogno di aprire un tunnel verso l'API, e `docker compose exec`
+basta per interrogarla dall'interno della droplet. Ma la frase è imprecisa nello
+stesso modo, e va corretta lì quando si tocca quel documento.
 
 La forma del servizio, perché non sia una decisione presa a margine del codice:
 
@@ -541,7 +568,7 @@ La forma del servizio, perché non sia una decisione presa a margine del codice:
 |---|---|
 | Nome del servizio | `dashboard` |
 | Immagine | lo stesso `Dockerfile` di `bot`, `api` e `job` |
-| Porta interna | `8000`, non pubblicata — nessun conflitto con `api`, sono container diversi |
+| Porta | `8000` nel container, pubblicata **solo** su `127.0.0.1:8000` dell'host — mai su tutte le interfacce. Nessun conflitto con `api`, che non pubblica niente |
 | `environment` | **solo** `KINDLING_API_BASE_URL` (più, in fase 2, le variabili OAuth). Nessuna variabile di database: vedi §1 |
 | `mem_limit` | `150m` (§9) |
 | `command` | `uvicorn dashboard.main:app --host 0.0.0.0 --port 8000 --workers 1` |
@@ -563,9 +590,25 @@ previsione si incassa adesso.
 4. applicazione Discord OAuth configurata, con la redirect URI definitiva;
 5. il flow di §3 completo e verificato, log del callback inclusi.
 
-Il giorno in cui compare un `ports:` o Caddy, i cinque punti devono essere già
-fatti. Aggiungere la porta prima è la versione dashboard dell'incidente di
+Il giorno in cui compare un `ports:` **su tutte le interfacce**, o Caddy, i
+cinque punti devono essere già fatti. Il binding su `127.0.0.1` della fase 1 non
+è quel giorno: non è raggiungibile da internet, ed è la ragione per cui la
+regola del progetto parla di interfacce e non di sezioni `ports:`. Allargare
+quel binding prima dei cinque punti è la versione dashboard dell'incidente di
 `CLAUDE.md`.
+
+**L'eccezione di Caddy, decisa adesso e non il giorno in cui servirà.** Il test
+che impone il loopback vale su *ogni* servizio del compose, quindi il giorno in
+cui si aggiunge Caddy — che deve pubblicare 80 e 443 su tutte le interfacce, è
+il suo mestiere — quel test fallisce. È il comportamento voluto: costringe a
+un'eccezione esplicita nel momento esatto in cui il sistema diventa raggiungibile
+da internet, invece di lasciar passare la modifica in silenzio.
+
+Quando arriverà, il test si **aggiorna**, non si aggira. E l'eccezione è stretta:
+il solo servizio Caddy, le sole porte 80 e 443. Ogni altro servizio, e ogni
+altra porta di Caddy, restano sul loopback. Un'eccezione scritta come "Caddy può
+pubblicare quello che vuole" riaprirebbe per intero la regola che questo test
+esiste per tenere chiusa.
 
 ## 9. Memoria
 
