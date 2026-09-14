@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
-from api.models import RobustnessRow, RobustnessValues
+from api.models import RobustnessRow
 from job.config import ALL_LAYERS, MetricParams
 
 from .qualifica import DECIMALI_MINIMI, formatta, precisione_colonna
@@ -314,26 +314,67 @@ def costruisci(righe: list[RobustnessRow]) -> Vista:
                 grafico=grafico,
                 tabella_serie=tabella,
                 assente_ovunque=assente_ovunque,
-                decimali=decimali_per_campo(righe_ultimo),
-                decimali_serie=decimali_per_campo([r for _s, r in tabella if r is not None]),
+                decimali=decimali_per_campo(righe_ultimo, COLONNE_BLOCCO),
+                decimali_serie=decimali_per_campo(
+                    [r for _s, r in tabella if r is not None], COLONNE_SERIE
+                ),
             )
         )
     return Vista(snapshot=snapshot, blocchi=blocchi)
 
 
-def decimali_per_campo(righe: list[RobustnessRow]) -> dict[str, int]:
-    """La precisione di ogni colonna di una tabella, calcolata sulle SUE righe.
+# Le colonne numeriche che ciascuna tabella MOSTRA. Un gruppo di precisione vale
+# solo tra colonne mostrate: tests/test_dashboard_robustezza.py confronta questi
+# elenchi con le cella() del template, perche' un elenco che diverge dalla tabella
+# vera applicherebbe il gruppo a colonne che non ci sono (o lo mancherebbe).
+COLONNE_BLOCCO = (
+    "nodes_removed",
+    "giant_before",
+    "giant_after_targeted",
+    "giant_after_random_mean",
+    "components_after_targeted",
+    "targeted_excess",
+    "targeted_z",
+)
+COLONNE_SERIE = ("nodes_removed", "targeted_excess")
 
-    Una chiave per ogni campo di ``RobustnessValues``: i campi interi non la usano
-    (``formatta`` li rende senza decimali), ma averla sempre evita che il template
-    chieda una chiave che non c'e'. Le righe soppresse non contano: i loro valori
-    sono tutti None.
+# Colonne legate da un'operazione (dashboard.md 5): condividono la precisione piu'
+# alta del gruppo, altrimenti la riga si contraddice da sola — due giganti resi
+# entrambi 0,880 accanto a un eccesso di -0,0004.
+#
+#   targeted_excess = (giant_after_random_mean - giant_after_targeted) / giant_before
+#
+# targeted_z NON ne fa parte, e non per dimenticanza: il suo denominatore e'
+# giant_after_random_sd, che nessuna tabella mostra, quindi z non si ricava dalle
+# colonne visibili. Il criterio e' questo, non l'elenco: un gruppo esiste dove un
+# numero mostrato si ottiene da altri numeri mostrati.
+GRUPPI_CALCOLATI = (
+    frozenset({"giant_before", "giant_after_targeted", "giant_after_random_mean", "targeted_excess"}),
+)
+
+
+def decimali_per_campo(righe: list[RobustnessRow], colonne: tuple[str, ...]) -> dict[str, int]:
+    """La precisione di ogni colonna mostrata di una tabella, calcolata sulle SUE righe.
+
+    Prima colonna per colonna (``precisione_colonna``), poi i gruppi calcolati:
+    ogni gruppo, ristretto alle colonne che la tabella mostra, prende la
+    precisione piu' alta tra le sue. Nella tabella della serie i giganti non ci
+    sono, quindi il gruppo si riduce al solo eccesso e non cambia niente.
+
+    Le righe soppresse non contano: i loro valori sono tutti None.
     """
     pubblicate = [r for r in righe if not r.quality.suppressed]
-    return {
+    decimali = {
         campo: precisione_colonna(getattr(r.values, campo) for r in pubblicate)
-        for campo in RobustnessValues.model_fields
+        for campo in colonne
     }
+    for gruppo in GRUPPI_CALCOLATI:
+        mostrate = gruppo & set(colonne)
+        if len(mostrate) > 1:
+            comune = max(decimali[c] for c in mostrate)
+            for c in mostrate:
+                decimali[c] = comune
+    return decimali
 
 
 def dominio_y(valori: list[float]) -> tuple[float, float]:

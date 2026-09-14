@@ -484,6 +484,63 @@ def test_ogni_colonna_ha_lo_stesso_numero_di_decimali(api):
     assert tabelle_viste > 50
 
 
+def _numero(testo: str) -> float:
+    return float(testo.strip().replace(",", "."))
+
+
+def test_la_riga_non_si_contraddice_eccesso_ricavabile_dai_giganti_resi(api):
+    # eccesso mirato = (gigante a caso - gigante mirata) / gigante prima, sulle
+    # STRINGHE rese. Il difetto del 14/09: 0,880 - 0,880 accanto a -0,0004.
+    #
+    # Tolleranza di un'unita' sull'ultima cifra dell'eccesso, ed e' necessaria, non
+    # una concessione: tre valori arrotondati ciascuno per conto proprio possono
+    # spostare l'ultima cifra del risultato di uno. Un gruppo rotto sbaglia di
+    # piu' — sul caso vero di quattro unita' (0 contro -0,0004).
+    righe_viste = 0
+    for nome, html in _pagine(api):
+        for tabella in _albero(html).radice.trova("table", classe="tabella-blocco"):
+            for tr in tabella.trova("tr", classe="riga-rimozione"):
+                celle = [f for f in tr.figli if isinstance(f, Nodo) and f.tag == "td"]
+                if any("colspan" in td.attrs for td in celle):
+                    continue
+                testi = [next((s.testo() for s in td.trova("span", classe="cella__testo")), "")
+                         for td in celle]
+                prima, mirata, a_caso, eccesso = testi[2], testi[3], testi[4], testi[6]
+                decimali = {_decimali(t) for t in (prima, mirata, a_caso, eccesso)}
+                assert len(decimali) == 1, (nome, prima, mirata, a_caso, eccesso)
+                unita = 10 ** -decimali.pop()
+                ricavato = (_numero(a_caso) - _numero(mirata)) / _numero(prima)
+                assert abs(ricavato - _numero(eccesso)) <= unita * 1.0000001, (
+                    nome, prima, mirata, a_caso, eccesso, ricavato)
+                righe_viste += 1
+    assert righe_viste > 100
+
+
+def test_il_gruppo_dei_giganti_non_include_z_ne_componenti():
+    vista = robustezza.costruisci(SCENARIOS[GUILD_TODAY]["robustness"])
+    voice = next(b for b in vista.blocchi if b.layer == "voice")
+    gruppo = {c: voice.decimali[c] for c in
+              ("giant_before", "giant_after_targeted", "giant_after_random_mean", "targeted_excess")}
+    assert set(gruppo.values()) == {4}
+    # z ha la propria precisione: il suo denominatore (giant_after_random_sd) non
+    # si mostra, quindi non e' ricavabile dalle colonne visibili.
+    assert voice.decimali["targeted_z"] == 3
+    # Nella tabella della serie i giganti non ci sono: il gruppo si riduce.
+    assert set(voice.decimali_serie) == {"nodes_removed", "targeted_excess"}
+
+
+def test_le_colonne_dichiarate_sono_quelle_del_template():
+    # Un gruppo vale tra colonne MOSTRATE: se l'elenco diverge dal template, il
+    # gruppo si applica a colonne che non ci sono o manca quelle che ci sono.
+    sorgente = open(robustezza.__file__.rsplit("robustezza.py", 1)[0] + "templates/robustezza.html",
+                    encoding="utf-8").read()
+    blocco = sorgente[sorgente.index('class="tabella-blocco"'):sorgente.index('class="tabella-serie"')]
+    serie = sorgente[sorgente.index('class="tabella-serie"'):]
+    campi = lambda testo: {c for c in re.findall(r'cella\(r, "(\w+)"', testo)}  # noqa: E731
+    assert campi(blocco) == set(robustezza.COLONNE_BLOCCO)
+    assert campi(serie) == set(robustezza.COLONNE_SERIE)
+
+
 def test_la_colonna_e_la_tabella_non_la_pagina():
     # Due blocchi della stessa pagina possono avere decimali diversi per lo stesso
     # campo: una precisione comune sarebbe una colonna che attraversa i layer.

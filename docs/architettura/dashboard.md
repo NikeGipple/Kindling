@@ -641,13 +641,37 @@ in quest'ordine — la prima comanda, le altre due la seguono:
   formattazione senza colonna;
 - **le cifre decimali si allineano.** `1,0`, `0,92` e `0,8` nella stessa colonna
   si confrontano peggio di `1,000`, `0,920` e `0,800`, perché la larghezza del
-  numero smette di essere un indizio della sua grandezza. La precisione non
-  **toglie** mai cifre a un valore: il minimo della colonna è un pavimento, non
-  un bersaglio — `0,92` non diventa `0,9` perché la colonna contiene `1,0`.
+  numero smette di essere un indizio della sua grandezza. Il minimo della colonna
+  è un **pavimento, non un bersaglio**: non si abbassa la precisione della colonna
+  per adeguarla al valore più corto — `0,92` non diventa `0,9` perché la colonna
+  contiene `1,0`. Un valore **più lungo** della precisione della colonna si
+  arrotonda normalmente: `0,8571…` a tre decimali è `0,857`, e va bene — è la
+  colonna a dichiarare la propria risoluzione, non il singolo valore a imporla.
 
 Così la colonna dichiara da sola la propria risoluzione: quattro decimali su
 `eccesso mirato` dicono, senza una parola in più, che lì si guardano i
 decimillesimi.
+
+**Le colonne legate da un'operazione condividono la precisione.** Quando in una
+tabella una colonna è **calcolata** dalle altre, quelle colonne formano un gruppo
+e prendono tutte la precisione più alta del gruppo. Senza questa regola la riga si
+contraddice da sola: nel blocco `voice` del 14/09, `gigante dopo, mirata` e
+`gigante dopo, a caso` valgono `0,8800` e `0,8796`, e a tre decimali diventano
+**entrambe `0,880`** mentre la colonna accanto dichiara un `eccesso mirato` di
+`-0,0004`. Il lettore vede `0,880 − 0,880 = −0,0004`, cioè una pagina che sembra
+rotta — che è la regola 1 letta al contrario, e il difetto peggiore che questa
+vista possa avere.
+
+Le colonne che formano il gruppo in Robustezza sono quattro: `gigante prima`,
+`gigante dopo, mirata`, `gigante dopo, a caso` ed `eccesso mirato`, che è
+`(a caso − mirata) / prima`. **`z` non ne fa parte**: il suo denominatore è
+`giant_after_random_sd`, che non si mostra, quindi `z` non è ricavabile dalla
+tabella in nessun caso e la sua precisione resta la propria. Lo stesso vale per
+`componenti dopo`.
+
+Il criterio, non l'elenco: un gruppo esiste dove un numero mostrato si ottiene da
+altri numeri mostrati. Dove il calcolo passa da una quantità che la tabella non
+espone, gruppo non ce n'è.
 
 **Che cosa è "la colonna": una tabella sola, non la pagina.** La precisione si
 calcola sulle righe di *quella* tabella — il blocco di un layer sulle sue tre
