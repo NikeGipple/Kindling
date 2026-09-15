@@ -66,7 +66,7 @@ def test_guild_di_oggi_non_ha_caveat(dashboard):
     assert "venerdì 28 agosto 2026, 15:28 UTC" in html
     # Ultimo calcolo: lo snapshot 12, il primo ancorato al lunedi'.
     assert "Le metriche arrivano al <strong>lunedì 14 settembre 2026, 00:00 UTC</strong>" in html
-    assert "<code>d65262a</code>" in html
+    assert "<code>9d0dc98</code>" in html
     assert 'class="avviso"' not in html
     assert "buco di osservazione" not in html
 

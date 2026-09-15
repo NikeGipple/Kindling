@@ -141,15 +141,19 @@ class CommunityValues(BaseModel):
     previous_gap_days: Optional[float] = Field(
         default=None,
         description=(
-            "Giorni tra questo as_of e quello dello snapshot con cui e' "
-            "calcolata stability_jaccard. Qualifica il valore: con cadenza "
+            "Giorni tra questo as_of e quello dello snapshot precedente "
+            "(previous_snapshot_id), con cui si confronta la partizione. "
+            "Qualifica stability_jaccard e node_overlap: con cadenza "
             "settimanale ci si aspetta 7. Un numero diverso non e' un errore, "
             "e' l'informazione che il confronto e' tra finestre a una "
             "distanza diversa da quella attesa — con finestre da 7 giorni, "
             "un gap di 1-2 giorni significa finestre sovrapposte all'85-95%, "
             "e stability_jaccard misura in gran parte quella sovrapposizione "
-            "invece della ricomposizione delle community. None quando "
-            "stability_jaccard e' None."
+            "invece della ricomposizione delle community. None quando non "
+            "esiste uno snapshot precedente, per lo stesso motivo per cui "
+            "previous_snapshot_id e' None. Puo' essere valorizzato anche "
+            "quando stability_jaccard e' None per un motivo diverso, per "
+            "esempio node_overlap sotto la soglia minima."
         ),
     )
     communities_born: Optional[int] = None

@@ -185,7 +185,7 @@ Non è un errore singolo, è un **genere** da cercare attivamente. Un controllo
 che continua a passare mentre ha smesso di controllare qualcosa — o un
 meccanismo che sembra applicarsi a tutto e in realtà esclude qualcosa in
 silenzio — è peggio di un'assenza dichiarata: quella si nota, questo dà
-conferma. Cinque casi già visti in questo repo, diversi nella forma e
+conferma. Sei casi già visti in questo repo, diversi nella forma e
 identici nella sostanza:
 
 - **`api/db.py`, ordinamento senza tiebreaker.** `ORDER BY as_of DESC` senza
@@ -248,6 +248,22 @@ identici nella sostanza:
   dieci divergenze aritmetiche, entrambe in `stato-progetto.md` §10 e nella
   docstring del modulo) — un file che continua a "sembrare" testato mentre
   smette di esserlo su un asse nuovo ogni volta.
+- **Costanti del fixture ricopiate a mano invece che importate, disallineate in
+  silenzio.** `_community_layer` (`tools/fixture_api.py`) scriveva
+  `"seed": 20260907` nei `details` di tutti gli scenari, mentre il job usa
+  `PARAMS.seed = 20260903`. Un valore che doveva essere `PARAMS.seed` importato
+  era stato battuto a mano ed è rimasto sbagliato senza che niente lo
+  segnalasse: `details` è un dizionario libero per i modelli, e nessun controllo
+  di `--check` confronta il seed. Emerso confrontando `…001` con le righe reali
+  di `metric_communities` dopo il rerun di `voice_structural_min_sessions`;
+  corretto il 15/09/2026. È un difetto diverso dal punto precedente: lì il
+  fixture non vede una regola, qui ne ricopia il valore e se ne allontana.
+  Secondo caso sospetto, **non ancora verificato**: le righe di coorte di `…001`
+  hanno `snapshot_gaps: None` fisso, mentre il run reale dello snapshot 12 ha i
+  gap valorizzati — da controllare con i dati di `metric_cohorts.details` prima
+  di correggerlo. Regola: in quel file un numero che coincide con un parametro o
+  un calcolo del job si importa o si deriva; se è scritto a mano, il commento
+  dice da dove viene (produzione, con data, o scelta di scenario).
 
 Come si cercano: ogni volta che si cambia la **forma** di qualcosa che un
 controllo ispeziona — l'ordine di una query, il numero di campi di una riga, il

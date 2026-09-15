@@ -586,9 +586,12 @@ mostrati accanto: sono il modo in cui quella riga dice ancora qualcosa.
    Con finestre da 7 giorni, un gap di 1-2 giorni significa finestre sovrapposte
    all'85-95%, e il numero misura in gran parte quella sovrapposizione invece
    della ricomposizione delle community. È il caso — raro — in cui un campo di
-   `values` qualifica un altro campo di `values`. È anche già successo: sullo
-   snapshot 11 valeva 1,0 su tutti e quattro i layer, misurata su sette ore e
-   mezza.
+   `values` qualifica un altro campo di `values`. È anche già successo: la
+   prima scrittura dello snapshot 11 la dava a 1,0 su tutti e quattro i layer,
+   misurata su sette ore e mezza. Quel valore non esiste più in produzione — lo
+   snapshot 10 è stato cancellato, e il rerun del 15/09/2026 ha riscritto l'11
+   senza precedente — ma il caso resta quello che la regola esiste per
+   disinnescare.
 6. **`removal_fraction` non si mostra mai senza `nodes_removed` accanto.** La
    percentuale è l'input; il conteggio è quello che è successo. Il job calcola
    `nodes_removed = max(1, ceil(X · n))` (`job/robustness.py`), quindi **non è
@@ -840,7 +843,7 @@ sono numeri veri da mostrare. Quello che manca davvero è altro.
 |---|---|---|
 | **Stato** | Piena e corretta | *Il bot osserva dal 28 agosto, l'ultimo calcolo è di lunedì.* Nessun caveat. |
 | **Robustezza** | 12 righe, **tutti i valori popolati**, tutte non significative | *Questi numeri esistono e non sono distinguibili dal rumore.* Il perché resta fuori: sta in `details`, e §5 lo vieta finché non è una colonna. |
-| **Community** | Popolata, stabilità compresa. Lo snapshot 11 porta `stability_jaccard` 1,0 su tutti e quattro i layer con `previous_gap_days` **0,3125** — sette ore e mezza, non una settimana; lo snapshot 12 la calcola contro l'11 con un gap di **6,82** giorni | *La struttura si vede. La stabilità c'è, ma sullo snapshot più vecchio misura due finestre quasi sovrapposte, quindi dice molto meno di quanto sembri.* |
+| **Community** | Popolata; stabilità su un solo layer (dati del rerun del 15/09/2026). Lo snapshot 11 non ha precedente su nessuno dei quattro layer: `previous_gap_days` e `stability_jaccard` assenti, `no_previous_snapshot`. Lo snapshot 12 si confronta con l'11 con `previous_gap_days` **6,823** su tutti e quattro i layer, ma `stability_jaccard` c'è solo su `voice` (**0,333**): `mention`, `reaction` e `reply` hanno `node_overlap` sotto il minimo (`node_overlap_below_minimum`), non un precedente mancante. Nodi dall'11 al 12: `voice` 9→15, `mention` 26→29, `reaction` 24→25, `reply` 24→23 | *La struttura si vede. La stabilità si legge solo su `voice`, e su una distanza quasi settimanale; sugli altri tre layer tra una settimana e l'altra sono cambiate troppe persone perché il confronto dica qualcosa.* |
 | **Coorti** | Quasi tutto assente: soppressione a N=5, `is_mature` richiede 14 giorni dall'ultimo iscritto, `has_snapshot_coverage=False` sulle coorti anteriori all'ancora | *Non ci sono ancora coorti abbastanza numerose e abbastanza osservate.* |
 
 Sono quattro frasi diverse, e la differenza tra "non attendibile", "non ancora
@@ -848,11 +851,13 @@ calcolabile", "troppo pochi per essere mostrati" e "nessun caveat" è
 precisamente l'informazione che la dashboard esiste per trasmettere.
 
 **Le date che cambiano il quadro**, utili per non descrivere il presente come se
-fosse permanente. La stabilità **è già popolata**: è successo con il secondo
-snapshot, e il primo valore che ha prodotto è proprio quello che la regola 5
-esiste per disinnescare — 1,0 su sette ore e mezza. Resta da venire il momento in
-cui la si legge su una cadenza regolare, cioè quando i gap saranno tutti intorno
-a 7. Le coorti diventano leggibili solo quando la prima coorte posteriore
+fosse permanente. La stabilità **è già popolata**, ma su un layer solo: dopo il
+rerun del 15/09/2026 c'è soltanto su `voice` allo snapshot 12, con un gap di
+6,823 giorni. Il primo valore mai prodotto era proprio quello che la regola 5
+esiste per disinnescare — 1,0 su sette ore e mezza — e non esiste più in
+produzione. Resta da venire il momento in cui la si legge su una cadenza
+regolare e su più layer: il gap è già vicino a 7, ma sugli altri tre layer
+`node_overlap` resta sotto il minimo. Le coorti diventano leggibili solo quando la prima coorte posteriore
 all'ancora raggiunge i 14 giorni di osservazione. La
 significatività strutturale non arriva con nessuna delle due: richiede 30 nodi,
 **e** per le community anche `modularity_z ≥ 2,0`. Superare i 30 nodi non

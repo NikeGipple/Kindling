@@ -403,7 +403,7 @@ def _community_layer(
         "baseline_repetitions_used": 100,
         "baseline_degraded": False,
         "leiden_objective": "modularity",
-        "seed": 20260907,
+        "seed": PARAMS.seed,
     }
 
     gap: Optional[float] = None
@@ -651,50 +651,194 @@ def _membri_generati(
 # --- gli scenari -----------------------------------------------------------
 
 
+def _verbatim_robustness(
+    snapshot_id: int, as_of: datetime, layer: str, righe: tuple[tuple[Any, ...], ...]
+) -> list[RobustnessRow]:
+    """Righe di ``metric_robustness`` copiate dalla produzione, non derivate.
+
+    Ogni tupla: ``(removal_fraction, n_effective, nodes_removed, giant_before,
+    giant_after_targeted, components_after_targeted, giant_after_random_mean,
+    giant_after_random_sd, components_after_random_mean, targeted_excess,
+    targeted_z, not_significant_because)``. Tutte pubblicate e non significative
+    su ``...001``; i ``details`` costanti sono quelli che il job scrive oggi.
+    """
+    out: list[RobustnessRow] = []
+    for rf, n, removed, gb, gt, ct, grm, grs, crm, excess, z, motivi in righe:
+        out.append(RobustnessRow(
+            snapshot_id=snapshot_id, as_of=as_of, layer=layer, removal_fraction=rf,
+            quality=Quality(
+                n_effective=n, suppressed=False, suppression_reason=None, significant=False,
+                details={
+                    "baseline_degraded": False,
+                    "without_reconciled": {"identical": True},
+                    "not_significant_because": list(motivi),
+                    "baseline_repetitions_used": 100,
+                },
+            ),
+            values=RobustnessValues(
+                nodes_removed=removed, giant_before=gb, giant_after_targeted=gt,
+                components_after_targeted=ct, giant_after_random_mean=grm,
+                giant_after_random_sd=grs, components_after_random_mean=crm,
+                targeted_excess=excess, targeted_z=z,
+            ),
+        ))
+    return out
+
+
+def _verbatim_bucket(bucket: str, conteggi: Optional[tuple[int, int]], motivo: Optional[str]) -> CommunitySizeBucket:
+    """Un bucket di ``metric_community_sizes`` copiato dalla produzione."""
+    soppresso = motivo is not None
+    return CommunitySizeBucket(
+        bucket=bucket,
+        quality=Quality(n_effective=None, suppressed=soppresso, suppression_reason=motivo,
+                        significant=None, details={}),
+        values=(CommunitySizeValues() if conteggi is None
+                else CommunitySizeValues(community_count=conteggi[0], member_count=conteggi[1])),
+    )
+
+
 def _scenario_today() -> dict[str, Any]:
     """Lo stato reale della produzione: due snapshot, niente di significativo.
 
-    - **Snapshot 11**, ``as_of`` 07/09 04:15 UTC — non mezzanotte: e' il valore
-      preso da ``now()`` prima dell'ancoraggio al lunedi'. Il suo predecessore,
-      lo snapshot 10, stava sette ore e mezza prima e non fa parte della serie:
-      in produzione e' stato cancellato, e la riga che lo cita resta corretta,
-      perche' ``previous_snapshot_id`` e' un id opaco. Stabilita' 1,0 su tutti e
-      quattro i layer, misurata su 0,3 giorni: il caso reale della regola 5.
-    - **Snapshot 12**, ``as_of`` 14/09 00:00 UTC, il primo ancorato. Distanza
-      dall'11: 6,82 giorni, non 7.
-    """
-    as_of_10 = datetime(2026, 9, 6, 20, 45, tzinfo=timezone.utc)
-    as_of_11 = datetime(2026, 9, 7, 4, 15, tzinfo=timezone.utc)
-    as_of_12 = datetime(2026, 9, 14, 0, 0, tzinfo=timezone.utc)
+    **Robustezza, community, bucket e run sono copiati verbatim dalla droplet**
+    (query del 15/09/2026, dopo il rerun delle metriche su entrambi gli snapshot
+    con ``voice_structural_min_sessions = 2``, immagine ``9d0dc98``). Non passano
+    da ``_robustness_layer``/``_partizione``/``_sizes``, che ricavano i valori da
+    parametri inventati. Vanno ricopiati se cambia una regola del grafo delle
+    metriche (``voice_structural_min_sessions``, ``min_edge_weight``, ...):
+    ``--check`` non se ne accorgerebbe, perche' questo file non costruisce grafi
+    (CLAUDE.md 7).
 
-    # Il grafo e' cresciuto tra l'11 e il 12.
-    n_11 = {"voice": 14, "reply": 22, "mention": 24, "reaction": 20}
-    n_12 = {"voice": 16, "reply": 24, "mention": 26, "reaction": 22}
-    offset = {"voice": 0.0, "reply": 0.02, "mention": -0.01, "reaction": 0.01}
-    excess_11 = {0.05: 0.06, 0.10: 0.13, 0.20: 0.19}
-    excess_12 = {0.05: 0.08, 0.10: 0.11, 0.20: 0.22}
+    - **Snapshot 11**, ``as_of`` 07/09 04:15:06 UTC — non mezzanotte: e' il valore
+      preso da ``now()`` prima dell'ancoraggio al lunedi'. Nessun precedente: lo
+      snapshot 10 e' stato cancellato, e il rerun ha riscritto le community di
+      tutti e quattro i layer con ``no_previous_snapshot``.
+    - **Snapshot 12**, ``as_of`` 14/09 00:00 UTC, il primo ancorato. Distanza
+      dall'11: 6,823 giorni, non 7. Stabilita' calcolata solo su ``voice``: gli
+      altri tre layer hanno ``node_overlap`` sotto il minimo.
+    """
+    as_of_11 = datetime(2026, 9, 7, 4, 15, 6, 13734, tzinfo=timezone.utc)
+    as_of_12 = datetime(2026, 9, 14, 0, 0, tzinfo=timezone.utc)
+    as_of_per_sid = {11: as_of_11, 12: as_of_12}
+
+    solo_nodi = ("too_few_nodes",)
+    nodi_e_rimossi = ("too_few_nodes", "too_few_nodes_removed")
+    # (sid, layer) -> righe di metric_robustness, in ordine di removal_fraction.
+    robustezza_reale: dict[tuple[int, str], tuple[tuple[Any, ...], ...]] = {
+        (11, "mention"): (
+            (0.05, 26, 2, 0.8846153846153846, 0.4230769230769231, 12, 0.8, 0.04070386632407063, 2.44, 0.4260869565217392, 9.260129588726068, solo_nodi),
+            (0.10, 26, 3, 0.8846153846153846, 0.38461538461538464, 12, 0.7496153846153847, 0.0673889619251485, 2.8, 0.412608695652174, 5.416317295485565, solo_nodi),
+            (0.20, 26, 6, 0.8846153846153846, 0.11538461538461539, 16, 0.6342307692307692, 0.07663310731070921, 3.2, 0.5865217391304347, 6.770522194049761, solo_nodi),
+        ),
+        (11, "reaction"): (
+            (0.05, 24, 2, 1.0, 0.7083333333333334, 6, 0.88625, 0.05829016259675001, 1.73, 0.1779166666666666, 3.0522588845306537, solo_nodi),
+            (0.10, 24, 3, 1.0, 0.4583333333333333, 11, 0.8245833333333333, 0.07506825597784696, 2.21, 0.36625, 4.878893151694937, solo_nodi),
+            (0.20, 24, 5, 1.0, 0.20833333333333334, 15, 0.7004166666666667, 0.09766279144757911, 3.19, 0.4920833333333333, 5.038595825898146, solo_nodi),
+        ),
+        (11, "reply"): (
+            (0.05, 24, 2, 0.7916666666666666, 0.4166666666666667, 10, 0.72375, 0.026780356607035677, 3.13, 0.38789473684210524, 11.466738021429373, solo_nodi),
+            (0.10, 24, 3, 0.7916666666666666, 0.375, 10, 0.6833333333333332, 0.041247895569215286, 3.23, 0.3894736842105262, 7.475128829686355, solo_nodi),
+            (0.20, 24, 5, 0.7916666666666666, 0.16666666666666666, 13, 0.6145833333333334, 0.04836744485934957, 3.25, 0.5657894736842106, 9.260705583459886, solo_nodi),
+        ),
+        (11, "voice"): (
+            (0.05, 9, 1, 1.0, 0.7777777777777778, 2, 0.8755555555555555, 0.03610683735393758, 1.12, 0.09777777777777774, 2.7080128015453204, nodi_e_rimossi),
+            (0.10, 9, 1, 1.0, 0.7777777777777778, 2, 0.8722222222222221, 0.03967460238079359, 1.15, 0.09444444444444433, 2.3804761428476153, nodi_e_rimossi),
+            (0.20, 9, 2, 1.0, 0.6666666666666666, 2, 0.7577777777777777, 0.04268749491621901, 1.18, 0.09111111111111103, 2.134374745810947, solo_nodi),
+        ),
+        (12, "mention"): (
+            (0.05, 29, 2, 0.9310344827586207, 0.6551724137931034, 6, 0.8272413793103448, 0.0563442366912839, 2.9, 0.18481481481481482, 3.053887595638675, solo_nodi),
+            (0.10, 29, 3, 0.9310344827586207, 0.27586206896551724, 10, 0.7841379310344827, 0.06572019382455968, 3.23, 0.5459259259259259, 7.733937356085861, solo_nodi),
+            (0.20, 29, 6, 0.9310344827586207, 0.06896551724137931, 20, 0.6424137931034483, 0.08511794991854137, 4.23, 0.6159259259259259, 6.737101591507597, solo_nodi),
+        ),
+        (12, "reaction"): (
+            (0.05, 25, 2, 1.0, 0.64, 7, 0.8732000000000001, 0.06300603145731369, 2.12, 0.23320000000000007, 3.701232955101958, solo_nodi),
+            (0.10, 25, 3, 1.0, 0.4, 11, 0.8151999999999999, 0.07731080131521079, 2.49, 0.4151999999999999, 5.37053028731588, solo_nodi),
+            (0.20, 25, 5, 1.0, 0.2, 14, 0.7048000000000001, 0.08481131999916049, 3.23, 0.5048000000000001, 5.952035648130426, solo_nodi),
+        ),
+        (12, "reply"): (
+            (0.05, 23, 2, 0.9130434782608695, 0.6086956521739131, 5, 0.792608695652174, 0.05860863114433297, 2.81, 0.20142857142857146, 3.137985649679244, solo_nodi),
+            (0.10, 23, 3, 0.9130434782608695, 0.34782608695652173, 9, 0.7265217391304348, 0.06457509805819077, 3.33, 0.41476190476190483, 5.864422409899523, solo_nodi),
+            (0.20, 23, 5, 0.9130434782608695, 0.08695652173913043, 14, 0.6069565217391304, 0.1164892881483449, 4.03, 0.5695238095238095, 4.46392975925648, solo_nodi),
+        ),
+        (12, "voice"): (
+            (0.05, 15, 1, 1.0, 0.9333333333333333, 1, 0.9293333333333333, 0.015832456116050553, 1.06, -0.0040000000000000036, -0.252645576319956, nodi_e_rimossi),
+            (0.10, 15, 2, 1.0, 0.8, 2, 0.8513333333333334, 0.05321236280748635, 1.16, 0.05133333333333334, 0.9646881030081106, solo_nodi),
+            (0.20, 15, 3, 1.0, 0.4666666666666667, 3, 0.764, 0.07625687582842032, 1.39, 0.29733333333333334, 3.899101951178016, solo_nodi),
+        ),
+    }
+
+    # (sid, layer) -> (n, community_count, modularity, random_mean, random_sd, z,
+    #                  node_overlap, stability_jaccard, (nate, dissolte, fuse, scisse),
+    #                  not_significant_because)
+    indistinguibile = "modularity_indistinguishable_from_random"
+    sovrapposizione = "node_overlap_below_minimum"
+    community_reali: dict[tuple[int, str], tuple[Any, ...]] = {
+        (11, "mention"): (26, 4, 0.16389004581424416, 0.18612036651395258, 0.022042254467687428, -1.0085320778914286,
+                          None, None, None, ("too_few_nodes", indistinguibile)),
+        (11, "reaction"): (24, 3, 0.3149910767400356, 0.2464306960142772, 0.027374280569744697, 2.5045546147260027,
+                           None, None, None, ("too_few_nodes",)),
+        (11, "reply"): (24, 4, 0.17107750472589803, 0.18743856332703213, 0.023810439486219352, -0.6871380350036507,
+                        None, None, None, ("too_few_nodes", indistinguibile)),
+        (11, "voice"): (9, 3, 0.04475308641975306, 0.04486111111111117, 0.04199473894423033, -0.002572338680365804,
+                        None, None, None, ("too_few_nodes", indistinguibile)),
+        (12, "mention"): (29, 5, 0.4310941828254848, 0.4260595567867036, 0.026904517695240368, 0.18712939201552214,
+                          0.1956521739130435, None, (1, 0, 0, 0), ("too_few_nodes", indistinguibile, sovrapposizione)),
+        (12, "reaction"): (25, 4, 0.39554419284149006, 0.35063550036523006, 0.023517126960165585, 1.9096164489960215,
+                           0.3611111111111111, None, (1, 0, 0, 0), ("too_few_nodes", indistinguibile, sovrapposizione)),
+        (12, "reply"): (23, 5, 0.40368608799048755, 0.41120689655172415, 0.026865452977589896, -0.2799434860640602,
+                        0.23684210526315788, None, (1, 0, 0, 0), ("too_few_nodes", indistinguibile, sovrapposizione)),
+        (12, "voice"): (15, 2, 0.2221074380165289, 0.07289772727272725, 0.026530225458777885, 5.6241403215981185,
+                        0.5, 0.3333333333333333, (0, 0, 1, 0), ("too_few_nodes",)),
+    }
+
+    # (sid, layer) -> bucket nell'ordine in cui li serve l'API (ORDER BY bucket):
+    # (bucket, (community_count, member_count) o None se soppresso, motivo).
+    bucket_reali: dict[tuple[int, str], tuple[tuple[str, Optional[tuple[int, int]], Optional[str]], ...]] = {
+        (11, "mention"): (("10-19", (1, 18), None), ("small", (3, 8), None)),
+        (11, "reaction"): (("10-19", (1, 12), None), ("5-9", None, REASON_SECONDARY),
+                           ("small", None, REASON_BELOW_THRESHOLD)),
+        (11, "reply"): (("10-19", (1, 16), None), ("small", (3, 8), None)),
+        (11, "voice"): (("5-9", None, REASON_SECONDARY), ("small", None, REASON_BELOW_THRESHOLD)),
+        (12, "mention"): (("10-19", None, REASON_SECONDARY), ("5-9", (3, 17), None),
+                          ("small", None, REASON_BELOW_THRESHOLD)),
+        (12, "reaction"): (("5-9", (4, 25), None),),
+        (12, "reply"): (("5-9", (2, 15), None), ("small", (3, 8), None)),
+        (12, "voice"): (("5-9", (2, 15), None),),
+    }
 
     robustness: list[RobustnessRow] = []
     communities: list[CommunityRow] = []
-    for sid, as_of, n_by_layer, excess, precedente, overlap, stability, ricomp in (
-        (12, as_of_12, n_12, excess_12, _Precedente(11, as_of_11), 0.81, 0.64, (1, 1, 0, 0)),
-        (11, as_of_11, n_11, excess_11, _Precedente(10, as_of_10), 1.0, 1.0, (0, 0, 0, 0)),
-    ):
-        for layer in LAYERS:
-            n = n_by_layer[layer]
-            excess_layer = {rf: round(v + offset[layer], 3) for rf, v in excess.items()}
-            if sid == 12 and layer == "voice":
-                # Il valore vero di produzione (14/09): -0,0004 su tutte e tre le
-                # frazioni. E' quello che la pagina rendeva "-0,0".
-                excess_layer = {rf: -0.0004 for rf in excess}
-            robustness += _robustness_layer(sid, as_of, layer, n=n, excess=excess_layer)
-            communities.append(
-                _community_layer(
-                    sid, as_of, layer, n=n, dimensioni=_partizione(n),
-                    modularity_z=1.22, precedente=precedente,
-                    overlap=overlap, stability=stability, ricomposizione=ricomp,
-                )
-            )
+    for (sid, layer), righe in robustezza_reale.items():
+        robustness += _verbatim_robustness(sid, as_of_per_sid[sid], layer, righe)
+    for (sid, layer), (n, count, mod, mod_mean, mod_sd, z, overlap, stability, ricomp, motivi) in community_reali.items():
+        details: dict[str, Any] = {
+            "seed": PARAMS.seed,
+            "leiden_objective": PARAMS.leiden_objective,
+            "baseline_degraded": False,
+            "without_reconciled": {"identical": True},
+            "not_significant_because": list(motivi),
+            "baseline_repetitions_used": 100,
+        }
+        if sid == 11:
+            details["stability_unavailable"] = "no_previous_snapshot"
+        elif stability is None:
+            details["stability_unavailable"] = sovrapposizione
+        born, dissolved, merged, split = ricomp if ricomp is not None else (None, None, None, None)
+        communities.append(CommunityRow(
+            snapshot_id=sid, as_of=as_of_per_sid[sid], layer=layer,
+            previous_snapshot_id=None if sid == 11 else 11,
+            quality=Quality(n_effective=n, suppressed=False, suppression_reason=None,
+                            significant=False, details=details),
+            values=CommunityValues(
+                community_count=count, modularity=mod, modularity_random_mean=mod_mean,
+                modularity_random_sd=mod_sd, modularity_z=z, node_overlap=overlap,
+                stability_jaccard=stability,
+                previous_gap_days=None if sid == 11 else 6.823,
+                communities_born=born, communities_dissolved=dissolved,
+                communities_merged=merged, communities_split=split,
+            ),
+            sizes=[_verbatim_bucket(*b) for b in bucket_reali[(sid, layer)]],
+        ))
 
     # Coorti: i membri sono scelti perche' compute_cohort riproduca ESATTAMENTE
     # le righe di produzione (query sulla droplet, 14/09/2026). Nessun valore e'
@@ -738,7 +882,10 @@ def _scenario_today() -> dict[str, Any]:
         + _coorti(11, as_of_11, membri, ancora=ancora, snapshot_as_of=snapshot_grafo)
     )
 
-    params = {"min_cardinality": 5, "k_connections": 5, "min_nodes_structural": 30}
+    # I params li produce il codice di 9d0dc98, cioe' as_run_params(): e' la
+    # stessa funzione che li ha scritti in produzione, non una copia a mano.
+    params = PARAMS.as_run_params()
+    soglie = {"min_cardinality": PARAMS.min_cardinality, "min_nodes_publish": PARAMS.publish_threshold}
     return {
         "guild": GuildRow(
             guild_id=GUILD_TODAY,
@@ -749,17 +896,24 @@ def _scenario_today() -> dict[str, Any]:
         "runs": [
             RunRow(
                 snapshot_id=12, as_of=as_of_12, params=params,
-                stats={"durations_ms": {"robustness": 4310, "communities": 2740, "cohorts": 910},
-                       "snapshots_used": 2},
-                code_version="d65262a",
-                created_at=as_of_12 + timedelta(hours=4, minutes=15),
+                stats={"durations_ms": {"cohorts_ms": 3.6, "robustness_ms": 163.7,
+                                        "communities_ms": 611.1, "structural_total_ms": 778.6},
+                       "snapshot_gaps": {"max_gap_days": 6.822847063263889,
+                                         "cadence_days_median": 6.822847063263889},
+                       "snapshots_used": 2, "params_thresholds": soglie,
+                       "snapshots_skipped_params": 0},
+                code_version="9d0dc98",
+                created_at=datetime(2026, 9, 15, 9, 52, 47, 737959, tzinfo=timezone.utc),
             ),
             RunRow(
                 snapshot_id=11, as_of=as_of_11, params=params,
-                stats={"durations_ms": {"robustness": 4180, "communities": 2610, "cohorts": 890},
-                       "snapshots_used": 1},
-                code_version="d65262a",
-                created_at=as_of_11 + timedelta(minutes=1),
+                stats={"durations_ms": {"cohorts_ms": 4.6, "robustness_ms": 182.0,
+                                        "communities_ms": 586.5, "structural_total_ms": 773.1},
+                       "snapshot_gaps": None,
+                       "snapshots_used": 1, "params_thresholds": soglie,
+                       "snapshots_skipped_params": 0},
+                code_version="9d0dc98",
+                created_at=datetime(2026, 9, 15, 9, 52, 40, 132957, tzinfo=timezone.utc),
             ),
         ],
         "robustness": robustness,
@@ -881,7 +1035,8 @@ def _scenario_edge() -> dict[str, Any]:
     ``reply``     3     blocco interamente soppresso            riga soppressa e tutti i bucket soppressi
     ``mention``   10    5% e 10% rimuovono lo stesso nodo;      node_overlap sotto il minimo: stabilita'
                         baseline degenere al 20%                NULL, ricomposizione presente
-    ``reaction``  44    righe normali, significative            modularity_z sotto 2,0 con nodi a
+    ``reaction``  44    significative; -0,0004 al 5% (colonna   modularity_z sotto 2,0 con nodi a
+                        a 4 decimali)
                                                                 sufficienza + soppressione secondaria
     ============  ====  ======================================  ==========================================
 
@@ -912,8 +1067,13 @@ def _scenario_edge() -> dict[str, Any]:
         + _robustness_layer(sid, as_of, "mention", n=10,
                             excess={0.05: 0.12, 0.10: 0.115, 0.20: 0.21},
                             degenerate=frozenset({0.20}))
+        # -0.0004 al 5%: per test di rendering a 4 decimali, valore sintetico non
+        # da produzione — prima viveva su ...001, spostato il 15/09/2026 quando
+        # ...001 e' stato risincronizzato con la produzione reale. Uno solo
+        # nella colonna basta: la precisione si decide sulla colonna, e le altre
+        # due righe devono salire a 4 decimali con lui.
         + _robustness_layer(sid, as_of, "reaction", n=44,
-                            excess={0.05: 0.24, 0.10: 0.33, 0.20: 0.44})
+                            excess={0.05: -0.0004, 0.10: 0.33, 0.20: 0.44})
     )
 
     communities = [

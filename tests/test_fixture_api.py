@@ -229,12 +229,27 @@ def test_002_voice_e_volatile():
 def test_001_rispecchia_la_produzione():
     s = SCENARIOS[GUILD_TODAY]
     assert [r.snapshot_id for r in s["runs"]] == [12, 11]
-    assert {r.code_version for r in s["runs"]} == {"d65262a"}
-    per_sid = {c.snapshot_id: c for c in s["communities"] if c.layer == "voice"}
-    assert per_sid[11].previous_snapshot_id == 10
-    assert per_sid[11].values.stability_jaccard == 1.0
-    assert per_sid[11].values.previous_gap_days == round(7.5 / 24, 3)
-    assert per_sid[12].values.previous_gap_days == round((6 + 19.75 / 24), 3)
+    assert {r.code_version for r in s["runs"]} == {"9d0dc98"}
+    # Intero, non stringa: e' asdict a scriverlo. '2' e' solo come lo mostra psql con ->>.
+    assert {r.params["voice_structural_min_sessions"] for r in s["runs"]} == {2}
+
+    # Snapshot 11: lo snapshot 10 non esiste piu', e il rerun ha riscritto TUTTI i
+    # layer senza precedente — non solo voice.
+    undici = [c for c in s["communities"] if c.snapshot_id == 11]
+    assert len(undici) == 4
+    for c in undici:
+        assert c.previous_snapshot_id is None
+        assert c.values.stability_jaccard is None and c.values.previous_gap_days is None
+        assert c.quality.details["stability_unavailable"] == "no_previous_snapshot"
+
+    # Snapshot 12: stesso precedente e stesso gap per tutti, stabilita' solo su voice.
+    dodici = {c.layer: c for c in s["communities"] if c.snapshot_id == 12}
+    assert {(c.previous_snapshot_id, c.values.previous_gap_days) for c in dodici.values()} == {(11, 6.823)}
+    assert {l for l, c in dodici.items() if c.values.stability_jaccard is not None} == {"voice"}
+
+    # voice dopo voice_structural_min_sessions = 2: 9 e 15 nodi.
+    voice_n = {r.snapshot_id: r.quality.n_effective for r in s["robustness"] if r.layer == "voice"}
+    assert voice_n == {11: 9, 12: 15}
 
 
 # --- il limite conta snapshot, non righe -----------------------------------

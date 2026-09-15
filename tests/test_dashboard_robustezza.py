@@ -449,13 +449,16 @@ def test_nessuno_zero_con_segno_in_nessuna_pagina(api):
         assert not _ZERO_CON_SEGNO.search(corpo), (nome, _ZERO_CON_SEGNO.search(corpo).group(0))
 
 
-def test_il_valore_vero_di_produzione_si_vede(dashboard):
-    # ...001, snapshot 12, voice: -0,0004 su tutte e tre le frazioni. Era "-0,0".
-    html = dashboard.get(f"/guilds/{GUILD_TODAY}/robustezza").text
-    voice = next(_albero(html).radice.trova("section", data_layer="voice"))
-    blocco = next(voice.trova("table", classe="tabella-blocco"))
+def test_un_valore_sotto_il_millesimo_si_vede(dashboard):
+    # ...003, reaction: -0,0004 al 5%, accanto a 0,33 e 0,44. Era "-0,0" quando
+    # stava su ...001 (valore di produzione del 14/09, poi cambiato col rerun):
+    # il caso vive su ...003 perche' non dipende da cosa scrive la produzione.
+    # E le altre due righe salgono a 4 decimali: la colonna decide, non il valore.
+    html = dashboard.get(f"/guilds/{GUILD_EDGE}/robustezza").text
+    reaction = next(_albero(html).radice.trova("section", data_layer="reaction"))
+    blocco = next(reaction.trova("table", classe="tabella-blocco"))
     eccessi = [td.testo().strip() for td in blocco.trova("td", classe="colonna-risposta")]
-    assert eccessi == ["-0,0004"] * 3
+    assert eccessi == ["-0,0004", "0,3300", "0,4400"]
 
 
 def test_ogni_colonna_ha_lo_stesso_numero_di_decimali(api):
@@ -517,16 +520,16 @@ def test_la_riga_non_si_contraddice_eccesso_ricavabile_dai_giganti_resi(api):
 
 
 def test_il_gruppo_dei_giganti_non_include_z_ne_componenti():
-    vista = robustezza.costruisci(SCENARIOS[GUILD_TODAY]["robustness"])
-    voice = next(b for b in vista.blocchi if b.layer == "voice")
-    gruppo = {c: voice.decimali[c] for c in
+    vista = robustezza.costruisci(SCENARIOS[GUILD_EDGE]["robustness"])
+    reaction = next(b for b in vista.blocchi if b.layer == "reaction")
+    gruppo = {c: reaction.decimali[c] for c in
               ("giant_before", "giant_after_targeted", "giant_after_random_mean", "targeted_excess")}
     assert set(gruppo.values()) == {4}
     # z ha la propria precisione: il suo denominatore (giant_after_random_sd) non
     # si mostra, quindi non e' ricavabile dalle colonne visibili.
-    assert voice.decimali["targeted_z"] == 3
+    assert reaction.decimali["targeted_z"] == 3
     # Nella tabella della serie i giganti non ci sono: il gruppo si riduce.
-    assert set(voice.decimali_serie) == {"nodes_removed", "targeted_excess"}
+    assert set(reaction.decimali_serie) == {"nodes_removed", "targeted_excess"}
 
 
 def test_le_colonne_dichiarate_sono_quelle_del_template():
@@ -544,13 +547,13 @@ def test_le_colonne_dichiarate_sono_quelle_del_template():
 def test_la_colonna_e_la_tabella_non_la_pagina():
     # Due blocchi della stessa pagina possono avere decimali diversi per lo stesso
     # campo: una precisione comune sarebbe una colonna che attraversa i layer.
-    vista = robustezza.costruisci(SCENARIOS[GUILD_TODAY]["robustness"])
+    vista = robustezza.costruisci(SCENARIOS[GUILD_EDGE]["robustness"])
     per_layer = {b.layer: b.decimali["targeted_excess"] for b in vista.blocchi}
-    assert per_layer["voice"] == 4
-    assert per_layer["reply"] == 3
+    assert per_layer["reaction"] == 4
+    assert per_layer["voice"] == 3
     # Tabella del blocco e tabella della serie sono tabelle diverse.
-    voice = next(b for b in vista.blocchi if b.layer == "voice")
-    assert voice.decimali_serie["targeted_excess"] == 4
+    reaction = next(b for b in vista.blocchi if b.layer == "reaction")
+    assert reaction.decimali_serie["targeted_excess"] == 4
 
 
 # --- navigazione e perimetro --------------------------------------------------
