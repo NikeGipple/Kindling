@@ -152,6 +152,15 @@ class MetricParams:
     # 1. Alzarlo e' un cambio di parametro, non una riprogettazione.
     min_edge_weight: float = 0.0
 
+    # Sessioni condivise distinte perche' una coppia entri nel grafo
+    # STRUTTURALE di voice (robustezza e Leiden). voice e' la proiezione di
+    # un'affiliazione persone x sessioni: una sola sessione affollata basta a
+    # connettere tutti, e min_edge_weight agisce sul peso, non sul numero di
+    # occasioni (modello-metriche.md 2.5). Non tocca il conteggio dei partner
+    # delle coorti, che resta a partner_min_interactions. Provvisorio, da
+    # rivedere con la distribuzione osservata di interaction_count.
+    voice_structural_min_sessions: int = 2
+
     # --- robustezza (3) -----------------------------------------------------
 
     # Non un X solo: il catalogo dichiara X da validare empiricamente, quindi

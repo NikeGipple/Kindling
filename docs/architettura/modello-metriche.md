@@ -183,6 +183,158 @@ risultato identico. Il fatto che coincida va però **registrato** in `details`
 calcolata" sono due cose diverse a valle, e solo la prima autorizza a concludere
 che il risultato non dipende da dati ricostruiti.
 
+### 2.5 `voice` è una proiezione di affiliazione: il peso non basta per l'ammissione (14/09/2026)
+
+Il 14/09, primo snapshot su dati veri, la vista Robustezza ha mostrato `voice`
+(25 nodi) **in un'unica componente anche togliendo il 20% dei nodi più
+centrali** (`targeted_excess ≈ −0,0004`), contro `reply`, `mention` e
+`reaction` che allo stesso 20% si spezzano in 14-20 componenti con eccesso
+0,5-0,6. Verificato: non è una proprietà della community, è una conseguenza di
+come `build_voice_edges` (`job/edges.py`) costruisce gli archi.
+
+**Il meccanismo.** Per ogni sessione vocale, `build_voice_edges` genera un
+contributo per **ogni coppia** di partecipanti con sovrapposizione ≥ 5 minuti —
+una sessione da *n* persone produce fino a *n(n−1)/2* archi in un colpo solo.
+`size_factor = 1/(n−1)` (`modello-grafo.md` §3.3) corregge il **peso** di quegli
+archi, ma l'ammissione nel grafo strutturale (§2.3) è `weight > min_edge_weight`
+con `min_edge_weight = 0.0`, e le componenti connesse **non guardano i pesi**: un
+arco diluito da una sessione affollata tiene insieme due componenti esattamente
+come un arco forte. La correzione esistente agisce sul lato sbagliato del
+problema — l'intensità del legame, non la sua esistenza.
+
+**Non è una scoperta nuova: è un corollario non ancora applicato di una lettura
+già fatta.** `fondamenta-teoriche.md` §10 (27/08/2026) aveva già letto
+Wasserman & Faust cap. 8 *Affiliations and Overlapping Subgroups* per lo
+scenario multi-gilda, e ne aveva tratto due conseguenze corrette e già in
+codice: la sovrapposizione cresce meccanicamente con la dimensione del gruppo
+(§10.3 — origine di `size_factor`), e una cricca nella rete derivata non implica
+che quelle persone fossero mai state tutte insieme allo stesso momento (§10.4 —
+motivo per cui Kindling verifica la sovrapposizione reale coppia per coppia
+invece di dedurla dalla prossimità di ingresso). Quella lettura si fermava un
+paragrafo prima del punto che serve qui, nella stessa sezione del libro (8.5,
+pp. 316-321): **Breiger (1974) dimostra che una rete di affiliazione connessa
+nel grafo di co-appartenenza tra attori è necessariamente connessa anche nel
+grafo di sovrapposizione tra eventi** (e viceversa, se nessun evento è vuoto) —
+basta una catena di sessioni che condividono anche un solo partecipante ciascuna
+perché l'intera popolazione risulti in un'unica componente, indipendentemente da
+quanto le relazioni sottostanti siano deboli o concentrate. Per `voice` — dove
+ogni sessione è un "evento" nel senso del capitolo — è esattamente la
+condizione osservata il 14/09. Il numero non dice "la connettività vocale è
+distribuita"; dice che la proiezione di un'affiliazione con overlap sufficiente
+è quasi sempre connessa per costruzione, prima ancora di guardare chi parla con
+chi. (Non contraddice `fondamenta-teoriche.md` §9.3.1, che prevedeva cricche
+*sociologiche* rare su dati reali molto diseguali: qui il grafo si comporta come
+un'unione di cricche ai fini della sola connettività, indipendentemente dal
+fatto che nessuna di esse supererebbe un test di sottogruppo coeso.)
+
+**Perché `reply`, `mention` e `reaction` non hanno lo stesso problema.** Non
+sono tre layer che "dicono" fragilità contro uno che dice il contrario sulla
+stessa domanda: i tre layer direzionali sono già intrinsecamente diadici — ogni
+reply, ogni menzione, ogni reazione ha esattamente un mittente e un
+destinatario, nessuna proiezione da un evento a *n* partecipanti a coppie è mai
+coinvolta. Il teorema di Breiger si applica solo a un vero grafo bipartito
+(persone × sessioni), cioè solo a `voice`. Confrontare la robustezza di `voice`
+con quella di `reply` come se misurassero la stessa cosa con esiti opposti
+mette a confronto una misura affetta da un artefatto di costruzione con tre
+misure che non lo sono.
+
+**Perché non basta alzare `min_edge_weight`.** È l'opzione più a portata di
+mano — il parametro esiste già (§2.3) — ma agisce sul peso, già diluito da
+`size_factor`, mentre il meccanismo sta nel **numero di eventi indipendenti**
+che ammettono una coppia, non nella loro intensità. È anche, letteralmente, il
+metodo che la letteratura più recente sul "backboning" delle proiezioni
+bipartite classifica come la soglia universale — la più semplice e la più
+debole delle opzioni disponibili (Domagalski, Neal & Sagan 2021).
+
+**Perché non basta dichiarare `voice` non comparabile.** Rimanderebbe il
+problema alla prossima fetta invece di risolverlo: Robustezza e Leiden
+**condividono lo stesso grafo** (`job/graph.py::build_metric_graph`, costruito
+una volta per layer da `job/metrics.py` e passato sia a `compute_robustness` sia
+a `compute_communities` — nessun percorso separato per `voice`). La fetta
+Community erediterebbe la stessa proiezione: le "community" che Leiden troverà
+su `voice` rischierebbero di essere i falò stessi, non una scoperta sulla
+community.
+
+**La decisione.** L'ammissione dell'arco `voice` nel grafo strutturale richiede
+almeno **due sessioni condivise distinte**, non una sola.
+`admission.admitted_pairs` accetta già un `min_interactions` diverso per
+chiamante — oggi 1 per il grafo strutturale, `partner_min_interactions` per le
+coorti (§5.2) — quindi non serve una funzione nuova: `build_metric_graph` passa
+`min_interactions = params.voice_structural_min_sessions` (nuovo parametro,
+default **2**, vedi §10) quando `layer == LAYER_VOICE`, e lascia 1 per gli altri
+tre layer. Una coppia che ha condiviso un solo falò da dieci persone — l'evento
+che genera la maggior parte degli archi in un colpo solo — non entra più nel
+grafo strutturale finché non si ripete; una coppia che si ritrova in vocale con
+regolarità sì. La soglia di 2 non è arbitraria quanto sembra: applica al
+**numero di occasioni indipendenti** la stessa idea di "relazione sostenuta" che
+`decay_cutoff` già applica alla loro età (Millington, "minimo una discussione al
+mese", `modello-grafo.md` §5).
+
+**Cosa non cambia.** Il conteggio dei partner delle coorti (§5.2) resta a
+`partner_min_interactions = 1` per `voice`: lì la domanda è "questo nuovo membro
+ha stabilito almeno un contatto", e un singolo falò è una risposta legittima —
+una domanda diversa da "questa coppia è un connettore strutturale", e le due
+possono avere soglie diverse sullo stesso layer senza rompere la regola di
+ammissione condivisa di §2.3 (che fissa la proiezione e la soglia di **peso**,
+non `min_interactions`, già oggi diverso tra i due percorsi). Il calcolo del
+peso — `size_factor`, decadimento — non cambia: il problema era
+nell'ammissione, non nella normalizzazione, che resta corretta per quello che
+fa.
+
+**Verifica prevista prima di applicare la modifica, non fatta a tavolino**: la
+distribuzione di `interaction_count` delle coppie oggi ammesse su `voice` — quante
+hanno una sola sessione condivisa e quante due o più — per sapere quanto il
+grafo si restringerà e se `targeted_excess` smette davvero di essere
+indistinguibile da zero. Va ripetuta a ogni snapshot finché `n_effective` non
+supera stabilmente 30, perché è il momento in cui una regressione su questo
+punto smetterebbe di essere silenziosa e comincerebbe a essere letta come "la
+community vocale è diventata più concentrata" invece che "il bug è tornato".
+
+**I due snapshot già scritti restano interamente riutilizzabili, ma le loro
+righe di metriche vanno ricalcolate, non solo quelle del prossimo run.** La
+modifica tocca `job/config.py` (il nuovo parametro) e `job/graph.py` (dove
+viene passato ad `admitted_pairs`), non la costruzione del grafo:
+`graph_snapshots`, `graph_edges` e `voice_sessions` degli snapshot 11 e 12 non
+cambiano, e nulla impedisce di
+ricalcolare le metriche da capo su entrambi. Ma le righe di
+`metric_robustness`/`metric_communities` **già pubblicate per entrambi** sono
+state scritte con la regola vecchia (un solo falò condiviso bastava). Se dopo
+il deploy si rilancia `python -m job.main metrics` solo sull'ultimo snapshot —
+il comportamento normale del cron settimanale — la serie a due punti finirebbe
+con un punto sotto una definizione e uno sotto un'altra, senza che niente lo
+segnali: la stessa classe di difetto silenzioso catalogata in `CLAUDE.md` §7.
+`metric_runs` fa `INSERT … ON CONFLICT (snapshot_id) DO UPDATE` e le tabelle
+strutturali `DELETE` + `INSERT` per `snapshot_id` (§9.6): riesegurle su uno
+snapshot già scritto è già pensato per essere ripetibile, quindi il costo è
+minimo. **Regola operativa**: dopo il deploy di questa modifica, rieseguire le
+metriche su **entrambi** gli snapshot esistenti (11 e 12), non solo sull'ultimo
+— stessa logica di `modello-grafo.md` §5.1 per i cambi che toccano il calcolo,
+applicata qui al layer delle metriche invece che a quello del grafo. Resta
+indipendente, e non risolto da questa modifica, il fatto che lo snapshot 11 sia
+"pre-fix" sull'ancoraggio di `as_of` (`stato-progetto.md` §5): le due finestre
+non si affiancano esattamente come richiede §4.4 per una lettura pulita di
+`stability_jaccard`, un limite preesistente della serie a due punti.
+
+**Letteratura, per chi vorrà spingersi oltre `min_interactions`.** Il problema
+generale — quali archi di una proiezione bipartita sono segnale e quali sono
+artefatto della dimensione del gruppo — ha una bibliografia specifica sul
+backboning delle proiezioni bipartite, più recente di Wasserman & Faust: Zweig &
+Kaufmann (2011, *Social Network Analysis and Mining*) sostituiscono la soglia
+grezza con un test di significatività per coppia, basato sulla propensione
+individuale di ciascun nodo a comparire in eventi grandi; Coscia & Neffke (2017,
+*ASONAM*, "noise-corrected backbone") hanno una versione in forma chiusa dello
+stesso principio — nessuna simulazione Monte Carlo, implementazione Python
+esistente; Opsahl (2013, *Social Networks*) ridefinisce il coefficiente di
+clustering per reti a due modi, utile quando si vorrà giudicare la coesione
+interna delle community che Leiden troverà su `voice`, non solo la loro
+esistenza. Sono tutti test **per coppia**, più fini di un taglio uniforme sul
+peso o sul numero di sessioni — ma richiedono un modello nullo stimato sui dati,
+e con due snapshot e grafi da 25-30 nodi il modello nullo sarebbe rumoroso
+quanto la cosa che dovrebbe correggere: la stessa cautela che il progetto già
+applica a `min_nodes_structural` (§7) vale qui. Restano un'evoluzione naturale
+di `min_interactions`, da riconsiderare quando ci saranno mesi di snapshot — non
+un sostituto immediato.
+
 ## 3. Robustezza strutturale (catalogo §1)
 
 ### 3.1 Cosa si misura
@@ -1441,6 +1593,7 @@ incomparabili gli snapshot del grafo), e tutti salvati in `metric_runs.params`.
 | `modularity_z` minimo | 2.0 | Convenzione statistica; provvisorio |
 | Estremi dei bucket di dimensione | `< N`, `[N,10)`, `[10,20)`, `[20,50)`, `[50,100)`, `[100,∞)` | Ingegneria nostra — **salvati in `params`**, perché dipendono da `N` (§6.3) |
 | Proiezione layer direzionali | `undirected_sum` | Ingegneria nostra (§2.2) |
+| `voice_structural_min_sessions` | 2 | Ingegneria nostra (§2.5) — sessioni condivise minime perché una coppia entri nel grafo strutturale di `voice`; solo per Robustezza/Leiden, non per il conteggio dei partner delle coorti. **Provvisorio** — da rivedere con la distribuzione osservata di `interaction_count` |
 
 `k = 5` e `N` sono i due valori che il catalogo dichiara esplicitamente da
 tarare sui dati e non da fissare a tavolino: sono qui come punto di partenza per
@@ -1534,6 +1687,10 @@ Deliberatamente non in questa specifica:
   in mano, non aggiunta dopo.
 - Confronto tra community diverse (multi-guild): le soglie e i parametri
   andrebbero armonizzati prima, e c'è una sola community.
+- **Ammissione statistica ("backboning") delle coppie `voice`**, oltre al
+  conteggio di sessioni condivise (§2.5): test per coppia contro un modello
+  nullo (Zweig & Kaufmann 2011; Coscia & Neffke 2017). Richiede più snapshot di
+  quanti ne esistano oggi perché il modello nullo non sia esso stesso rumore.
 
 ## 13. Decisioni confermate in revisione (03/09/2026)
 

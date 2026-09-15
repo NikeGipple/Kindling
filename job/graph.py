@@ -19,7 +19,7 @@ from typing import Callable, Iterable, Optional
 import igraph
 
 from .admission import admitted_pairs
-from .config import MetricParams, UNDIRECTED_LAYERS
+from .config import LAYER_VOICE, MetricParams, UNDIRECTED_LAYERS
 from .edges import Edge
 
 NodeLabeller = Callable[[int], str]
@@ -94,7 +94,12 @@ def build_metric_graph(
       ``min_edge_weight`` vale 0.0. Un arco di peso nullo — o quasi — tiene
       comunque insieme due componenti, perche' le componenti connesse i pesi
       non li guardano: lasciarlo dentro falserebbe proprio le grandezze della
-      robustezza.
+      robustezza. La funzione e' una, le soglie ``min_interactions`` no: le
+      sceglie il chiamante, e qui anche il layer. Per ``voice`` servono
+      ``voice_structural_min_sessions`` sessioni condivise, per gli altri tre
+      layer ne basta una — il perche' (proiezione di affiliazione, Breiger) sta
+      in modello-metriche.md 2.5. Il conteggio dei partner delle coorti resta
+      a ``partner_min_interactions`` anche su ``voice``: e' un'altra domanda.
     - **Ordinamento deterministico dei nodi**, per author_id crescente. Il
       risultato di Leiden dipende dall'ordine in cui i nodi sono visitati: se
       quell'ordine dipendesse dall'ordine di lettura degli archi da Postgres,
@@ -114,6 +119,9 @@ def build_metric_graph(
             params=params,
             layer=layer,
             include_reconciled=include_reconciled,
+            min_interactions=(
+                params.voice_structural_min_sessions if layer == LAYER_VOICE else 1
+            ),
         ).items()
     }
 

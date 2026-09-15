@@ -185,7 +185,7 @@ Non è un errore singolo, è un **genere** da cercare attivamente. Un controllo
 che continua a passare mentre ha smesso di controllare qualcosa — o un
 meccanismo che sembra applicarsi a tutto e in realtà esclude qualcosa in
 silenzio — è peggio di un'assenza dichiarata: quella si nota, questo dà
-conferma. Quattro casi già visti in questo repo, diversi nella forma e
+conferma. Cinque casi già visti in questo repo, diversi nella forma e
 identici nella sostanza:
 
 - **`api/db.py`, ordinamento senza tiebreaker.** `ORDER BY as_of DESC` senza
@@ -226,6 +226,28 @@ identici nella sostanza:
   Fix: passo esplicito nella procedura di deploy (`runbook-droplet.md`, passo
   4) che la riscrive da `git rev-parse --short HEAD` a ogni esecuzione, non
   una tantum.
+- **`tools/fixture_api.py --check` cieco sulle regole del grafo strutturale.**
+  Il fixture scrive le righe di `metric_robustness`/`metric_communities`
+  direttamente, con `n` per layer inventati, senza mai costruire archi né
+  passare da `admission.admitted_pairs`/`job/graph.py::build_metric_graph`. Le
+  sue difese sui contenuti coprono ciò che il file importa o deriva dal job
+  (soglie di `job/config.py`, `compute_cohort`/`compute_retention` per le
+  coorti), non le regole di ammissione degli archi. Trovato il 15/09/2026
+  introducendo `voice_structural_min_sessions` (`modello-metriche.md` §2.5):
+  il grafo strutturale di `voice` si restringe, e `--check` resta `exit=0`
+  sulle stesse righe di prima — non perché il fixture sia coerente con la
+  regola nuova, ma perché la regola non la vede. Conseguenza concreta: lo
+  scenario `…001`, dichiarato "lo stato reale della produzione" (`voice` a
+  14/16 nodi), dopo il rerun delle metriche sugli snapshot 11 e 12 non lo è
+  più, senza nessun segnale. **Non corretto qui**: i numeri di `…001` si
+  aggiornano con quelli veri del rerun sulla droplet, non con una stima a
+  tavolino. Regola: una modifica all'ammissione o alla costruzione del grafo
+  delle metriche va seguita da una rilettura a mano degli scenari del fixture,
+  perché `--check` non lo farà. È la terza volta che `tools/fixture_api.py` ha
+  questa forma di difetto (le altre due: i tre codici di motivo inventati e le
+  dieci divergenze aritmetiche, entrambe in `stato-progetto.md` §10 e nella
+  docstring del modulo) — un file che continua a "sembrare" testato mentre
+  smette di esserlo su un asse nuovo ogni volta.
 
 Come si cercano: ogni volta che si cambia la **forma** di qualcosa che un
 controllo ispeziona — l'ordine di una query, il numero di campi di una riga, il

@@ -75,8 +75,10 @@ def admitted_pairs(
       insieme per superarla.
     - ``include_reconciled=False`` produce la variante per la verifica di
       sensibilita' (2.4).
-    - ``min_interactions`` e' 1 per il grafo strutturale (nessun vincolo) e
-      ``partner_min_interactions`` per il conteggio dei partner. Si applica alla
+    - ``min_interactions`` lo sceglie il chiamante: il grafo strutturale passa
+      ``voice_structural_min_sessions`` per ``voice`` e 1 per gli altri layer
+      (modello-metriche.md 2.5), il conteggio dei partner
+      ``partner_min_interactions``. Si applica alla
       somma degli orientamenti, cioe' alla RELAZIONE e non alla singola
       direzione.
 

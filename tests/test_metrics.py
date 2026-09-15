@@ -57,7 +57,12 @@ def edge(src: int, dst: int, *, weight: float = 1.0, layer: str = LAYER_VOICE) -
         weight=weight,
         weight_undecayed=weight,
         raw_units=weight,
-        interaction_count=1,
+        # Due sessioni condivise, non una: i grafi qui sono forme di cui si
+        # conosce la risposta (stella, anello, cricche), e su voice un arco da
+        # una sola sessione non entrerebbe nel grafo strutturale
+        # (modello-metriche.md 2.5). Coi default, non con la soglia abbassata:
+        # altrimenti questi test girerebbero sotto una regola che il job non usa.
+        interaction_count=2,
         last_interaction_at=T0,
     )
 

@@ -127,7 +127,9 @@ def _edge(src: int, dst: int, *, weight: float) -> Edge:
         weight=weight,
         weight_undecayed=weight,
         raw_units=weight,
-        interaction_count=1,
+        # Due sessioni: voice ne chiede almeno due per entrare nel grafo
+        # strutturale (modello-metriche.md 2.5), e qui interessa la partizione.
+        interaction_count=2,
         last_interaction_at=LUNEDI,
     )
 
