@@ -29,6 +29,13 @@ anche il contenuto (``problemi_di_contenuto``). Per le coorti non si deriva
 nemmeno: si CHIAMA il job (``compute_cohort``, ``compute_retention``) su membri
 sintetici, e le coorti di ``...001`` riproducono al bit le righe di produzione.
 
+Altre due, trovate costruendo la vista Community (16/09/2026), entrambe su
+``voice`` in ``...002``: il layer che riappare dopo una settimana vuota era
+servito come "nessun precedente", mentre il job lo confronta con una partizione
+vuota (``node_overlap = 0``); e tre righe avevano ``node_overlap = 0,7`` tra grafi
+di 33 e 12 nodi, dove il massimo possibile e' ``min(n)/max(n)``. ``--check``
+ora verifica entrambe le cose, e che i campi del confronto siano tutti o nessuno.
+
 **Nessun dato reale, mai.** Gli id sono sintetici e i numeri inventati. Questo
 file puo' stare in git; un dump o un export no.
 
@@ -44,7 +51,8 @@ anche il selettore multi-guild del flusso di autorizzazione:
 ``...001`` oggi      lo stato reale della produzione: due snapshot (7 e 14/09),
                      niente di significativo, stabilita' misurata a 7,5 ore
 ``...002`` maturo    dodici settimane di serie: layer grandi significativi,
-                     ``voice`` volatile (assente, soppresso), eccesso negativo
+                     ``voice`` volatile (assente, soppresso), eccesso negativo,
+                     prima osservazione confrontabile significativa (snapshot 29)
 ``...003`` limite    uno snapshot, ogni riga progettata per rompere una vista
 ===================  =========================================================
 """
@@ -363,11 +371,19 @@ def _community_layer(
     overlap: Optional[float] = None,
     stability: Optional[float] = None,
     ricomposizione: tuple[int, int, int, int] = (1, 0, 1, 0),
+    senza_precedente: str = "no_previous_snapshot",
 ) -> Optional[CommunityRow]:
     """La riga di community di un layer, derivata come in ``compute_communities``.
 
     ``n`` e' lo stesso ``n`` della robustezza per lo stesso (snapshot, layer): e'
     ``graph.vcount()`` in entrambe. None = layer vuoto, nessuna riga.
+
+    ``precedente=None`` e' il ramo ``previous is None`` del job: nessun
+    precedente confrontabile, per uno dei quattro motivi di
+    ``modello-metriche.md`` 4.6 (``senza_precedente`` e' il codice che finisce in
+    ``details``). Tutti i campi del confronto restano None e **nessuna reason si
+    aggiunge**. Un layer vuoto nel precedente NON passa di qui: nel job la sua
+    partizione e' ``{}``, non None, e il confronto si fa con ``overlap=0.0``.
     """
     if n is None:
         return None
@@ -412,7 +428,7 @@ def _community_layer(
     stability_jaccard: Optional[float] = None
     born = dissolved = merged = split = None
     if precedente is None:
-        details["stability_unavailable"] = "no_previous_snapshot"
+        details["stability_unavailable"] = senza_precedente
     else:
         # La stessa aritmetica del job, arrotondamento compreso.
         gap = round((as_of - precedente.as_of).total_seconds() / 86400.0, 3)
@@ -943,19 +959,38 @@ def _scenario_mature() -> dict[str, Any]:
 
     L'eccesso negativo sta su ``reply``, i=6, al 5%: un layer grande, dove e' un
     risultato e non rumore.
+
+    Community, due casi del confronto tra partizioni:
+
+    - **snapshot 29** (i=11, il piu' vecchio): prima osservazione confrontabile.
+      Lo snapshot di grafo precedente esiste (le coorti ne usano da marzo) ma e'
+      stato scritto con parametri diversi: ``params_differ``, e
+      ``snapshots_used = 1`` sul run dice la stessa cosa. Nessun campo del
+      confronto, e ``reply``/``mention``/``reaction`` sono comunque
+      ``is_significant = true`` (n >= 30, z >= 2,0): nessun precedente non e' un
+      motivo di non significativita' (modello-metriche.md 4.6);
+    - **``voice`` che riappare** (i=4, dopo l'assenza di i=5): il precedente c'e'
+      e il layer li' era vuoto. Il job confronta con una partizione ``{}``, non
+      con None: ``node_overlap = 0``, tutte le community nate, e la riga non e'
+      significativa per ``node_overlap_below_minimum``. E' la stabilita' assente
+      su una riga pubblicata, in mezzo alla serie.
     """
     runs: list[RunRow] = []
     robustness: list[RobustnessRow] = []
     communities: list[CommunityRow] = []
     cohorts: list[CohortGroup] = []
 
-    n_voice = {0: None, 1: 12, 2: 9, 3: 11, 4: 14, 5: None, 6: 10, 7: 3, 8: 13, 9: 33, 10: 12, 11: 15}
+    # i=10 a 30 nodi e non piu' a 12: la settimana significativa (i=9, 33 nodi)
+    # deve avere un precedente di dimensione compatibile, altrimenti un
+    # node_overlap >= 0,50 con cui calcolarne la stabilita' e' impossibile.
+    n_voice = {0: None, 1: 12, 2: 9, 3: 11, 4: 14, 5: None, 6: 10, 7: 3, 8: 13, 9: 33, 10: 30, 11: 15}
     base = {"voice": 0.05, "reply": 0.22, "mention": 0.18, "reaction": 0.26}
 
     for i in range(12):
         sid = 40 - i
         as_of = _as_of(i)
-        precedente = _Precedente(sid - 1, _as_of(i + 1))
+        # Il piu' vecchio dei dodici non ha un precedente confrontabile (docstring).
+        precedente = None if i == 11 else _Precedente(sid - 1, _as_of(i + 1))
         runs.append(
             RunRow(
                 snapshot_id=sid, as_of=as_of,
@@ -981,20 +1016,33 @@ def _scenario_mature() -> dict[str, Any]:
             robustness += _robustness_layer(sid, as_of, layer, n=n, excess=excess)
 
             if layer == "voice":
-                # La stabilita' si confronta con la partizione del precedente: se
-                # nel precedente il layer era vuoto, non c'e' niente con cui
-                # confrontarla (stability_unavailable = no_previous_snapshot).
-                precedente_voice = precedente if n_voice.get(i + 1, 1) is not None else None
+                dimensioni = _partizione(n) if n else ()
+                if precedente is not None and n_voice[i + 1] is None:
+                    # Nel precedente il layer era vuoto: il job confronta con la
+                    # partizione {} (job/main.py::_previous_partition), non con
+                    # None. Nucleo comune vuoto: overlap 0, ogni community nata.
+                    overlap_voice, ricomposizione = 0.0, (len(dimensioni), 0, 0, 0)
+                elif precedente is not None and n:
+                    # node_overlap = |nucleo| / |unione| <= min(n)/max(n): su un
+                    # layer che salta da 13 a 33 nodi 0,7 non esiste. Sotto il
+                    # tetto si scende sotto il minimo, e la stabilita' non si calcola.
+                    tetto = min(n, n_voice[i + 1]) / max(n, n_voice[i + 1])
+                    overlap_voice = 0.7 if tetto >= 0.7 else round(tetto * 0.8, 3)
+                    ricomposizione = (1, 0, 1, 0)
+                else:
+                    overlap_voice, ricomposizione = None, (1, 0, 1, 0)
                 row = _community_layer(
-                    sid, as_of, layer, n=n, dimensioni=_partizione(n) if n else (),
+                    sid, as_of, layer, n=n, dimensioni=dimensioni,
                     modularity_z=2.6 if (n or 0) >= PARAMS.min_nodes_structural else 1.4,
-                    precedente=precedente_voice, overlap=0.7, stability=0.55,
+                    precedente=precedente, overlap=overlap_voice, stability=0.55,
+                    ricomposizione=ricomposizione, senza_precedente="params_differ",
                 )
             else:
                 row = _community_layer(
                     sid, as_of, layer, n=n, dimensioni=_partizione(n),
                     modularity_z=round(5.5 - i * 0.1, 2), precedente=precedente,
                     overlap=0.88, stability=round(0.74 - i * 0.008 + _ZIGZAG[i] / 2, 3),
+                    senza_precedente="params_differ",
                 )
             if row is not None:
                 communities.append(row)
@@ -1042,6 +1090,11 @@ def _scenario_edge() -> dict[str, Any]:
 
     Il gap di 1,2 giorni vale per TUTTI i layer: lo snapshot precedente e' uno solo
     per snapshot, e il job confronta ogni layer con quello.
+
+    Per la stessa ragione qui non c'e' un quinto caso "prima osservazione
+    confrontabile, significativa": ``previous is None`` vale per l'intero snapshot,
+    quindi in uno scenario da uno snapshot solo toglierebbe il gap anomalo a tutti
+    e quattro i layer. Il caso sta in ``...002``, snapshot 29.
 
     Coorti, calcolate dal job: 13/04 di soli sopravvissuti (anteriore all'ancora
     del 20/04 e dentro i 180 giorni), 10/08 significativa con mediana non
@@ -1281,8 +1334,10 @@ def _codici_estranei_al_job() -> list[str]:
     radice = pathlib.Path(__file__).resolve().parent.parent
     sorgenti = ""
     mancanti_file: list[str] = []
+    # job/metrics.py per i motivi di non confrontabilita' (snapshot_comparability),
+    # che finiscono in stability_unavailable.
     for nome in ("job/suppression.py", "job/cohorts.py", "job/communities.py",
-                 "job/robustness.py"):
+                 "job/robustness.py", "job/metrics.py"):
         f = radice / nome
         if not f.exists():
             mancanti_file.append(nome)
@@ -1407,10 +1462,58 @@ def problemi_di_contenuto(scenari: dict[int, dict[str, Any]]) -> list[str]:
                     problemi.append(f"{etichetta}: n diverso dalla robustezza (e' lo stesso grafo)")
 
             if not q.suppressed:
+                # I campi del confronto sono tutti o nessuno (compute_communities:
+                # si scrivono insieme nel ramo `previous is not None`). La vista
+                # Community riconosce "prima osservazione confrontabile" da
+                # previous_gap_days None e ne deduce il resto: un fixture che
+                # mescolasse le due forme le insegnerebbe una riga impossibile.
+                confronto = {
+                    "previous_snapshot_id": c.previous_snapshot_id,
+                    "previous_gap_days": v.previous_gap_days,
+                    "node_overlap": v.node_overlap,
+                    "communities_born": v.communities_born,
+                    "communities_dissolved": v.communities_dissolved,
+                    "communities_merged": v.communities_merged,
+                    "communities_split": v.communities_split,
+                }
+                assenti = sorted(k for k, x in confronto.items() if x is None)
+                if assenti and len(assenti) != len(confronto):
+                    problemi.append(
+                        f"{etichetta}: campi del confronto in parte None ({assenti}): "
+                        "il job li scrive tutti o nessuno"
+                    )
+                # stability_jaccard si scrive solo dentro il ramo che ha appena
+                # scritto node_overlap, e solo con node_overlap al minimo o sopra.
+                sopra_minimo = v.node_overlap is not None and v.node_overlap >= PARAMS.min_node_overlap
+                if (v.stability_jaccard is not None) != sopra_minimo:
+                    problemi.append(
+                        f"{etichetta}: stability_jaccard={v.stability_jaccard} con "
+                        f"node_overlap={v.node_overlap} (minimo {PARAMS.min_node_overlap})"
+                    )
                 if c.previous_snapshot_id is not None:
                     confronti_per_snapshot.setdefault(sid, set()).add(
                         (c.previous_snapshot_id, v.previous_gap_days)
                     )
+                # node_overlap = |nucleo| / |unione| non supera min(n)/max(n).
+                # Si verifica solo dove il precedente e' nello scenario: se il
+                # layer li' non ha righe il grafo era vuoto e l'overlap e' zero;
+                # se e' soppresso la sua n non e' nota e il controllo si salta.
+                if c.previous_snapshot_id in run_ids and v.node_overlap is not None:
+                    prec = parti_com.get((c.previous_snapshot_id, layer))
+                    if prec is None:
+                        if v.node_overlap != 0.0:
+                            problemi.append(
+                                f"{etichetta}: node_overlap={v.node_overlap} con il layer assente "
+                                "nel precedente (partizione vuota: il job scrive 0)"
+                            )
+                    elif prec.quality.n_effective and q.n_effective:
+                        a, b = q.n_effective, prec.quality.n_effective
+                        tetto = min(a, b) / max(a, b)
+                        if v.node_overlap > tetto + 1e-9:
+                            problemi.append(
+                                f"{etichetta}: node_overlap={v.node_overlap} impossibile tra {a} e "
+                                f"{b} nodi (al massimo {tetto:.3f})"
+                            )
                 z = v.modularity_z
                 sovrapposizione_bassa = (
                     c.previous_snapshot_id is not None

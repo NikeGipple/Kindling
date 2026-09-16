@@ -1,0 +1,238 @@
+{#- Vista Community (dashboard.md 4, "La vista Community, in dettaglio").
+
+    Le decisioni stanno in dashboard/community.py; qui solo l'aspetto. Invarianti
+    di template, verificati sul markup dai test:
+
+    - regola 5 estesa: stability_jaccard non compare MAI senza previous_gap_days e
+      node_overlap della stessa riga — nella riga (colonne adiacenti, o una frase
+      che nomina i tre quando mancano tutti), nella tabella della serie, nel
+      <title> del punto, nella legenda del grafico;
+    - una sola etichetta di riga, nell'ultima colonna: is_significant e' un flag;
+    - le classi di dimensione sono quelle arrivate, mai sei righe fisse, mai "il
+      resto e' N";
+    - nessun totale, media o confronto tra layer: quattro blocchi separati.
+
+    quality.details non si legge (regola 2). -#}
+{% extends "base.html" %}
+{% from "_cella.html" import mostra, etichette %}
+{% block titolo %}Community {{ guild_id }}{% endblock %}
+{% block contenuto %}
+<h1>Community</h1>
+<p class="sottotitolo">Server <code>{{ guild_id }}</code></p>
+<p class="nota">Due domande per ogni tipo di interazione. <strong>Struttura</strong>:
+le persone formano gruppi distinguibili da quelli di un grafo casuale con gli stessi
+gradi? <strong>Stabilità</strong>: quei gruppi sono gli stessi dello snapshot precedente,
+o si sono ricomposti? Le risposte possono divergere, e nessuna delle due riassume l'altra.</p>
+
+{% if vista.vuota %}
+<p class="frase-vuota">Il calcolo non è ancora girato per questo server: non esiste
+ancora nessuno snapshot delle metriche.</p>
+{% else %}
+{% set ultimo = vista.snapshot[-1] %}
+<p>Tabelle: snapshot del <strong>{{ ultimo.as_of | data_ora }}</strong>.
+{% if vista.snapshot | length > 1 %}Serie: {{ vista.snapshot | length }} snapshot, dal
+{{ vista.snapshot[0].as_of | data_ora }}.{% endif %}</p>
+
+{% macro frase_senza_confronto(colspan) -%}
+<td colspan="{{ colspan }}" class="senza-confronto inizio-stabilita" data-campi-confronto="previous_gap_days node_overlap stability_jaccard">Nessuno snapshot precedente confrontabile: gap, sovrapposizione e stabilità non si misurano su questa riga.</td>
+{%- endmacro %}
+
+{% for b in vista.blocchi %}
+<section class="blocco" id="layer-{{ b.layer }}" data-layer="{{ b.layer }}" aria-labelledby="titolo-{{ b.layer }}">
+  <h2 id="titolo-{{ b.layer }}">{{ b.nome }} <code>{{ b.layer }}</code></h2>
+
+  {% if b.assente %}
+  <p class="frase-assente">Nessuna interazione di questo tipo in questa settimana.</p>
+  {% else %}
+  {% set r = b.riga %}
+  <div class="scorri">
+  <table class="tabella-community">
+    <colgroup>
+      <col>
+      <col span="4" class="gruppo-struttura">
+      <col span="7" class="gruppo-stabilita">
+      <col>
+    </colgroup>
+    <thead>
+      <tr class="intestazione-gruppi">
+        <th scope="col"></th>
+        <th scope="colgroup" colspan="4">struttura</th>
+        <th scope="colgroup" colspan="7" class="inizio-stabilita">stabilità</th>
+        <th scope="col"></th>
+      </tr>
+      <tr>
+        <th scope="col">nodi</th>
+        <th scope="col">community</th>
+        <th scope="col">modularità</th>
+        <th scope="col">modularità attesa</th>
+        <th scope="col">z</th>
+        <th scope="col" class="inizio-stabilita">gap (giorni)</th>
+        <th scope="col">sovrapposizione</th>
+        <th scope="col">stabilità</th>
+        <th scope="col">nate</th>
+        <th scope="col">dissolte</th>
+        <th scope="col">fuse</th>
+        <th scope="col">scisse</th>
+        <th scope="col">qualificazione</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="riga-community" data-snapshot="{{ r.snapshot_id }}" data-layer="{{ r.layer }}">
+      {% if r.quality.suppressed %}
+        <td colspan="13">{{ mostra(cella(r, "community_count")) }}</td>
+      {% else %}
+        {#- n_effective e' quality, non values: cella() non lo rende. Una volta
+            sola per riga, prima delle due meta'. -#}
+        <td><span class="cella cella--valore{% if r.quality.significant is false %} cella--dequalificata{% endif %}"><span class="cella__testo" data-n-effective="{{ r.quality.n_effective }}">{{ r.quality.n_effective }}</span></span></td>
+        <td>{{ mostra(cella(r, "community_count")) }}</td>
+        <td>{{ mostra(cella(r, "modularity", b.decimali["modularity"])) }}</td>
+        <td>{{ mostra(cella(r, "modularity_random_mean", b.decimali["modularity_random_mean"])) }}</td>
+        <td>{{ mostra(cella(r, "modularity_z", b.decimali["modularity_z"])) }}</td>
+        {% if senza_confronto(r) %}
+        {{ frase_senza_confronto(7) }}
+        {% else %}
+        <td class="inizio-stabilita" data-campo="previous_gap_days">{{ mostra(cella(r, "previous_gap_days", b.decimali["previous_gap_days"])) }}</td>
+        <td data-campo="node_overlap">{{ mostra(cella(r, "node_overlap", b.decimali["node_overlap"])) }}</td>
+        <td data-campo="stability_jaccard">{{ mostra(cella(r, "stability_jaccard", b.decimali["stability_jaccard"])) }}</td>
+        <td>{{ mostra(cella(r, "communities_born")) }}</td>
+        <td>{{ mostra(cella(r, "communities_dissolved")) }}</td>
+        <td>{{ mostra(cella(r, "communities_merged")) }}</td>
+        <td>{{ mostra(cella(r, "communities_split")) }}</td>
+        {% endif %}
+        <td>{{ etichette(cella(r, "modularity_z")) }}</td>
+      {% endif %}
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 class="titolo-classi">Dimensioni delle community</h3>
+  {#- Solo le classi che il job ha scritto: una classe senza community non esiste,
+      e non si confonde con una classe soppressa. Nessuna somma, nessun "resto". -#}
+  <div class="scorri">
+  <table class="tabella-classi">
+    <thead>
+      <tr>
+        <th scope="col">classe</th>
+        <th scope="col">community</th>
+        <th scope="col">membri</th>
+        <th scope="col">qualificazione</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for c in b.classi %}
+      <tr class="riga-classe" data-classe="{{ c.bucket }}">
+        <td>{{ c.bucket }}</td>
+      {% if c.quality.suppressed %}
+        <td colspan="3">{{ mostra(cella(c, "community_count")) }}</td>
+      {% else %}
+        <td>{{ mostra(cella(c, "community_count")) }}</td>
+        <td>{{ mostra(cella(c, "member_count")) }}</td>
+        <td>{{ etichette(cella(c, "member_count")) }}</td>
+      {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+
+  {% for s in (b.modularita, b.stabilita) %}
+  {% set titolo_serie = "Modularità, z per snapshot" if s.campo == "modularity_z" else "Stabilità per snapshot" %}
+  {% if s.grafico %}
+  {% set g = s.grafico %}
+  <figure class="grafico" data-grafico="{{ b.layer }}" data-campo-grafico="{{ s.campo }}">
+    <figcaption class="titolo-grafico">{{ titolo_serie }}</figcaption>
+    <svg viewBox="0 0 {{ g.larghezza }} {{ g.altezza }}" role="img"
+         aria-label="{{ titolo_serie }}, {{ b.nome }}">
+      {% if g.y_riferimento is not none %}
+      <line class="riferimento" x1="56" x2="{{ g.larghezza - 16 }}" y1="{{ g.y_riferimento }}" y2="{{ g.y_riferimento }}"/>
+      {% endif %}
+      {% for t in g.ticks_y %}
+      <text class="tick-y" x="50" y="{{ t.y }}" text-anchor="end" dominant-baseline="middle" data-valore="{{ t.etichetta }}">{{ t.etichetta }}</text>
+      {% endfor %}
+      {% for x, testo in g.etichette_x %}
+      <text class="tick-x" x="{{ x }}" y="{{ g.altezza - 12 }}" text-anchor="middle">{{ testo }}</text>
+      {% endfor %}
+      <g class="serie serie--0" data-segmenti="{{ g.segmenti | length }}">
+        {% for seg in g.segmenti %}
+        <line class="segmento{% if seg.dequalificato %} segmento--dequalificato{% endif %}" x1="{{ seg.x1 }}" y1="{{ seg.y1 }}" x2="{{ seg.x2 }}" y2="{{ seg.y2 }}"/>
+        {% endfor %}
+        {% for p in g.punti if p.disegnabile %}
+        <circle class="punto{% if p.dequalificato %} punto--dequalificato{% endif %}" cx="{{ p.x }}" cy="{{ p.y }}" r="4" data-snapshot="{{ p.snapshot.snapshot_id }}"><title>{{ p.titolo }}</title></circle>
+        {% endfor %}
+      </g>
+      {% if g.tutto_non_significativo %}
+      <text class="etichetta-grafico" x="{{ g.larghezza - 16 }}" y="16" text-anchor="end">non significativo</text>
+      {% endif %}
+    </svg>
+    <ul class="legenda">
+    {% if g.etichetta_riferimento is not none %}
+      <li class="voce-riferimento"><span class="campione campione--riferimento" aria-hidden="true"></span>{{ g.etichetta_riferimento }}: soglia di significatività della modularità</li>
+    {% endif %}
+    {% if g.legenda_confronto %}
+      <li class="voce-confronto">{{ g.legenda_confronto }}</li>
+    {% endif %}
+    {% if g.misto %}
+      <li class="voce-dequalificato"><span class="campione campione--dequalificato" aria-hidden="true"></span>tratteggio e punti vuoti: non significativo</li>
+    {% endif %}
+    </ul>
+  </figure>
+  {% elif s.tabella and vista.snapshot | length > 1 %}
+  <h3 class="titolo-serie">{{ titolo_serie }}</h3>
+  <p class="nota">Meno di tre punti disegnabili: si mostra la tabella, non una linea.</p>
+  <div class="scorri">
+  <table class="tabella-serie" data-campo-serie="{{ s.campo }}">
+    <thead>
+      <tr>
+        <th scope="col">snapshot del</th>
+      {% if s.campo == "modularity_z" %}
+        <th scope="col">nodi</th>
+        <th scope="col">z</th>
+      {% else %}
+        <th scope="col">gap (giorni)</th>
+        <th scope="col">sovrapposizione</th>
+        <th scope="col">stabilità</th>
+      {% endif %}
+        <th scope="col">qualificazione</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% set colonne = 2 if s.campo == "modularity_z" else 3 %}
+    {% for snap, r in s.tabella %}
+      {% if r is none %}
+      <tr>
+        <td>{{ snap.as_of | data_ora }}</td>
+        <td colspan="{{ colonne + 1 }}" class="frase-assente">Nessuna interazione di questo tipo in quella settimana.</td>
+      </tr>
+      {% elif r.quality.suppressed %}
+      <tr class="riga-serie" data-snapshot="{{ r.snapshot_id }}" data-layer="{{ r.layer }}">
+        <td>{{ snap.as_of | data_ora }}</td>
+        <td colspan="{{ colonne + 1 }}">{{ mostra(cella(r, "modularity_z")) }}</td>
+      </tr>
+      {% else %}
+      <tr class="riga-serie" data-snapshot="{{ r.snapshot_id }}" data-layer="{{ r.layer }}">
+        <td>{{ snap.as_of | data_ora }}</td>
+      {% if s.campo == "modularity_z" %}
+        <td><span class="cella cella--valore{% if r.quality.significant is false %} cella--dequalificata{% endif %}"><span class="cella__testo">{{ r.quality.n_effective }}</span></span></td>
+        <td>{{ mostra(cella(r, "modularity_z", s.decimali["modularity_z"])) }}</td>
+      {% elif senza_confronto(r) %}
+        {{ frase_senza_confronto(3) }}
+      {% else %}
+        <td data-campo="previous_gap_days">{{ mostra(cella(r, "previous_gap_days", s.decimali["previous_gap_days"])) }}</td>
+        <td data-campo="node_overlap">{{ mostra(cella(r, "node_overlap", s.decimali["node_overlap"])) }}</td>
+        <td data-campo="stability_jaccard">{{ mostra(cella(r, "stability_jaccard", s.decimali["stability_jaccard"])) }}</td>
+      {% endif %}
+        <td>{{ etichette(cella(r, "modularity_z")) }}</td>
+      </tr>
+      {% endif %}
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+  {% endfor %}
+</section>
+{% endfor %}
+{% endif %}
+{% endblock %}

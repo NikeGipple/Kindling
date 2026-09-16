@@ -86,18 +86,28 @@
   .campione--1 { border-color: #b0601f; }
   .campione--2 { border-color: #4d7a3a; }
   .campione--dequalificato { border-top: 2px dashed var(--grigio); }
+
+  /* --- vista Community ----------------------------------------------------- */
+  /* Due meta' della stessa riga: vicine, ma distinguibili. */
+  .intestazione-gruppi th { color: var(--testo); border-bottom: none; padding-bottom: 0; }
+  .inizio-stabilita { border-left: 2px solid var(--riga); }
+  .senza-confronto { color: var(--tenue); font-style: italic; }
+  .riferimento { stroke: var(--grigio); stroke-width: 1; stroke-dasharray: 2 3; }
+  .campione--riferimento { border-top: 1px dashed var(--grigio); }
+  .titolo-grafico { font-weight: 600; font-size: .95rem; margin-bottom: .25rem; }
 </style>
 </head>
 <body>
 <div class="pagina">
   <header class="sito">
     <a href="/">Kindling</a>
-    {#- Solo le viste che ESISTONO: una voce disabilitata per Community o Coorti
-        sarebbe una promessa, e di cio' che non c'e' non si accenna (dashboard.md 4). -#}
+    {#- Solo le viste che ESISTONO: una voce disabilitata per Coorti sarebbe una
+        promessa, e di cio' che non c'e' non si accenna (dashboard.md 4). -#}
     {% if guild_id is defined %}
     <nav class="viste" aria-label="Viste">
       <a href="/guilds/{{ guild_id }}"{% if vista_corrente is defined and vista_corrente == "stato" %} aria-current="page"{% endif %}>Stato</a>
       <a href="/guilds/{{ guild_id }}/robustezza"{% if vista_corrente is defined and vista_corrente == "robustezza" %} aria-current="page"{% endif %}>Robustezza</a>
+      <a href="/guilds/{{ guild_id }}/community"{% if vista_corrente is defined and vista_corrente == "community" %} aria-current="page"{% endif %}>Community</a>
     </nav>
     {% endif %}
   </header>

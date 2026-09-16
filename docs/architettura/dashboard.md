@@ -360,6 +360,366 @@ con lo zero disegnato come riferimento. Ancorare l'asse a zero nasconderebbe
 proprio il caso in cui i nodi più centrali si sono rivelati meno critici di nodi
 presi a caso, che è un risultato e non un errore.
 
+### La vista Community, in dettaglio
+
+**Le domande a cui risponde sono due, non una.** Robustezza ha un solo numero
+che risponde alla sua domanda (`targeted_excess`) e tutto il resto è
+procedimento. Community no: *questo layer è organizzato in gruppi distinguibili
+dal rumore?* (`community_count`, `modularity`, `modularity_z`) e *quei gruppi
+sono gli stessi di sette giorni fa, o si sono ricomposti?*
+(`node_overlap`, `stability_jaccard`, `communities_born/dissolved/merged/split`)
+sono domande diverse, con risposte che possono divergere — e nei dati del
+15/09/2026 divergono davvero: `voice`@12 ha una struttura ben distinguibile dal
+caso (`modularity_z = 5,624`) **e** una stabilità misurabile
+(`stability_jaccard = 0,333`), ma la riga è comunque `is_significant = false`,
+per un motivo che non ha niente a che fare né con l'una né con l'altra (sotto,
+"L'esempio `voice`@12"). Le due domande non si fondono in una — sarebbe la
+stessa violazione dell'invariante 3 che tiene separati i quattro layer, un
+livello più in basso — e il layout le tiene visivamente vicine ma distinte
+nella stessa riga, mai in un unico numero.
+
+**Correzione (16/09/2026, durante l'implementazione): `/communities` ha un
+`limit` esattamente come `/robustness`, non "nessuno".** La prima stesura di
+questo paragrafo affermava un fatto sull'endpoint senza averlo letto —
+esattamente l'errore di metodo che questo documento esiste per evitare, questa
+volta commesso da chi scrive la spec, non da chi la legge. **Verificato in
+`api/main.py::list_communities`**: usa la stessa dipendenza condivisa
+`limit_param` di `list_robustness`, `list_runs` e `list_cohorts`
+(`DEFAULT_LIMIT = 12`, `MAX_LIMIT = 200`, `api/config.py`). **Verificato in
+`api/db.py::fetch_communities`/`fetch_community_sizes`**: stessa query con
+`run.snapshot_id IN ({_LATEST_SNAPSHOTS})` di `fetch_robustness` — il limite
+conta **snapshot, non righe**, identico in forma e in valore di default.
+Nessun endpoint dell'API accetta `snapshot_id`: non esiste una rotta per
+chiedere uno snapshot specifico, né qui né altrove.
+
+**Rotta e dati.** `GET /guilds/{guild_id}/community`, che chiama
+`/guilds/{guild_id}/communities?limit=12` — **una sola chiamata**, esattamente
+come Robustezza chiama `/robustness?limit=12` una sola volta. La risposta
+porta fino a 12 snapshot × 4 layer (con `sizes[]` annidato per riga) in un
+unico payload, e **la stessa risposta alimenta sia i blocchi "oggi" sia i due
+grafici della serie**: i blocchi leggono le righe dello `snapshot_id` più
+recente (il primo per `layer` nell'ordinamento `ORDER BY run.as_of DESC,
+c.layer` della query), la serie raggruppa le stesse righe per layer su tutti
+gli snapshot restituiti. Non serve una seconda chiamata per la serie, e non
+serve un parametro nuovo sull'API: la spec precedente inventava un
+`snapshot_id` esplicito che non esiste, per un problema che il `limit`
+condiviso risolve già. Serve un metodo nuovo su `ApiClient` — `communities(guild_id,
+limit=12)`, sulla stessa forma di `robustness()` — con
+`TypeAdapter(list[CommunityRow])` e le stesse tre eccezioni degli altri.
+
+**Le tre assenze** sono le stesse di Robustezza, sopra: guild non osservata →
+404 → `non_osservata.html`; guild osservata, nessuno snapshot → `[]`, frase
+propria, nessun simbolo di qualificazione; API che non risponde → `errore.html`.
+Non si ripete la spiegazione qui.
+
+#### Layout: quattro blocchi, uno per layer, una riga sola
+
+Come Robustezza, un blocco per layer — l'invariante 3 vale identica. A
+differenza di Robustezza, dentro il blocco **non ci sono tre righe**: ogni
+`(snapshot, layer)` produce **una** riga di `metric_communities`, non una per
+frazione di rimozione. Il blocco è quindi una tabella a riga singola, larga,
+seguita dalla distribuzione delle dimensioni come tabella propria (sotto).
+
+La riga, in ordine di lettura, con le colonne raggruppate visivamente in due
+metà — non due tabelle separate, perché sono la stessa riga e vanno lette
+insieme, ma nemmeno indistinguibili, perché rispondono a domande diverse:
+
+**Metà struttura**: `community` (`community_count`) · `modularità`
+(`modularity`) · `modularità attesa` (`modularity_random_mean`) · `z`
+(`modularity_z`).
+
+**Metà stabilità**: `gap` (`previous_gap_days`, in giorni) · `sovrapposizione`
+(`node_overlap`) · `stabilità` (`stability_jaccard`) · `nate` · `dissolte` ·
+`fuse` · `scisse` (`communities_born/dissolved/merged/split`).
+
+`nodi` (`quality.n_effective`) sta prima di entrambe le metà, una volta sola
+per riga — non due, anche se sia la modularità sia la stabilità dipendono da
+`n` — con lo stesso significato di `n_effective` in Robustezza: `graph.vcount()`
+dello stesso grafo (`modello-metriche.md` §2.5, "Robustezza e Leiden
+condividono lo stesso grafo"). **Verificato nel codice**: `job/metrics.py`
+costruisce `graph` una volta per `(snapshot, layer)` e lo passa sia a
+`compute_robustness` sia a `compute_communities` — non è un'assunzione di
+layout come lo era in Robustezza (dove andava verificata riga per riga), qui è
+strutturale: non esistono due `n` da poter divergere.
+
+`modularità_random_sd` **non è una colonna**. Stessa scelta di Robustezza per
+`giant_after_random_sd`: mostrarla renderebbe `z` ricavabile dalle altre
+colonne visibili e lo farebbe entrare nel gruppo di precisione aritmetica
+(sotto) — cosa che Robustezza evita deliberatamente escludendo `z` dal gruppo.
+`previous_snapshot_id` **non è una colonna**: `api/models.py` lo dichiara
+opaco — "il consumatore non può risolverlo" — e senza un modo di risalire a
+una data che non sia già `previous_gap_days`, mostrarlo non aggiungerebbe
+niente che il gap non dica già.
+
+**L'etichetta di riga è una sola, e vive alla fine della riga struttura+stabilità.**
+Non due, una per metà: `is_significant` è un solo flag su un solo `CommunityRow`,
+e mostrarne due (una "non significativo" sopra i dati di struttura, una sotto
+quelli di stabilità) suggerirebbe due giudizi indipendenti che i dati non
+supportano — il flag è uno, l'ha scritto una sola valutazione di `reasons`
+(`job/communities.py::compute_communities`). La distribuzione delle dimensioni,
+sotto, ha le proprie etichette per riga, indipendenti da questa: vedi "La
+distribuzione delle dimensioni".
+
+#### `z` e i tre campi del confronto possono mancare su una riga pubblicata: tre stati, non uno
+
+**`modularity_z` può essere `None` su una riga pubblicata.** Succede quando il
+baseline è degenere, e non è un solo caso ma due (**correzione
+16/09/2026, trovata durante l'implementazione**: la prima stesura citava solo
+il primo). `job/communities.py::compute_communities` pone `modularity_z =
+None` quando `random_mean is None` **o** `random_sd` è falso (zero):
+`_modularity_baseline` restituisce `random_mean = None` con meno di due archi
+(`graph.ecount() < 2`, il rewiring non ha nulla da scambiare), ma può anche
+restituire un `random_mean` valido con `random_sd == 0` — le ripetizioni del
+rewiring danno tutte la stessa modularità per caso. **Non** è lo stesso
+evento di `baseline_degraded`: quel flag (`job/config.py::baseline_repetitions_for`)
+riduce le ripetizioni a 20 sopra i 500 nodi, mai a una sola, e con i parametri
+attuali le ripetizioni sono sempre 100 o 20 — il ramo a una sola ripetizione
+di `_modularity_baseline` (`len(values) == 1` → `sd = 0.0` per costruzione)
+esiste nel codice ma nessun parametro attuale lo raggiunge. In entrambi i casi
+il motivo resta lo stesso, `degenerate_baseline` in `reasons`: la distinzione
+tra "niente da scambiare" e "scambiato ma sempre uguale per caso" non è
+contrattuale, e la vista non deve provare a distinguerle. È lo stesso esito `ASSENTE` di `targeted_z` in
+Robustezza, sopra: non il simbolo di soppressione, che significa un'altra
+cosa, e la riga resta leggibile per il resto — `community_count` e
+`modularity` restano veri anche quando `z` non lo accompagna.
+
+**`previous_gap_days`, `node_overlap`, `stability_jaccard` e i quattro conteggi
+possono essere `None` tutti insieme, sulla PRIMA riga confrontabile.** Succede
+quando non esiste (ancora) uno snapshot precedente comparabile per quella
+guild — non solo "nessuno snapshot prima", ma anche parametri diversi,
+parametri vuoti, o finestra di ampiezza diversa (`modello-metriche.md` §4.6,
+`job/main.py::_previous_partition` via `db.fetch_previous_snapshot` →
+`snapshot_comparability`). **Verificato nel codice, e la spec di
+`modello-metriche.md` §4.6 va corretta**: il testo lì elenca tutti e cinque i
+casi — nessuno snapshot precedente, parametri diversi, parametri vuoti,
+finestra diversa, `node_overlap` sotto soglia — come se producessero tutti
+`is_significant = false`. Non è così. `job/communities.py::compute_communities`
+tocca `reasons` (da cui deriva `is_significant`) **solo** nel ramo
+`node_overlap < min_node_overlap`; il ramo `previous is None` — che copre gli
+altri quattro casi, indistintamente — scrive `details["stability_unavailable"]`
+ma non aggiunge nessuna `reason`. Una riga sulla sua primissima osservazione
+comparabile, con `n ≥ 30` e `modularity_z ≥ 2,0`, è `is_significant = true`
+anche senza nessuno snapshot precedente: l'assenza di un confronto non è, di
+per sé, un motivo di non significatività strutturale. Nei dati di produzione
+di oggi questo non si vede ancora perché tutti e quattro i layer hanno anche
+`n < 30` allo snapshot 11 (quindi `is_significant = false` comunque, per
+`too_few_nodes`) — ma lo snapshot successivo a un cambio di parametri, o la
+prima riga di un layer nuovo sopra soglia, lo eserciterà, ed è un percorso che
+il fixture deve saper generare (vedi il prompt per Claude Code).
+
+Questa è una correzione alla specifica esistente, non solo un chiarimento per
+la dashboard: `modello-metriche.md` §4.6 andrebbe aggiornato per dire che è
+**solo** `node_overlap < min_node_overlap` a rendere una riga non
+significativa a causa del confronto; gli altri quattro casi rendono `NULL` i
+soli campi del confronto, senza toccare `is_significant`. Non lo tocco in
+questa sessione — non è tra i documenti che il compito chiede di scrivere — ma
+va segnato come voce aperta (`stato-progetto.md` §7, stesso formato delle voci
+I e J).
+
+**Sulla riga, questo produce tre stati distinguibili senza mai leggere
+`details`:**
+
+| Stato | Come si riconosce (colonne, non `details`) | Cosa significa |
+|---|---|---|
+| Prima osservazione comparabile | `previous_gap_days` è `None` | Non c'è ancora un precedente valido con cui confrontarsi. Non implica `is_significant = false`: vedi sopra. |
+| Confronto fatto, popolazione troppo cambiata | `previous_gap_days` **e** `node_overlap` presenti, `stability_jaccard` assente | Il precedente c'era, ma meno di metà dei nodi è in comune (`node_overlap < 0,50`): il confronto non riguarda più abbastanza la stessa popolazione, e **questa** riga è `is_significant = false` per costruzione (`node_overlap_below_minimum` è nei `reasons`). |
+| Confronto fatto, stabilità calcolata | tutti e tre presenti | La community di oggi è confrontabile con quella di sette giorni fa, e il numero dice quanto si somiglia. |
+
+Il secondo e il terzo stato **si distinguono guardando `node_overlap`
+direttamente** — non serve una parola nuova, e non serve `details`: se
+`node_overlap` c'è ed è basso, il lettore vede perché `stability_jaccard`
+manca senza bisogno di un'etichetta che lo dica. È lo stesso meccanismo della
+regola 6 su `nodes_removed`: il numero che disinnesca la lettura è già sulla
+riga.
+
+#### Regola 5 estesa: `node_overlap` viaggia con `stability_jaccard` quanto `previous_gap_days`
+
+La regola 5 di §5 oggi dice solo "`stability_jaccard` non si mostra mai senza
+`previous_gap_days` accanto". È incompleta per Community: sui dati reali del
+15/09, `previous_gap_days = 6,823` compare su **tutti e quattro** i layer allo
+snapshot 12, ma `stability_jaccard` è popolata solo su `voice`. Mostrare
+`stability_jaccard` assente accanto solo al gap (`6,823`, un numero che dice
+"quasi una settimana", cioè "il confronto dovrebbe essere buono") senza il
+`node_overlap` che lo smentisce (`0,196` su `mention`, `0,361` su `reaction`,
+`0,237` su `reply`) farebbe sembrare l'assenza un difetto del sistema invece
+che un fatto sulla popolazione. **I tre campi — `previous_gap_days`,
+`node_overlap`, `stability_jaccard` — viaggiano insieme, sempre**: dove uno dei
+tre è mostrato, gli altri due sono in vista, anche quando sono `None`. Va
+scritto in §5 come estensione della regola 5, non come regola nuova — è lo
+stesso principio applicato a un terzo campo che l'inventario originale non
+aveva ancora incontrato.
+
+`node_overlap` e `stability_jaccard` **non condividono la precisione per la
+regola del gruppo aritmetico** (§5, "Le colonne legate da un'operazione"):
+`stability_jaccard` non è calcolato a partire da `node_overlap` — sono due
+uscite indipendenti di `compare_partitions` (`job/communities.py`), non un
+numero e la sua differenza. Che nei dati reali condividano oggi la stessa
+precisione (tre decimali: `0,333`, `0,196`, `0,361`, `0,237`, `0,500`) è una
+scelta di formattazione comune alle due colonne "frazione su [0,1]", non un
+obbligo derivato dalla regola del gruppo.
+
+#### L'esempio `voice`@12: `is_significant = false` non vuol dire "niente qui è vero"
+
+Stessa lezione di `too_few_nodes_removed` in Robustezza e di `median_reached`
+nelle coorti, un terzo campione della stessa classe di errore di lettura.
+`voice`@12: `n = 15`, `modularity_z = 5,624` (ben oltre `min_modularity_z =
+2,0`, quindi la struttura **è** distinguibile dal rumore), `node_overlap =
+0,500` (esattamente al minimo — non **sotto**, quindi `stability_jaccard` **si
+calcola**: `0,333`), un `merge` (una community precedente assorbita in una
+nuova). Eppure `quality.significant` è `false`, per l'unico motivo
+`too_few_nodes` (15 < 30). Leggere questa riga come "non ci si può fidare di
+niente qui" sarebbe sbagliato quanto leggere `median_reached = false` come
+"meno di metà della coorte" (§5, sul sesto stato): la riga dice con precisione
+*quale* garanzia manca — la dimensione del campione — non che il segnale non
+esista. `modularity_z` e `stability_jaccard` restano leggibili e vanno
+mostrati come tali: dequalificati dall'etichetta di riga come tutto il resto
+(regola generale, §5), ma **non** nascosti, e non è compito della dashboard
+inventare una seconda etichetta più fine di quella che l'API restituisce — il
+flag è uno, la lettura corretta sta nel non fermarsi all'etichetta.
+
+#### La distribuzione delle dimensioni: la tabella ha tante righe quante le classi popolate, non sei fisse
+
+`sizes[]` (`CommunitySizeBucket`) non è un elenco a sei righe (`small`, `5-9`,
+`10-19`, `20-49`, `50-99`, `100+`) sempre presenti: `job/communities.py::
+size_buckets` scrive **solo** le classi con almeno una community dentro.
+`reaction`@12 ha una riga sola (`5-9`, 4 community, 25 membri): non mancano
+cinque righe, non esistono community fuori da quella classe quella settimana.
+Renderizzare sei righe fisse con "—" su quelle vuote inventerebbe una
+distinzione (bucket vuoto) che i dati non fanno: un bucket **vuoto** e un
+bucket **soppresso** sono cose diverse, e trattarli con lo stesso trattino li
+confonderebbe.
+
+**Ogni riga di bucket porta il proprio stato di soppressione**, indipendente
+dalla riga madre: `quality.suppressed` / `suppression_reason` (`below_threshold`
+o `secondary`). **Non `quality.significant` e non `quality.n_effective`: sono
+sempre `None` su queste righe, per costruzione, non per un buco.** Doppia
+verifica, non solo di lettura:
+
+- **Nello schema**: `metric_community_sizes` non ha una colonna
+  `is_significant` (migration `0006`, `CREATE TABLE metric_community_sizes`),
+  e `CommunitySize` (`job/communities.py`) non ha un campo `n_effective` — solo
+  `member_count`. Il commento della migration lo dice esplicitamente: *"E'
+  l'n_effective di questa riga: i membri complessivi del bucket"* — riferito a
+  `member_count`, non a una colonna chiamata `n_effective`. La numerosità del
+  bucket **esiste**, ma vive in `values.member_count`, non in
+  `quality.n_effective`.
+- **Nel codice che assembla la risposta**: `api/assemble.py::communities`
+  chiama `_quality(size)` sulla riga di `metric_community_sizes`, e `_quality`
+  legge `row.get("n_effective")` e `row.get("is_significant")` — entrambi
+  assenti da quella riga, quindi entrambi sempre `None`.
+
+Dashboard.md §5 lo dice già in prosa ("è quella riga [madre] a portare
+`modularity_z` e il proprio `is_significant`; il bucket ha solo la propria
+soppressione") — questa sessione lo conferma su schema e codice, non solo su
+prosa: **non è un buco da segnalare come voce aperta, è una scelta corretta e
+già implementata.** La numerosità del bucket per la UI è `values.member_count`,
+mai `quality.n_effective` — che su queste righe non va nemmeno letto.
+
+**Colonne**: `classe` (`bucket`) · `community` (`community_count`) · `membri`
+(`member_count`) · etichetta di riga (soppressione, quando presente).
+
+#### La soppressione a cascata: un esempio reale, `reaction`@11
+
+`reaction`@11 ha 3 community (`community_count = 3`): una da 12 membri
+(classe `10-19`, pubblicata), e altre due sotto soglia. La classe `small` va
+sotto soglia primaria (`below_threshold`); a quel punto **resta una sola altra
+cella non soppressa** (`5-9`) accanto al totale pubblicato di riga
+(`n_effective = 24`), e quella cella si ricava per differenza — la soppressione
+primaria non avrebbe protetto niente. `apply_secondary_suppression`
+(`job/suppression.py`) sopprime allora anche `5-9`, con motivo `secondary`. La
+riga che arriva alla dashboard ha **una sola** classe pubblicata (`10-19`) e
+due soppresse con motivi diversi (`below_threshold`, `secondary`) — entrambe
+mostrate con lo stesso simbolo di soppressione (§5, "Soppresso": mai una cella
+vuota, mai la riga nascosta), ma il motivo testuale può distinguerle, perché
+`suppression_reason` è colonna tipizzata, non `details`.
+
+**La vista non deve mai sommare i bucket visibili per dedurre quanto vale un
+bucket nascosto, né mostrare "il resto è N".** `community_count` di riga
+(`3`) meno quello pubblicato (`1`) darebbe `2` — la stessa aritmetica che la
+soppressione secondaria esiste apposta per impedire al lettore di fare a
+mano. Farla al posto suo nel template sarebbe ricostruire esattamente
+l'aggregato sotto soglia che l'invariante 1 del progetto vieta.
+
+#### La serie: due grafici per layer, non uno
+
+**Correzione (16/09/2026, durante l'implementazione): il grafico di
+`stability_jaccard` non ha un riferimento a `0,50` — non esiste nel job.** La
+prima stesura di questo paragrafo dava a `stability_jaccard` un riferimento
+orizzontale allo stesso modo di `modularity_z`, senza verificare che fosse
+sorgente da un parametro reale. Non lo è: **verificato in `job/config.py`**, i
+soli due valori `0,50` di `MetricParams` sono `min_node_overlap` — soglia su
+`node_overlap`, una quantità diversa, non su `stability_jaccard` — e
+`merge_min_share`, usato in `compute_communities` (riga con
+`share >= params.merge_min_share`) per decidere se una community nuova
+discende per fusione da una vecchia, un calcolo interno che non tocca
+`stability_jaccard` né la sua significatività. Una linea a `0,50` sul grafico
+letterebbe come "sopra = stabile": un giudizio che il job non fa mai, ed è
+esplicitamente fuori fase (§11, "Nessun alerting e nessuna soglia di
+attenzione"). `modularity_z` è diverso: il suo `2,0` **è** sorgente
+(`min_modularity_z`, la soglia che entra davvero in `is_significant`).
+
+`targeted_excess` di Robustezza è un solo numero su una scala; Community ne ha
+due, su scale diverse (`modularity_z` è uno z-score, può essere negativo,
+tipicamente tra -2 e +6 nei dati fin qui; `stability_jaccard` è una frazione
+in `[0,1]`). Combinarli in un solo grafico a doppio asse nasconderebbe la
+differenza di scala dietro una convenienza di layout — lo stesso errore, in
+forma diversa, che l'invariante 3 vieta tra layer. **Due grafici per layer**,
+uno per `modularity_z` (riferimento orizzontale a `2,0`, la soglia di
+significatività — lo stesso genere di riferimento dichiarato che Robustezza
+usa per lo zero di `targeted_excess`) e uno per `stability_jaccard`, **senza
+riferimento orizzontale**: solo l'asse `[0, 1]` e lo zero come estremo, non
+come soglia. Entrambi seguono la regola 4 (tre punti disegnabili minimo,
+altrimenti tabella) e la regola dell'asse non ancorato a zero dove serve:
+`modularity_z` può essere negativo (`mention`@11: `-1,009`), quindi il suo
+asse segue la stessa regola di `targeted_excess`; `stability_jaccard` è
+sempre in `[0,1]`, quindi il suo asse **può** ancorarsi a zero senza nascondere
+niente — ma l'ancoraggio a zero è una scelta di leggibilità dell'asse, non un
+riferimento dichiarato: nessuna linea, nessuna etichetta che suggerisca una
+soglia.
+
+**Oggi, con due snapshot, entrambi i grafici sono tabelle**, per la stessa
+regola 4 già esercitata da Robustezza. Il codice si scrive e si esercita sul
+fixture `…002` (dodici settimane), che varia sia `modularity_z` (`5,5` in
+discesa di `0,1` a settimana su `reply`/`mention`/`reaction`, fisso a `2,6` o
+`1,4` su `voice` a seconda della soglia dei 30 nodi) sia `stability_jaccard`
+(`0,74` in discesa con rumore) apposta per esercitare una serie vera, non
+piatta.
+
+#### Il terzo caso che Robustezza non aveva: un valore assente su una riga pubblicata, dentro la serie
+
+§5 dice, per `targeted_excess`: *"Non esiste un terzo caso. Su una riga
+pubblicata `targeted_excess` non è mai `None`."* È vero per quel campo, non è
+una legge generale — e per `stability_jaccard` è falso: una riga pubblicata,
+non soppressa, **può** avere `stability_jaccard = None` (prima osservazione
+comparabile, o `node_overlap` sotto soglia). Ai fini del **disegno della
+serie**, questo terzo caso si comporta come un punto soppresso: non c'è un
+numero da disegnare, quindi il punto non si disegna e la linea si interrompe
+visibilmente — le stesse due frasi di §5 sul perché (disegnare uno zero o
+saltare il punto congiungendo i vicini sono due modi di inventarlo). **Non**
+riceve però il simbolo di soppressione: quello è un fatto della *cella* nella
+tabella-riga, non del *grafico* — la riga non è soppressa, solo quel valore
+manca, ed è la stessa distinzione tra `ASSENTE` e soppresso che vale ovunque
+in questo documento. La serie di `modularity_z`, al contrario, ha lo stesso
+comportamento di `targeted_z` in Robustezza: manca solo su baseline degenere
+(`graph.ecount() < 2` **o** `random_sd == 0` — sopra, "tre stati, non uno"),
+un caso limite quanto lì.
+
+#### I rami difensivi
+
+Si aggiungono ai tre già elencati in §5 ("I rami difensivi, e perché non si
+provano"), stessa logica e stesso trattamento — nel codice, non nella
+fixture:
+
+- `n_effective` diverso tra le colonne struttura e stabilità della stessa
+  riga — non può succedere, è lo stesso `graph.vcount()` letto una volta sola
+  (sopra), ma il template non deve *assumerlo* senza un modo di accorgersene
+  se smettesse di essere vero;
+- `stability_jaccard` valorizzato senza `node_overlap` — il codice di
+  `compute_communities` lo rende impossibile (`stability_jaccard` si scrive
+  solo dentro il ramo che ha appena scritto `node_overlap`), ma è un invariante
+  della vista da verificare con un test sul markup, come già per la regola 6 di
+  Robustezza.
+
 ## 5. Come si rappresenta la qualificazione
 
 È il cuore di questo documento. Le altre sezioni descrivono un'applicazione web
@@ -592,6 +952,22 @@ mostrati accanto: sono il modo in cui quella riga dice ancora qualcosa.
    snapshot 10 è stato cancellato, e il rerun del 15/09/2026 ha riscritto l'11
    senza precedente — ma il caso resta quello che la regola esiste per
    disinnescare.
+
+   **Estensione (vista Community, 15/09/2026): `node_overlap` viaggia insieme
+   a `previous_gap_days` e `stability_jaccard`, non solo il gap.** Un gap
+   vicino a 7 giorni legge come "il confronto dovrebbe essere buono", ed è
+   proprio l'impressione sbagliata da dare quando `stability_jaccard` manca
+   per `node_overlap` sotto soglia: sui dati reali del 15/09,
+   `previous_gap_days = 6,823` su tutti e quattro i layer allo snapshot 12, ma
+   `stability_jaccard` esiste solo su `voice` (`node_overlap = 0,500`) —
+   `mention` (`0,196`), `reaction` (`0,361`) e `reply` (`0,237`) hanno
+   `node_overlap` sotto il minimo. Mostrare il gap senza `node_overlap`
+   farebbe sembrare l'assenza della stabilità un difetto invece che un fatto
+   sulla popolazione. Dove uno dei tre campi compare, gli altri due sono in
+   vista — anche quando sono `None`. `node_overlap` e `stability_jaccard` non
+   condividono per questo la precisione del gruppo aritmetico (sotto): non
+   sono legati da un'operazione, sono due uscite indipendenti dello stesso
+   confronto tra partizioni.
 6. **`removal_fraction` non si mostra mai senza `nodes_removed` accanto.** La
    percentuale è l'input; il conteggio è quello che è successo. Il job calcola
    `nodes_removed = max(1, ceil(X · n))` (`job/robustness.py`), quindi **non è
@@ -843,7 +1219,7 @@ sono numeri veri da mostrare. Quello che manca davvero è altro.
 |---|---|---|
 | **Stato** | Piena e corretta | *Il bot osserva dal 28 agosto, l'ultimo calcolo è di lunedì.* Nessun caveat. |
 | **Robustezza** | 12 righe, **tutti i valori popolati**, tutte non significative | *Questi numeri esistono e non sono distinguibili dal rumore.* Il perché resta fuori: sta in `details`, e §5 lo vieta finché non è una colonna. |
-| **Community** | Popolata; stabilità su un solo layer (dati del rerun del 15/09/2026). Lo snapshot 11 non ha precedente su nessuno dei quattro layer: `previous_gap_days` e `stability_jaccard` assenti, `no_previous_snapshot`. Lo snapshot 12 si confronta con l'11 con `previous_gap_days` **6,823** su tutti e quattro i layer, ma `stability_jaccard` c'è solo su `voice` (**0,333**): `mention`, `reaction` e `reply` hanno `node_overlap` sotto il minimo (`node_overlap_below_minimum`), non un precedente mancante. Nodi dall'11 al 12: `voice` 9→15, `mention` 26→29, `reaction` 24→25, `reply` 24→23 | *La struttura si vede. La stabilità si legge solo su `voice`, e su una distanza quasi settimanale; sugli altri tre layer tra una settimana e l'altra sono cambiate troppe persone perché il confronto dica qualcosa.* |
+| **Community** | Popolata; stabilità su un solo layer (dati del rerun del 15/09/2026). Lo snapshot 11 non ha precedente su nessuno dei quattro layer: `previous_gap_days` e `stability_jaccard` assenti, `no_previous_snapshot`. Lo snapshot 12 si confronta con l'11 con `previous_gap_days` **6,823** su tutti e quattro i layer, ma `stability_jaccard` c'è solo su `voice` (**0,333**): `mention`, `reaction` e `reply` hanno `node_overlap` sotto il minimo (`node_overlap_below_minimum`), non un precedente mancante. Nodi dall'11 al 12: `voice` 9→15, `mention` 26→29, `reaction` 24→25, `reply` 24→23. **Nessun layer è oggi `is_significant = true`**: tutti e quattro sono ancora sotto i 30 nodi (`too_few_nodes`), `voice`@12 compreso — che pure ha `modularity_z = 5,624` e `stability_jaccard = 0,333`, entrambi ben oltre le rispettive soglie. | *La struttura si vede, e su `voice` anche la stabilità: nessuna delle due letture dipende dal grafo essere "abbastanza grande" secondo la soglia strutturale, che qui non ha ancora acceso niente. Sugli altri tre layer la stabilità non si legge perché tra una settimana e l'altra sono cambiate troppe persone, non perché il grafo sia piccolo — sono due limiti diversi che oggi capitano insieme.* |
 | **Coorti** | Quasi tutto assente: soppressione a N=5, `is_mature` richiede 14 giorni dall'ultimo iscritto, `has_snapshot_coverage=False` sulle coorti anteriori all'ancora | *Non ci sono ancora coorti abbastanza numerose e abbastanza osservate.* |
 
 Sono quattro frasi diverse, e la differenza tra "non attendibile", "non ancora

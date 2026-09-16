@@ -584,8 +584,10 @@ relazioni"), e vanno poter essere letti come serie senza aprire un JSON.
 
 ### 4.6 Quando la stabilità non è definita
 
-`stability_jaccard` è NULL, con `is_significant = false` e la ragione in
-`details`, quando:
+`stability_jaccard` è NULL, con la ragione in `details["stability_unavailable"]`,
+in cinque casi. **Solo l'ultimo tocca `is_significant`**, e la distinzione non è
+di dettaglio: i primi quattro dicono che *non c'è un confronto*, l'ultimo che il
+confronto c'è ed è fatto su popolazioni troppo diverse.
 
 - non esiste uno snapshot precedente per quella guild;
 - lo snapshot precedente è stato calcolato con **parametri del grafo diversi**
@@ -608,6 +610,29 @@ relazioni"), e vanno poter essere letti come serie senza aprire un JSON.
   stessa durata al microsecondo, quindi una differenza non è rumore numerico;
 - `node_overlap < min_node_overlap` (default 0.50): sotto metà di nodi in
   comune, il confronto non riguarda più abbastanza la stessa popolazione.
+
+**Nei primi quattro casi** `job/main.py::_previous_partition` non trova un
+precedente confrontabile (`db.fetch_previous_snapshot` →
+`snapshot_comparability`), e `compute_communities` riceve `previous = None`:
+restano `NULL` i soli campi del confronto — `previous_snapshot_id`,
+`previous_gap_days`, `node_overlap`, `stability_jaccard` e i quattro conteggi
+`communities_born/dissolved/merged/split` — e **nessuna `reason` si aggiunge**.
+`is_significant` resta deciso esclusivamente da `too_few_nodes`,
+`degenerate_baseline` e `modularity_indistinguishable_from_random`: una riga
+sulla prima osservazione confrontabile, con `n ≥ min_nodes_structural` e
+`modularity_z ≥ min_modularity_z`, è `is_significant = true` senza nessun dato di
+stabilità. L'assenza di un confronto non è, di per sé, un motivo di non
+significatività strutturale.
+
+**Solo nel quinto caso** il confronto è stato fatto: `previous_gap_days`,
+`node_overlap` e i quattro conteggi sono valorizzati, `stability_jaccard` no, e
+`node_overlap_below_minimum` entra nei `reasons` — la riga è
+`is_significant = false` per costruzione.
+
+Un caso vicino e **non** tra i primi quattro: lo snapshot precedente è
+confrontabile ma il layer lì era vuoto. La partizione precedente di quel layer è
+allora `{}`, non `None`, quindi il confronto si fa: `node_overlap = 0`, tutte le
+community correnti contano come nate, e la riga ricade nel quinto caso.
 
 Uno snapshot precedente "vicino ma non identico" nei parametri non viene
 adattato né riscalato: la stabilità semplicemente non è calcolabile, e lo dice.

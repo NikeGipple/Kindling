@@ -563,8 +563,8 @@ def test_navigazione_solo_con_le_viste_che_esistono(dashboard):
     for percorso in (f"/guilds/{GUILD_EDGE}", f"/guilds/{GUILD_EDGE}/robustezza"):
         html = dashboard.get(percorso).text
         nav = next(_albero(html).radice.trova("nav", classe="viste"))
-        assert [a.testo().strip() for a in nav.trova("a")] == ["Stato", "Robustezza"]
-        assert "Community" not in nav.testo() and "Coorti" not in nav.testo()
+        assert [a.testo().strip() for a in nav.trova("a")] == ["Stato", "Robustezza", "Community"]
+        assert "Coorti" not in nav.testo()
 
 
 def test_la_vista_non_legge_details():

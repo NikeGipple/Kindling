@@ -25,7 +25,7 @@ from typing import Any, Optional, TypeVar
 import httpx
 from pydantic import TypeAdapter, ValidationError
 
-from api.models import GuildRow, Health, RobustnessRow, RunRow
+from api.models import CommunityRow, GuildRow, Health, RobustnessRow, RunRow
 
 from .config import API_TIMEOUT_SECONDS
 
@@ -37,7 +37,7 @@ T = TypeVar("T")
 # recente, non tutto.
 DEFAULT_RUNS_LIMIT = 12
 # Il limite delle serie conta SNAPSHOT, non righe (api/db.py): dodici snapshot
-# sono dodici settimane, ognuna con fino a 12 righe di robustezza.
+# sono dodici settimane, ognuna con fino a 12 righe di robustezza o 4 di community.
 DEFAULT_SERIES_LIMIT = 12
 
 
@@ -139,6 +139,17 @@ class ApiClient:
         return await self._get(
             f"/guilds/{guild_id}/robustness",
             TypeAdapter(list[RobustnessRow]),
+            params={"limit": limit},
+            guild_id=guild_id,
+        )
+
+    async def communities(
+        self, guild_id: int, *, limit: int = DEFAULT_SERIES_LIMIT
+    ) -> list[CommunityRow]:
+        """Una chiamata sola: la stessa risposta alimenta i blocchi e la serie."""
+        return await self._get(
+            f"/guilds/{guild_id}/communities",
+            TypeAdapter(list[CommunityRow]),
             params={"limit": limit},
             guild_id=guild_id,
         )

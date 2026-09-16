@@ -131,6 +131,66 @@ def test_coglie_gap_diversi_nello_stesso_snapshot():
     assert any("gap diversi" in p for p in problemi_di_contenuto(scenari))
 
 
+def _community(scenari, gid, sid, layer):
+    comm = scenari[gid]["communities"]
+    return comm, next(i for i, c in enumerate(comm) if c.snapshot_id == sid and c.layer == layer)
+
+
+def test_coglie_i_campi_del_confronto_in_parte_none():
+    # La vista riconosce "nessun precedente" da previous_gap_days None: un gap
+    # tolto lasciando overlap e conteggi descrive una riga che il job non scrive.
+    scenari = _scenari()
+    comm, i = _community(scenari, GUILD_TODAY, 12, "mention")
+    comm[i] = _sostituisci_valori(comm[i], previous_gap_days=None)
+    assert any("campi del confronto in parte None" in p for p in problemi_di_contenuto(scenari))
+
+    # E il viceversa: un overlap su una riga senza precedente.
+    scenari = _scenari()
+    comm, i = _community(scenari, GUILD_TODAY, 11, "voice")
+    comm[i] = _sostituisci_valori(comm[i], node_overlap=0.6)
+    assert any("campi del confronto in parte None" in p for p in problemi_di_contenuto(scenari))
+
+
+def test_coglie_stabilita_incoerente_con_la_sovrapposizione():
+    # Stabilita' senza overlap al minimo...
+    scenari = _scenari()
+    comm, i = _community(scenari, GUILD_TODAY, 12, "mention")
+    comm[i] = _sostituisci_valori(comm[i], stability_jaccard=0.4)
+    assert any("stability_jaccard=0.4" in p for p in problemi_di_contenuto(scenari))
+    # ...e overlap al minimo senza stabilita'.
+    scenari = _scenari()
+    comm, i = _community(scenari, GUILD_TODAY, 12, "voice")
+    comm[i] = _sostituisci_valori(comm[i], stability_jaccard=None)
+    assert any("stability_jaccard=None" in p for p in problemi_di_contenuto(scenari))
+
+
+def test_coglie_una_sovrapposizione_impossibile_per_le_dimensioni():
+    # La divergenza trovata il 16/09 su …002: 0,7 tra 33 e 12 nodi.
+    scenari = _scenari()
+    comm, i = _community(scenari, GUILD_TODAY, 12, "voice")  # 15 nodi contro 9: tetto 0,6
+    comm[i] = _sostituisci_valori(comm[i], node_overlap=0.61)
+    assert any("impossibile tra 15 e 9 nodi" in p for p in problemi_di_contenuto(scenari))
+
+
+def test_coglie_una_sovrapposizione_con_il_layer_assente_nel_precedente():
+    scenari = _scenari()
+    comm, i = _community(scenari, GUILD_MATURE, 36, "voice")
+    comm[i] = _sostituisci_valori(comm[i], node_overlap=0.2)
+    assert any("assente nel precedente" in p for p in problemi_di_contenuto(scenari))
+
+
+def test_coglie_un_codice_di_confrontabilita_inventato():
+    scenari = fixture_api.SCENARIOS
+    comm, i = _community(scenari, GUILD_MATURE, 29, "reply")
+    originale = comm[i]
+    try:
+        details = {**originale.quality.details, "stability_unavailable": "parametri_diversi"}
+        comm[i] = originale.model_copy(update={"quality": originale.quality.model_copy(update={"details": details})})
+        assert "codice non presente nel sorgente del job: 'parametri_diversi'" in fixture_api._codici_estranei_al_job()
+    finally:
+        comm[i] = originale
+
+
 def _con_bucket(scenari, gid, layer, trasforma):
     comm = scenari[gid]["communities"]
     i = next(i for i, c in enumerate(comm) if c.layer == layer)
@@ -224,6 +284,31 @@ def test_002_voice_e_volatile():
     assert any(r.quality.significant for r in voice[31])
     reply = parti[(34, "reply")]
     assert any(r.values.targeted_excess < 0 for r in reply)
+
+
+def test_002_prima_osservazione_confrontabile_e_significativa_senza_stabilita():
+    # Lo stato di modello-metriche.md 4.6 corretto: nessun precedente confrontabile
+    # non e' un motivo di non significativita'.
+    comm = {c.layer: c for c in SCENARIOS[GUILD_MATURE]["communities"] if c.snapshot_id == 29}
+    for layer in ("reply", "mention", "reaction"):
+        c = comm[layer]
+        assert c.quality.significant is True
+        assert c.quality.n_effective >= PARAMS.min_nodes_structural
+        assert c.values.modularity_z >= PARAMS.min_modularity_z
+        assert c.previous_snapshot_id is None
+        assert c.values.previous_gap_days is None and c.values.node_overlap is None
+        assert c.values.stability_jaccard is None
+        assert c.quality.details["stability_unavailable"] == "params_differ"
+
+
+def test_002_voice_che_riappare_si_confronta_con_una_partizione_vuota():
+    # job/main.py::_previous_partition: il layer vuoto nel precedente da' {}, non
+    # None. Non e' "nessun precedente": e' overlap 0 e tutte le community nate.
+    c = next(c for c in SCENARIOS[GUILD_MATURE]["communities"] if c.snapshot_id == 36 and c.layer == "voice")
+    assert c.previous_snapshot_id == 35 and c.values.previous_gap_days == 7.0
+    assert c.values.node_overlap == 0.0 and c.values.stability_jaccard is None
+    assert c.values.communities_born == c.values.community_count
+    assert c.quality.significant is False
 
 
 def test_001_rispecchia_la_produzione():

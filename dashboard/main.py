@@ -34,7 +34,7 @@ from .client import (
     RispostaNonConforme,
     crea_http,
 )
-from . import robustezza
+from . import community, robustezza
 from .qualifica import cella
 
 logger = logging.getLogger(__name__)
@@ -77,6 +77,7 @@ def crea_templates() -> Environment:
     env.globals["cella"] = cella
     env.globals["percentuale"] = robustezza.percentuale
     env.globals["nodi_rimossi"] = robustezza.nodi_rimossi
+    env.globals["senza_confronto"] = community.senza_confronto
     return env
 
 
@@ -195,6 +196,18 @@ def crea_app(*, api_http: Optional[httpx.AsyncClient] = None) -> FastAPI:
             guild_id=guild_id,
             vista=robustezza.costruisci(righe),
             vista_corrente="robustezza",
+        )
+
+    @app.get("/guilds/{guild_id}/community", response_class=HTMLResponse)
+    async def vista_community(request: Request, guild_id: int):
+        """Vista Community (dashboard.md 4): gruppi distinguibili dal rumore, e stabili?"""
+        api: ApiClient = request.app.state.api
+        righe = await api.communities(guild_id)
+        return pagina(
+            "community.html",
+            guild_id=guild_id,
+            vista=community.costruisci(righe),
+            vista_corrente="community",
         )
 
     return app
