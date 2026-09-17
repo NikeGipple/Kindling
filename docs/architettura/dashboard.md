@@ -208,12 +208,23 @@ dashboard e quante righe sono.
 | **Stato** | `/guilds/{id}` + `/guilds/{id}/runs` | 1 + 1 | `first_seen_at`, `backfilled_at`, `left_at`, `rejoined_at`, `latest_metrics_as_of`; `params`, `stats`, `code_version` |
 | **Robustezza** | `/guilds/{id}/robustness` | 4 layer × 3 frazioni = **12** | `nodes_removed`, `giant_before`, `giant_after_targeted`, `components_after_targeted`, `giant_after_random_mean/sd`, `targeted_excess`, `targeted_z` |
 | **Community** | `/guilds/{id}/communities` | 4 layer, + 6 classi di dimensione ciascuno | `community_count`, `modularity`, `modularity_z`, `node_overlap`, `stability_jaccard`, `previous_gap_days`, `communities_born/dissolved/merged/split`; `sizes[]` con `bucket`, `community_count`, `member_count` |
-| **Coorti** | `/guilds/{id}/cohorts` | per coorte: 2 onboarding + 3 retention | onboarding: `event_count`, `censored_count`, `censored_by_leave`, `median_days_to_k`, `median_reached`, `p25/p75_days_to_k`, `reached_by_14d/28d` — retention: `retained_fraction`, `is_computable`, `not_computable_reason` |
+| **Coorti** | `/guilds/{id}/cohorts?limit=1` | per coorte: 2 onboarding + 3 retention, fino a **25** coorti = **125** righe sull'ultimo snapshot | onboarding: `event_count`, `censored_count`, `censored_by_leave`, `median_days_to_k`, `median_reached`, `p25/p75_days_to_k`, `reached_by_14d/28d` — retention: `retained_fraction`, `is_computable`, `not_computable_reason` |
 
 Parametri che fissano quei conteggi, da `job/config.py`: layer `voice / reply /
 mention / reaction`; frazioni di rimozione `0,05 / 0,10 / 0,20`; `layer_scope`
 delle coorti `any / voice`; `k = 5`; orizzonti di retention `7 / 14 / 28`;
-classi di dimensione `small / 5-9 / 10-19 / 20-49 / 50-99 / 100+`.
+classi di dimensione `small / 5-9 / 10-19 / 20-49 / 50-99 / 100+`; coorti
+pubblicate per run, fino a `cohort_max_age_days / 7 ≈ 25,7` → **25** (dato
+reale del 14/09/2026). Non è un massimo teorico raramente raggiunto: è il
+numero di settimane da metà marzo 2026 a oggi, cioè quante `cohort_start`
+cadono dentro la finestra di 180 giorni che `cohort_max_age_days` impone —
+**non** quando la community è nata (che questa sessione non ha verificato e
+potrebbe essere molto anteriore: `cohort_max_age_days` taglia la finestra
+computata, non racconta la storia della guild). I membri con `joined_at` di
+marzo sono visibili perché `joined_at` viene dal member-join nativo di
+Discord, leggibile anche in backfill — è per questo che sono quasi tutti
+"solo sopravvissuti": l'ancora di osservabilità (`first_seen_at`, il bot
+osserva dal 28/08) è molto più recente della loro iscrizione.
 
 **Stato è la vista iniziale, non un pannello di servizio.** È l'unica che oggi è
 piena, ed è quella che spiega tutte le altre: `first_seen_at` è l'ancora di
@@ -720,6 +731,531 @@ fixture:
   della vista da verificare con un test sul markup, come già per la regola 6 di
   Robustezza.
 
+### La vista Coorti, in dettaglio
+
+**Le domande a cui risponde sono due, come in Community, ma qui sono legate da
+una popolazione condivisa invece che da un layer condiviso.** *Con quanta
+rapidità un nuovo membro si integra?* (`event_count`, `median_days_to_k` con
+`median_reached`, `p25/p75_days_to_k`, `reached_by_14d/28d`) e *quanti restano?*
+(`retained_fraction` con `is_computable`) sono domande diverse — integrazione
+rapida e permanenza possono divergere, ed è precisamente l'incrocio che la
+metrica esiste per misurare (`modello-metriche.md` §5.5: "l'intero senso della
+metrica è incrociare 'quanto in fretta si sono integrati' con 'quanti sono
+rimasti'"). Non si fondono in un numero solo, e non si separano nemmeno in due
+viste: `api/assemble.py::cohorts` le raggruppa già per `cohort_start` proprio
+perché leggerle separate è "il modo di fallire" che l'invariante di
+`n_effective`/`excluded_rejoins`/`is_survivors_only` duplicati esiste per
+impedire (già in questo documento, sopra, "Coorti non si divide").
+
+#### Rotta e dati, e perché qui `limit` non è 12
+
+`GET /guilds/{guild_id}/coorti`, che chiama **`/guilds/{guild_id}/cohorts?limit=1`** —
+non `?limit=12` come Robustezza e Community. È una scelta, non un'omissione, e
+va giustificata perché rompe un pattern che le due viste precedenti hanno reso
+familiare.
+
+`limit` conta snapshot (stessa `_LATEST_SNAPSHOTS` di `api/db.py`, verificato
+sopra per Robustezza e Community), e su Robustezza/Community ogni snapshot
+porta lo stesso numero fisso di righe (12, o 4 più le classi di dimensione):
+`limit=12` costruisce dodici punti comparabili di una manciata di serie. Sulle
+coorti la stessa richiesta costruirebbe qualcosa di diverso: **125 righe per
+snapshot** (fino a 25 coorti × 5 righe, verificato sopra) moltiplicate per
+dodici — oltre 1.500 righe in un payload solo, per una vista che oggi non ha
+bisogno di nessuna di quelle dodici copie.
+
+**Un'ipotesi scartata eseguendo, non per intuito: "una coorte matura ha una
+curva già completa, quindi le run successive la ripetono identica" è
+falsa.** L'ho scritta come prima giustificazione di questa scelta, e
+l'esecuzione l'ha smentita subito — lo stesso meccanismo che questo documento
+chiede di applicare al codice del job vale anche alle proprie affermazioni
+scritte in questa sessione. `reached_by_28d` non dipende da "quanti giorni
+sono passati dalla maturità" ma da `max_observed`, il tempo osservato del
+membro *più vecchio* della coorte: finché `max_observed < 28`,
+`reached_by_28d` resta `None` anche a zero eventi, e diventa `0.0` non
+appena `as_of` porta `max_observed` oltre 28 — un valore che **cambia**, da
+un `as_of` all'altro, senza che nessun membro abbia fatto niente di nuovo.
+Verificato sulla coorte del 10/08 del fixture: `reached_by_28d` è `None`
+allo snapshot 11 (`max_observed ≈ 27,6` giorni) e `0,0` allo snapshot 12
+(`max_observed ≈ 34,6` giorni) — stessi tre membri, stessi zero eventi, due
+risposte diverse. Una coorte può continuare a cambiare ben oltre i 14 giorni
+di maturità, finché non tutti i membri hanno raggiunto `k` o sono usciti.
+
+**La ragione vera per `limit=1` non è che le coorti sono piatte: è che 25
+fatti indipendenti che evolvono lentamente e in modo prevalentemente
+monotono (da `None` a un numero, quasi mai indietro) non sono la stessa cosa
+di poche grandezze comparabili su una manciata di snapshot.** Un grafico a
+dodici punti per coorte moltiplicherebbe per 25 un tipo di lettura — "come
+cambia nel tempo questo numero" — che qui non è la domanda: la domanda per
+una coorte immatura è "quando matura" (`is_mature`/`observation_days` sulla
+riga attuale bastano), e per una coorte matura è "cosa dice oggi", non "come
+ci è arrivata". Se in futuro servirà seguire una coorte specifica settimana
+per settimana — legittimo, e questa sessione lo lascia esplicitamente aperto
+invece di escluderlo per sempre — è una vista a sé (una coorte, molti
+snapshot), non un'estensione di questa: fuori da questa sessione, e non è
+tra i deliverable richiesti.
+
+Questo non è un'analogia con le viste precedenti: è la ragione per cui qui
+l'analogia **non regge**, ed è precisamente il tipo di verifica che questo
+documento chiede prima di scrivere "come per Robustezza". `ApiClient` ha
+comunque bisogno di un metodo nuovo, `cohorts(guild_id, limit=1)`, sulla
+stessa forma di `robustness()`/`communities()` ma con un default diverso — e
+il default va reso esplicito nella firma, non lasciato implicito nel valore
+del server (`DEFAULT_LIMIT = 12` in `api/config.py` è pensato per le altre due
+viste, e affidarsi al default varrebbe una richiesta da 1.500 righe senza che
+il codice lo dichiari in nessun punto).
+
+**Conseguenza per il layout: niente grafici di serie per questa vista, in v0.**
+Le regole 4 e "la qualificazione di una serie" (§5) non si applicano a
+Coorti — non perché siano sospese, ma perché non c'è una serie nel senso in
+cui Robustezza e Community ne hanno una (poche grandezze, molti snapshot);
+c'è invece **una tabella con molte righe indipendenti su un solo snapshot**.
+Se in futuro servirà vedere una coorte specifica maturare settimana per
+settimana, è una vista a sé (una coorte, molti snapshot) e non un'estensione
+di questa: fuori da questa sessione, e non è tra i deliverable richiesti.
+
+**Le tre assenze** sono le stesse di Robustezza e Community, sopra: guild non
+osservata → 404 → `non_osservata.html`; guild osservata, nessuno snapshot →
+`[]`, frase propria; API che non risponde → `errore.html`. Non si ripete la
+spiegazione.
+
+#### Layout: un gruppo per coorte, e una scoperta che cambia la forma della riga
+
+`CohortGroup` porta `onboarding: list[OnboardingRow]` (fino a 2, uno per
+`layer_scope`) e `retention: list[RetentionRow]` (fino a 3, uno per
+`horizon_days`) — cinque righe potenzialmente indipendenti, e la lettura più
+ovvia sarebbe renderle come cinque righe indipendenti, ciascuna con la propria
+etichetta. **Non è quello che il job scrive, e va verificato eseguendo
+`compute_cohort`, non assumendolo per analogia con Community** (dove ogni
+riga *è* davvero indipendente, perché ogni layer ha un grafo proprio).
+
+**Verificato eseguendo `job/metrics.py::_cohort_metrics` e `job/cohorts.py`
+sui membri reali di `tools/fixture_api.py::_scenario_today`** (script di
+verifica, non lettura): per una data `cohort_start`, `job/metrics.py` calcola
+`cohort_members` **una sola volta** e lo passa, identico, a tutte e cinque le
+chiamate (due `compute_cohort`, tre `compute_retention`). Dentro
+`compute_cohort`, `observation_days`, `is_mature`, `is_survivors_only` e
+`has_snapshot_coverage` dipendono **solo** da `members`, `cohort_start`,
+`as_of`, `observability_anchor` e `snapshot_windows` — **mai** da
+`reached_at`, cioè mai dal `layer_scope`. Ne segue che `reasons` e quindi
+`is_significant` non dipendono dal `layer_scope` nemmeno loro. Risultato,
+eseguito su entrambi gli snapshot del fixture, quattro coorti per snapshot:
+**`n_effective`, `excluded_rejoins`, `observation_days`, `is_mature`,
+`has_snapshot_coverage`, `is_survivors_only` e `quality.significant` sono
+identici tra la riga `any` e la riga `voice` della stessa coorte, sempre,
+senza un'eccezione nei dati generati.** Esempio reale (coorte del 31/08,
+snapshot 12): `any` ed `voice` hanno entrambe `n_effective=14`,
+`is_mature=False`, `has_snapshot_coverage=True`, `is_survivors_only=False`,
+`observation_days=7`, `significant=False` — e divergono **solo** su
+`event_count` (1 contro 0), `p25_days_to_k` (11,158 contro assente) e i
+derivati della curva: la persona che ha raggiunto `k=5` lo ha fatto contando
+partner di ogni layer (`any`), non partner vocali soltanto.
+
+**La stessa identità vale, con la stessa dimostrazione, per `is_survivors_only`
+sulle tre righe di retention**: `compute_retention` lo calcola dalla stessa
+funzione (`is_survivors_only(cohort_start, observability_anchor=...)`), che
+non riceve né `members` né `horizon_days`. È letteralmente la stessa chiamata
+per le cinque righe del gruppo. E la soppressione (sotto) usa lo stesso
+`n_effective` — `len(cohort_members)` — per tutte e cinque: non può accadere
+che una riga di un gruppo sia soppressa e un'altra no.
+
+**Conseguenza per il layout**: il gruppo non è cinque righe con cinque
+etichette potenzialmente diverse — è **una riga di qualificazione condivisa**
+(coorte, `n_effective`, `excluded_rejoins`, maturità, copertura, "solo
+sopravvissuti", "non significativo") più **due colonne di curva** (`any` e
+`voice`, che divergono solo nei numeri derivati dalla curva di sopravvivenza)
+più **tre colonne di retention** (7/14/28 giorni, dove invece `is_computable`
+e `not_computable_reason` **variano davvero** per orizzonte — vedi sotto).
+Renderla come cinque righe separate, ciascuna con la propria etichetta,
+ripeterebbe sette volte un'informazione che il codice scrive una volta sola, e
+inviterebbe a mostrare due etichette "non significativo" leggermente diverse
+se mai un bug le facesse divergere — l'errore opposto e speculare a quello che
+Community evita tenendo `n_effective` una volta sola per riga.
+
+Colonne, in ordine di lettura:
+
+**Condivise** (una volta per gruppo): `coorte` (`cohort_start`, lunedì della
+settimana ISO) · `n` (`n_effective`) · `esclusi` (`excluded_rejoins`) ·
+`maturità` (`is_mature`, con `observation_days` accanto — vedi sotto) ·
+`copertura` (`has_snapshot_coverage`) · etichetta di riga (soppressione, "non
+significativo", "solo sopravvissuti" — combinazione, vedi sotto).
+
+**Integrazione — `any`** e **Integrazione — `voice`**, stesse sette colonne
+per ciascuna: `eventi` (`event_count`) · `censurati` (`censored_count`, con
+`censored_by_leave` come parte di quel numero, non accanto — sotto) ·
+`mediana` (`median_days_to_k`, qualificata da `median_reached`, regola 7 già
+in §5) · `p25` · `p75` · `raggiunta a 14g` (`reached_by_14d`) · `raggiunta a
+28g` (`reached_by_28d`).
+
+**Retention — 7g / 14g / 28g**, stesse due colonne per ciascun orizzonte:
+`trattenuti` (`retained_fraction`) · etichetta cella (`is_computable` con
+`not_computable_reason`, sesto-stato style — sotto).
+
+`censored_by_leave` **non è una colonna a sé nel layout**, a differenza di
+`nodes_removed` in Robustezza: è un sotto-conteggio di `censored_count`
+(`censored_count = censored + censored_by_leave` nel senso che entrambi sono
+censure, non due popolazioni disgiunte — verificato in
+`SurvivalCurve.__init__`: `self.censored = self.total - self.events`, e
+`self.censored_by_leave` è un sottoinsieme filtrato dello stesso insieme, non
+un secondo conteggio indipendente). Va mostrato come nota della cella
+(`N censurati, di cui M per uscita dal server`) non come colonna propria: una
+colonna propria lo farebbe sembrare un terzo esito invece che un dettaglio del
+secondo, e la distinzione fra "rischio competitivo" e "censura vera" è già
+dichiarata nel prosa del job (`modello-metriche.md` §5.4) come una
+semplificazione di v0, non un fatto che la UI deve rendere prominente quanto
+`event_count`/`censored_count`.
+
+Nessuna colonna del gruppo di curva è nel gruppo di precisione aritmetica di
+§5 ("Le colonne legate da un'operazione"): `median_days_to_k`, `p25`, `p75`,
+`reached_by_14d`, `reached_by_28d` sono uscite indipendenti della stessa curva
+di Kaplan-Meier, non calcolate l'una dall'altra da una formula visibile in
+tabella — stesso criterio già applicato a `node_overlap`/`stability_jaccard`
+in Community, stesso esito (nessun gruppo).
+
+#### I tre motivi di non significatività, tutti colonne tipizzate — a differenza di Robustezza e Community
+
+`job/cohorts.py::compute_cohort` aggiunge a `reasons` **fino a tre** motivi,
+non uno solo (la voce da verificare che questa sessione doveva chiudere):
+
+```python
+if not is_mature:
+    reasons.append("cohort_not_mature")
+if not coverage:
+    reasons.append("no_snapshot_coverage")
+if survivors_only:
+    reasons.append("survivors_only_cohort")
+```
+
+e `is_significant = not reasons` — quindi una riga di onboarding può essere
+non significativa per uno solo di questi motivi, per una qualunque coppia, o
+per tutti e tre insieme (nel fixture, la coorte del 10/08 li ha tutti e tre
+prima della soppressione: non matura sarebbe falso — è matura, `obs_days=22`
+— ma soppressa comunque sotto `n=5`; la coorte del 17/08 ha `no_snapshot_coverage`
+**e** `survivors_only_cohort` insieme, verificato: `cov=False`,
+`surv_only=True`, entrambi veri sulla stessa riga eseguita).
+
+`modello-metriche.md` §7.3 **elenca già correttamente questi tre motivi** —
+non è un errore da correggere, a differenza di quanto accaduto due volte per
+Community (§4.6): confrontato riga per riga con `compute_cohort`, il testo è
+accurato.
+
+**A differenza di Robustezza (`too_few_nodes`, non sempre distinguibile da
+altre soglie nella stessa riga) e di Community (dove il motivo è spesso solo
+parzialmente ricavabile da una colonna), qui i tre motivi sono *ciascuno* una
+colonna tipizzata a sé**: `is_mature`, `has_snapshot_coverage` (entrambe in
+`OnboardingQuality`) e `is_survivors_only` (in `CohortQuality`, ereditata). La
+regola di §5 — "il motivo si può dire con parole proprie solo dove è
+ricavabile da una colonna tipizzata, mai da `details`" — qui non lascia fuori
+niente: la vista **può** e **deve** mostrare la frase corretta leggendo le tre
+colonne, senza mai aprire `quality.details.not_significant_because` (che pure
+esiste, duplicato, e va ignorato per lo stesso motivo per cui lo era in
+Community). Non serve promuovere nessun'altra colonna come si era dovuto fare
+altrove (regola 2, "follow-up per il job" della sezione precedente su
+`details`): qui il follow-up è già stato fatto, dalla migration `0007`.
+
+#### Soppressione e "solo sopravvissuti" si escludono per costruzione: verificato, non solo atteso
+
+La domanda aperta 3 del compito era se soppressione (`is_suppressed`) e "solo
+sopravvissuti" (`is_survivors_only`) potessero comparire **insieme** sulla
+stessa riga pubblicata. **No, mai, e non per una scelta di rendering: per il
+trigger del database.** `job/suppression.py::suppress()` azzera ogni campo
+della dataclass fuori da `KEY_FIELDS`/`is_suppressed`/`suppression_reason`/
+`details` — `is_survivors_only` compreso, perché non è nell'elenco delle
+eccezioni. Il trigger `metric_suppressed_row_is_empty`
+(`migrations/0006_metrics.sql`) impone lo stesso vincolo lato schema, per
+qualunque scrittore, non solo per il job. **Verificato eseguendo**: la coorte
+del 10/08 (`n=3`) ha `is_survivors_only=True` calcolato da `compute_cohort` —
+la coorte precede davvero l'ancora — ma dopo `suppress()` il campo vale
+`None`, non `True`. La riga soppressa non "nasconde" l'informazione dietro il
+simbolo di soppressione: quell'informazione, a livello di dato, **non esiste
+più** su quella riga.
+
+Questo non è una regola nuova: è la stessa regola generale già scritta in §5
+("Prima: il numero esiste? ... `quality.suppressed is True` → il numero non
+c'è, e non c'è nemmeno tutto il resto ... Nessun'altra etichetta"),
+verificata qui esplicitamente per il caso specifico delle coorti perché era
+la domanda aperta del compito. **Non serve una regola nuova in §5** per
+questo punto: serve confermarlo, con la citazione del codice, il che è fatto.
+Quello che **serve** formalizzare come regola — perché oggi è solo accennato
+in due punti diversi del documento — è la composizione delle etichette
+quando la riga **non** è soppressa: sotto, dopo i casi limite.
+
+#### La retention: tre motivi di non calcolabilità, uno dei quali coincide sempre con "solo sopravvissuti"
+
+`compute_retention` ha una struttura diversa da `compute_cohort`: non
+accumula `reasons`, sceglie **un solo** motivo con un `if/elif/elif` in
+ordine di priorità — **verificato eseguendo**, non solo leggendo il codice:
+
+```python
+if survivors_only:
+    reason = "before_observability_anchor"
+elif not members:
+    reason = "empty_cohort"
+elif not all(member.joined_at + horizon <= as_of for member in members):
+    reason = "horizon_not_reached"
+```
+
+Conseguenza verificata con un caso costruito apposta (coorte anteriore
+all'ancora **e** con orizzonte non raggiunto insieme): il motivo riportato è
+sempre `before_observability_anchor`, mai `horizon_not_reached`, quando
+entrambe le condizioni sono vere. La UI non deve provare a indovinare quale
+delle due "avrebbe reso" la riga non calcolabile: il job lo dice già, con un
+solo campo.
+
+**`before_observability_anchor` e `is_survivors_only = True` sono, per la
+retention, la stessa condizione vista da due colonne diverse** — non solo
+correlate, **logicamente equivalenti**: `reason == 'before_observability_anchor'`
+se e solo se `is_survivors_only is True` (è l'unico ramo che lo imposta, ed è
+controllato per primo). Mostrare qui *sia* l'etichetta di riga "solo
+sopravvissuti" *sia* il motivo di cella "prima dell'ancora di osservabilità"
+non è ridondanza da eliminare: rispondono a due domande diverse anche quando
+la causa a monte è la stessa — "chi è stato contato" (riga) contro "perché
+questo numero non esiste" (cella) — esattamente la stessa distinzione che §5
+fa già per `is_significant` contro `is_survivors_only` nell'onboarding.
+
+**`empty_cohort` non compare mai su una riga pubblicata: è un ramo difensivo,
+verificato per esecuzione, non ipotizzato.** Una coorte con zero membri ha
+`n_effective = 0`, e `0 < min_cardinality (5)` è vero per costruzione: la
+soglia di soppressione intercetta ogni coorte vuota prima che
+`not_computable_reason = 'empty_cohort'` possa mai raggiungere una riga
+pubblicata. Eseguito: `compute_retention(members=[], ...)` produce
+`not_computable_reason = 'empty_cohort'` e `n_effective = 0`, che
+`apply_threshold` sopprime sempre. Il ramo resta nel codice — `split_cohorts`
+può in teoria produrre una lista vuota se tutti i membri di una settimana sono
+esclusi come rientri sospetti — ma non è raggiungibile in forma pubblicata,
+stessa categoria di `targeted_excess = None` in Robustezza o di
+`n_effective` divergente in Community: si tiene, non si prova con una
+fixture dedicata (§5, "I rami difensivi, e perché non si provano").
+
+Da qui, tre stati distinti e distinguibili per `retained_fraction`, nessuno
+letto da `details`:
+
+| Stato | Come si riconosce | Cosa significa |
+|---|---|---|
+| Calcolabile | `values.is_computable is True` | `retained_fraction` è un numero vero. |
+| Non calcolabile: troppo presto | `not_computable_reason == 'horizon_not_reached'` | Non tutti i membri hanno ancora avuto l'orizzonte di osservazione: non è un dato basso, è un dato che non esiste ancora. |
+| Non calcolabile: solo sopravvissuti | `not_computable_reason == 'before_observability_anchor'` | Coincide sempre con `quality.is_survivors_only = True` sulla stessa riga: la popolazione è distorta, non il tempo. |
+
+`empty_cohort` non è nella tabella per la ragione appena verificata: non
+comparirebbe mai lì.
+
+#### Rappresentatività del fixture: la voce H si affina, non si chiude ancora
+
+`stato-progetto.md` §7-H segnala che lo scenario `…001` ha **quattro**
+`cohort_start` contro le **25** della produzione, e chiede di verificare
+prima di disegnare il layout. Verificato eseguendo, coorte per coorte, non
+assumendo: con quattro sole coorti lo scenario copre **due** delle possibili
+combinazioni di motivi su una riga non soppressa — `no_snapshot_coverage` +
+`survivors_only_cohort` insieme (17/08 e, prima della soppressione, anche
+10/08: **stessa combinazione**, non una seconda) e `cohort_not_mature` da
+solo (31/08 e 07/09: di nuovo la stessa combinazione, non una diversa) —
+più la soppressione (10/08). Su **sette** combinazioni possibili dei tre
+motivi (le sette non vuote di `2³ = 8`, l'ottava essendo "nessun motivo",
+cioè `is_significant = True`), `…001` ne esercita **una sola** in forma
+pubblicata, e la ripete due volte con coorti diverse. Per la retention copre
+tutti e tre gli stati della tabella sopra (`horizon_not_reached` su più
+righe, `before_observability_anchor` su 17/08 e 10/08, **calcolabile** su
+31/08 a 7 giorni: `retained_fraction = 12/14 = 0,857142857142857…`, l'unico
+numero di retention reale che il fixture produce oggi). Quello che **non**
+copre, verificato per assenza dall'esecuzione sopra:
+
+1. **Nessuna coorte con `is_significant = True`.** Serve una coorte matura
+   (`observation_days ≥ 14`), coperta da uno snapshot, e posteriore
+   all'ancora — cioè, con l'ancora fissata al 28/08, una coorte nata a
+   marzo/aprile non basta (è "solo sopravvissuti"): serve una coorte
+   **recente ma non recentissima**, con uno snapshot supplementare che la
+   osservi abbastanza a lungo. `…001` si dichiara "lo stato reale di oggi" e
+   oggi — verificato, non presunto — non ha nessuna coorte significativa: la
+   tabella di §6 sotto lo riporta con i numeri veri.
+
+   **Correzione del 16/09/2026, dalla sessione di implementazione: l'assenza
+   vale per `…001` e per la produzione, non per il fixture.** Eseguito prima
+   di costruire alcunché: `…002` ha **sei** coorti significative sull'ultimo
+   snapshot (dal 10/08 all'01/06) e `…003` ne ha **una** (10/08, `n=11`), e ci
+   sono dal commit `5cc2ba5`, cioè da prima di questa progettazione. Il caso
+   "zero etichette" non andava quindi costruito: andava trovato. Quello che
+   mancava davvero è la scala, punto 4.
+2. **Le altre combinazioni di motivi**, e qui la sessione di implementazione
+   si è fermata a chiedere, perché l'elenco che segue **non è costruibile
+   com'è scritto**. Verificato per esecuzione il 16/09/2026, con
+   `min_observation_days = 14` e finestre da `default_window_days = 7`:
+
+   - `cohort_not_mature` implica `cohort_start > as_of − 21 giorni`, e la
+     finestra dello snapshot su cui la run sta girando — che esiste sempre, è
+     quello che sta calcolando — interseca allora
+     `[cohort_start, cohort_start + 14)`. Quindi **`cohort_not_mature` implica
+     la copertura**: la coppia `cohort_not_mature` + `no_snapshot_coverage` e
+     la tripla che la contiene **non esistono**. Resta il solo caso degenere
+     `cohort_start == as_of`, cioè cinque o più persone entrate nell'istante
+     esatto dell'`as_of`, che per di più non può essere "solo sopravvissuti"
+     (vorrebbe un'ancora nel futuro);
+   - `cohort_not_mature` + `survivors_only_cohort` **esiste**, ma non può
+     stare nello stesso snapshot di una coorte significativa: l'ancora è una
+     sola per guild e `observation_days` decresce al crescere di
+     `cohort_start`, quindi una coorte anteriore all'ancora è sempre più
+     vecchia — e perciò più matura — di qualunque coorte posteriore. Le due
+     cose si escludono su una guild sola, non per come è fatto il fixture.
+
+   Restano **cinque** combinazioni pubblicate possibili più la soppressione, e
+   il fixture le esercita tutte (punto 4): due che `…001` non aveva
+   (`no_snapshot_coverage` da solo, `survivors_only_cohort` da solo) nello
+   snapshot recente di `…004`, e la quinta — `cohort_not_mature` +
+   `survivors_only_cohort` — nel run precedente della stessa guild, undici
+   giorni dopo la sua ancora. Nessuna cambia la logica di rendering
+   (l'etichetta resta "non significativo" più, se pertinente, "solo
+   sopravvissuti" — regola 8 sotto), ma un test che asserisse "la vista
+   gestisce `cohort_not_mature`" sui soli dati di `…001` starebbe in realtà
+   testando solo la combinazione `no_snapshot_coverage` +
+   `survivors_only_cohort`.
+3. **Nessuna coorte con `censored_by_leave > 0` e insieme `event_count > 0`
+   nella stessa riga** — il fixture ha entrambi separatamente (31/08 ha un
+   evento e due `censored_by_leave`, ma sono componenti dello stesso
+   `censored_count`, non un caso a sé da esercitare ulteriormente: già
+   coperto).
+4. **La scala reale — 25 coorti, non 4 — non è replicata, ed è la vera voce
+   aperta.** I quattro `cohort_start` di `…001` esercitano la casistica dei
+   *flag*, ma il layout deve reggere una tabella da **una ventina di righe**
+   (stato-progetto.md, dati reali del 14/09: **25 coorti, 50 righe di
+   onboarding — 12 soppresse, 34 "solo sopravvissuti", 4 non soppresse e non
+   "solo sopravvissuti"** — la somma torna: 12+34+4=50, e per coorte
+   (÷2 `layer_scope`) fa 6 coorti soppresse, 17 "solo sopravvissuti", 2 né
+   l'uno né l'altro, e 6+17+2=25). Per la retention (75 righe attese, 25×3
+   orizzonti) questa sessione non ha eseguito una query — **non c'è accesso
+   al database di produzione da qui** — ma la stessa aritmetica si applica
+   per costruzione (la soppressione è per `cohort_start`, non per riga,
+   verificato sopra): **18 righe di retention soppresse** (6 coorti × 3),
+   **51 con `before_observability_anchor`** (17 coorti × 3, tutte, perché la
+   condizione non dipende dall'orizzonte), e **6** sulle 2 coorti restanti,
+   il cui `is_computable` per orizzonte va verificato con una query quando
+   sarà possibile — non è un'inferenza che vale la pena presentare come
+   certa quanto le altre due.
+
+   **`…001` non deve arrivare a 25 coorti**: moltiplicare i quattro scenari
+   esistenti coprirebbe la stessa casistica di flag con più righe, senza
+   aggiungere niente che il test non veda già. Quello che serve è **un quinto
+   scenario, o un'estensione di `…002`**, con un blocco di ~20 coorti
+   generate proceduralmente (stesso spirito dei parametri già presenti per
+   Robustezza/Community in `…002`) per esercitare la vista al numero di righe
+   reale — soprattutto per verificare che una tabella da 25 righe × ~20
+   colonne resti leggibile, che l'ordinamento (`cohort_start DESC`) porti le
+   coorti interessanti in cima, e che le 17 righe "solo sopravvissuti"
+   consecutive non producano un muro grigio indistinguibile — è la
+   preoccupazione originale della voce H, e ora ha un numero: **68% delle
+   coorti** (17/25) è oggi in quello stato singolo.
+
+   **Non implementare questo scenario in questa sessione** (il compito lo
+   esclude): lasciarlo come istruzione esplicita per la sessione di
+   implementazione, sotto.
+
+   **Fatto il 16/09/2026: è la guild `…004`** (`tools/fixture_api.py::
+   _scenario_scala`, §7 sotto). Venticinque coorti su un solo snapshot, con la
+   stessa forma della produzione — **6 soppresse, 17 anteriori all'ancora
+   (68%), 2 recenti non ancora mature** — più le tre significative che la
+   produzione non ha. Ogni coorte si descrive con **tre fatti** (quante
+   settimane fa, quanti membri, a che ora entra l'ultimo) e il resto lo calcola
+   il job: la combinazione di motivi non è scritta da nessuna parte nel
+   fixture, è ciò che `compute_cohort` deduce dai fatti, dall'ancora e dalle
+   finestre. La copertura si spegne dove **mancano davvero gli snapshot**: due
+   settimane senza run (10 e 17/08) tolgono la copertura alla sola coorte del
+   03/08, altre due nel passato (25/05 e 01/06) a quella del 18/05 — che
+   essendo anteriore all'ancora porta due motivi insieme. Verificato sul
+   markup: 25 righe di gruppo senza troncamenti, ordinate `cohort_start DESC`,
+   e la sequenza di "solo sopravvissuti" resta distinguibile riga per riga
+   (`tests/test_dashboard_coorti.py`).
+
+#### Casi limite, con numeri veri — eseguiti su `job/cohorts.py`, non letti
+
+Tutti i numeri sotto vengono da un'esecuzione diretta di `compute_cohort` e
+`compute_retention` sui membri di `tools/fixture_api.py::_scenario_today`
+(stessa fonte che il fixture usa), fatta in questa sessione — non dal
+fixture già scritto, e non da un'analogia con le altre viste.
+
+- **La coorte del 31/08, snapshot 12: la prova che le colonne condivise sono
+  davvero condivise e quelle di curva no.** `n=14`, `is_mature=False`
+  (`observation_days=7` contro i 14 richiesti — lo stesso numero già in
+  `stato-progetto.md` §9-4), `has_snapshot_coverage=True`,
+  `is_survivors_only=False`, `is_significant=False` — **identici** su `any` e
+  `voice`. Poi le colonne divergono: `any` ha `event_count=1`,
+  `p25_days_to_k=11,157546…`, `voice` ha `event_count=0` e tutti i quantili
+  assenti — la persona che ha raggiunto `k=5` partner lo ha fatto sommando
+  layer diversi, non restando dentro `voice`. Sulla stessa coorte, la
+  retention a 7 giorni **è calcolabile** (`is_computable=True`,
+  `retained_fraction=12/14=0,857142857142857…`) mentre a 14 e 28 giorni non
+  lo è (`horizon_not_reached`): la stessa coorte ha contemporaneamente una
+  cella di retention piena e due vuote, sulla stessa riga.
+- **La coorte del 07/09, snapshot 12: `median_reached=True` con un evento su
+  otto, replicato ma non identico al caso già in §5.** `n=8`,
+  `event_count=1` su **entrambi** gli ambiti (la stessa persona ha raggiunto
+  `k` sia in `any` sia in `voice`), `median_days_to_k=4,582487893043981`,
+  `median_reached=True`. È la stessa forma del caso già documentato in
+  "Il sesto stato" (§5) — un evento solo che porta `S(t)` a 0,5 perché il
+  gruppo a rischio si è ridotto — qui rieseguito con dati diversi (produzione
+  del 14/09, non questa esecuzione) e confermato riproducibile: non è un
+  artefatto di una coorte specifica, è il comportamento generale della curva
+  su una coorte piccola.
+- **La coorte del 17/08, snapshot 11 e 12: la combinazione di due motivi
+  insieme, coperta dalla regola generale, non da un'etichetta terza.** `n=8`,
+  `is_mature=True` (`observation_days=22` a snap 12), **ma**
+  `has_snapshot_coverage=False` **e** `is_survivors_only=True` insieme:
+  `reasons = ["no_snapshot_coverage", "survivors_only_cohort"]`,
+  `is_significant=False`. `reached_by_14d=0,0` su questa riga — un numero che,
+  letto da solo, direbbe "nessuno si è integrato in due settimane", mentre il
+  fatto è che **nessuno snapshot copriva quella finestra**: è esattamente il
+  rischio che `modello-metriche.md` §5.3 punto 4 descrive in teoria
+  ("`reached_by_14d = 0.0` misura l'assenza di osservazione"), qui con un
+  numero reale a dimostrarlo. La riga porta **due** etichette (non
+  significativo, solo sopravvissuti), non tre: `no_snapshot_coverage` non ha
+  un'etichetta propria, si legge dalla colonna `copertura` già in vista
+  (stessa logica della regola "il motivo si legge da una colonna tipizzata").
+- **La coorte del 10/08, entrambi gli snapshot: soppressione che vince su
+  tutto, incluso su un `is_survivors_only=True` che esisteva un istante prima
+  della soppressione.** `n=3 < 5`: soppressa. Eseguito il confronto
+  prima/dopo `suppress()`: `is_survivors_only` passa da `True` a `None`. È la
+  verifica per la domanda aperta 3, sopra.
+
+#### Regola nuova in §5: le etichette di riga si compongono, non si scelgono — formalizzata, non solo accennata
+
+Va aggiunta come regola 8 a "Otto regole che valgono ovunque" (sotto, §5):
+vedi lì per il testo. Qui basta la giustificazione empirica che la rende
+necessaria: sulle coorti, **una riga pubblicata (non soppressa) porta zero,
+una o due etichette**, mai scelte tra loro. Verificato sopra sui dati
+eseguiti: la coorte del 17/08 ne porta due contemporaneamente
+("non significativo" e "solo sopravvissuti"); la coorte del 07/09 ne porta
+una sola ("non significativo", perché `is_survivors_only=False`); nessuna
+coorte matura, coperta e posteriore all'ancora esiste ancora in produzione
+per mostrare il caso a zero etichette, ma la logica del codice lo prevede
+(§4, "Nessuna coorte con `is_significant = True`", sopra) e il fixture lo ha
+già: sei coorti in `…002`, una in `…003`, tre nella `…004` aggiunta il
+16/09/2026 — il caso si rende, non si aspetta la produzione.
+
+#### I rami difensivi
+
+Si aggiungono ai tre di §5 e ai due di Community, stessa logica: nel codice,
+non nella fixture.
+
+- **`n_effective`/`is_mature`/`has_snapshot_coverage`/`is_survivors_only`/
+  `is_significant` divergenti tra le righe `any` e `voice` della stessa
+  coorte** — non può succedere, è la stessa chiamata sugli stessi `members`
+  (sopra, "Layout"), ma il template non deve *assumerlo*: va verificato con
+  un test che confronta le due righe del gruppo, come già per `n_effective`
+  in Community.
+- **Una riga di retention soppressa e una di onboarding della stessa coorte
+  non soppressa, o viceversa** — non può succedere, stessa soglia sullo
+  stesso `n_effective` per tutte e cinque le righe del gruppo (sopra), ma va
+  verificato con un test sul gruppo intero, non riga per riga.
+- **`not_computable_reason = 'empty_cohort'` su una riga pubblicata** — non
+  può succedere, verificato sopra per esecuzione: `n_effective = 0` è sempre
+  sotto `min_cardinality`. Non si costruisce una fixture apposta per
+  provarlo, per lo stesso motivo di `targeted_excess = None` in Robustezza.
+- **`is_survivors_only = True` con `not_computable_reason` diverso da
+  `before_observability_anchor` sulla stessa riga di retention** — non può
+  succedere, `survivors_only` è controllato per primo nell'`if/elif/elif` di
+  `compute_retention` (verificato sopra per esecuzione con un caso costruito
+  apposta), ma è un invariante di codice, non di schema: nessun `CHECK` lo
+  impone (a differenza di
+  `metric_cohort_retention_reason_matches_computable`, che vincola solo
+  `is_computable`/`not_computable_reason` tra loro, non `is_survivors_only`).
+  Va provato con un test sul markup.
+
 ## 5. Come si rappresenta la qualificazione
 
 È il cuore di questo documento. Le altre sezioni descrivono un'applicazione web
@@ -917,7 +1453,20 @@ nemmeno un conteggio di persone che quel flag non sa. `p25_days_to_k`,
 `p75_days_to_k`, `reached_by_14d` e `reached_by_28d` restano leggibili e vanno
 mostrati accanto: sono il modo in cui quella riga dice ancora qualcosa.
 
-### Sette regole che valgono ovunque
+**Il codice ha mostrato la frase falsa fino al 16/09/2026**, ed è il genere di
+divergenza che si nota solo quando qualcuno rende davvero la cella:
+`dashboard/qualifica.py` scriveva "meno di metà della coorte ha raggiunto k" —
+esattamente la formulazione che questa sezione dichiara falsa — dal giorno in
+cui il sesto stato è stato implementato, con un test che ne fissava il testo.
+Nessuna vista lo aveva ancora reso: Robustezza e Community non hanno mediane, e
+la cella è arrivata su una pagina solo con Coorti. Corretto insieme a quella
+vista, in `qualifica.py` e nel test che lo fissa. Lezione, la stessa di
+CLAUDE.md §7 in una forma nuova: **una regola scritta in spec e un codice che la
+contraddice possono convivere per settimane finché nessuno esegue il percorso
+che li mette a confronto** — qui a proteggere è stato che la spec fosse scritta
+prima, e che la sessione di implementazione la rileggesse riga per riga.
+
+### Otto regole che valgono ovunque
 
 1. **Niente di tutto questo è un errore.** L'errore è l'API che non risponde, e
    deve avere un aspetto diverso da tutti gli stati sopra. Chi apre la dashboard
@@ -989,6 +1538,33 @@ mostrati accanto: sono il modo in cui quella riga dice ancora qualcosa.
    `event_count`, ed è contrattuale. Il gruppo a rischio no — la curva "vive
    dentro la funzione e viene buttata" (`modello-metriche.md` §8) — quindi
    `event_count` è tutto ciò che la dashboard ha, e va usato.
+
+8. **Le etichette di riga si compongono, non si scelgono: dove più di una si
+   applica, si mostrano tutte, nello stesso posto di riga.** Oggi vale per le
+   coorti, le uniche righe con più di un'etichetta possibile
+   ("non significativo" e "solo sopravvissuti"): §4 lo verifica eseguendo
+   `compute_cohort` sui dati reali — la coorte del 17/08/2026 porta entrambe
+   insieme (`no_snapshot_coverage` **e** `survivors_only_cohort` in
+   `reasons`, `is_significant=False` **e** `is_survivors_only=True`), la
+   coorte del 07/09/2026 ne porta una sola. Non è un caso limite da gestire,
+   è la forma normale: **una riga di soli sopravvissuti è per costruzione
+   anche non significativa** (`survivors_only_cohort` è sempre tra i
+   `reasons` quando `is_survivors_only` è vero), quindi la combinazione
+   opposta — significativa *e* di soli sopravvissuti — non può esistere, ma
+   "non significativo per altri motivi, senza essere di soli sopravvissuti"
+   sì (17/08 con anche `cohort_not_mature`, se la coorte non fosse ancora
+   matura, ne porterebbe comunque solo due, mai tre: `cohort_not_mature` e
+   `no_snapshot_coverage` non hanno un'etichetta propria — si leggono dalle
+   colonne `maturità`/`copertura` già in vista, regola 2). **Questa
+   composizione si ferma alla soppressione**: una riga soppressa non porta
+   *nessuna* di queste etichette, nemmeno "solo sopravvissuti", perché
+   `is_survivors_only` è tra i campi che `suppress()` azzera a `None` — non
+   per scelta di rendering, per costruzione del dato (§4, "Soppressione e
+   'solo sopravvissuti' si escludono per costruzione"). Vale anche perché
+   generalizza a qualunque vista futura con più di un flag per riga: il
+   criterio — non l'elenco — è che ogni etichetta la cui condizione è vera si
+   mostra, nella stessa posizione di riga (§5, "Dove va l'etichetta di
+   riga"), fino a quando la soppressione non le azzera tutte insieme.
 
 Nota di rendering: `targeted_excess` **può essere negativo e non è clampato**
 (significa che i nodi più centrali erano meno critici di nodi presi a caso). Un
@@ -1220,7 +1796,7 @@ sono numeri veri da mostrare. Quello che manca davvero è altro.
 | **Stato** | Piena e corretta | *Il bot osserva dal 28 agosto, l'ultimo calcolo è di lunedì.* Nessun caveat. |
 | **Robustezza** | 12 righe, **tutti i valori popolati**, tutte non significative | *Questi numeri esistono e non sono distinguibili dal rumore.* Il perché resta fuori: sta in `details`, e §5 lo vieta finché non è una colonna. |
 | **Community** | Popolata; stabilità su un solo layer (dati del rerun del 15/09/2026). Lo snapshot 11 non ha precedente su nessuno dei quattro layer: `previous_gap_days` e `stability_jaccard` assenti, `no_previous_snapshot`. Lo snapshot 12 si confronta con l'11 con `previous_gap_days` **6,823** su tutti e quattro i layer, ma `stability_jaccard` c'è solo su `voice` (**0,333**): `mention`, `reaction` e `reply` hanno `node_overlap` sotto il minimo (`node_overlap_below_minimum`), non un precedente mancante. Nodi dall'11 al 12: `voice` 9→15, `mention` 26→29, `reaction` 24→25, `reply` 24→23. **Nessun layer è oggi `is_significant = true`**: tutti e quattro sono ancora sotto i 30 nodi (`too_few_nodes`), `voice`@12 compreso — che pure ha `modularity_z = 5,624` e `stability_jaccard = 0,333`, entrambi ben oltre le rispettive soglie. | *La struttura si vede, e su `voice` anche la stabilità: nessuna delle due letture dipende dal grafo essere "abbastanza grande" secondo la soglia strutturale, che qui non ha ancora acceso niente. Sugli altri tre layer la stabilità non si legge perché tra una settimana e l'altra sono cambiate troppe persone, non perché il grafo sia piccolo — sono due limiti diversi che oggi capitano insieme.* |
-| **Coorti** | Quasi tutto assente: soppressione a N=5, `is_mature` richiede 14 giorni dall'ultimo iscritto, `has_snapshot_coverage=False` sulle coorti anteriori all'ancora | *Non ci sono ancora coorti abbastanza numerose e abbastanza osservate.* |
+| **Coorti** | **25 coorti** sull'ultimo snapshot (14/09/2026), **50 righe di onboarding**: **12 soppresse** (`n<5`, 6 coorti × 2 `layer_scope`), **34 "solo sopravvissuti"** (17 coorti, anteriori all'ancora del 28/08), **4 né l'uno né l'altro** (2 coorti recenti, con copertura di snapshot). **Nessuna riga è oggi `is_significant = true`**: le uniche coorti non "solo sopravvissuti" non sono ancora mature (`observation_days < 14` dall'ultimo iscritto — la coorte del 31/08 ne ha 7). Retention: aritmeticamente **18** righe soppresse, **51** con `not_computable_reason = before_observability_anchor` (stessa causa di "solo sopravvissuti"), **6** sulle 2 coorti recenti (calcolabilità per orizzonte non verificata su dati reali in questa sessione — nessun accesso al database di produzione da qui). | *Il 68% delle coorti conta solo chi è rimasto da prima che Kindling iniziasse a osservare: quei numeri esistono ma contano le persone sbagliate. Le coorti nate dopo non sono ancora abbastanza mature per dire se l'integrazione funziona.* |
 
 Sono quattro frasi diverse, e la differenza tra "non attendibile", "non ancora
 calcolabile", "troppo pochi per essere mostrati" e "nessun caveat" è
@@ -1233,8 +1809,15 @@ rerun del 15/09/2026 c'è soltanto su `voice` allo snapshot 12, con un gap di
 esiste per disinnescare — 1,0 su sette ore e mezza — e non esiste più in
 produzione. Resta da venire il momento in cui la si legge su una cadenza
 regolare e su più layer: il gap è già vicino a 7, ma sugli altri tre layer
-`node_overlap` resta sotto il minimo. Le coorti diventano leggibili solo quando la prima coorte posteriore
-all'ancora raggiunge i 14 giorni di osservazione. La
+`node_overlap` resta sotto il minimo. Le coorti diventano leggibili solo
+quando la prima coorte posteriore all'ancora raggiunge i 14 giorni di
+osservazione: al 14/09/2026 la coorte del 31/08 ne ha **7**, misurati
+dall'ultimo iscritto (non da `cohort_start`) — matura quindi non prima del
+**21/09/2026**, la stessa data che `stato-progetto.md` §9 indica già per altre
+due verifiche attese (cadenza esatta a 7 giorni, `code_version` sulla run).
+Maturare non basta da solo a renderla significativa: serve anche
+`has_snapshot_coverage = true` sulla sua finestra, che la coorte del 31/08 ha
+già (uno snapshot il 14/09 la copre). La
 significatività strutturale non arriva con nessuna delle due: richiede 30 nodi,
 **e** per le community anche `modularity_z ≥ 2,0`. Superare i 30 nodi non
 accende tutto insieme, e la UI non deve promettere che lo faccia.
@@ -1245,24 +1828,35 @@ accende tutto insieme, e la UI non deve promettere che lo faccia.
 Si avvia con `uvicorn tools.fixture_api:app --port 8899` e si punta
 `KINDLING_API_BASE_URL` lì.
 
-**Perché non si sviluppa contro i dati veri.** La produzione esercita oggi due
-stati su otto. Gli altri sei — riga soppressa, valore significativo,
-`stability_jaccard` popolata, `previous_gap_days` anomalo, retention non
-calcolabile, coorte di soli sopravvissuti — comparirebbero per la prima volta in
-produzione, da soli, quando nessuno sta guardando. Un percorso di rendering mai
-eseguito non è codice che funziona: è codice di cui non si sa niente.
+**Perché non si sviluppa contro i dati veri.** Questo paragrafo diceva "la
+produzione esercita oggi due stati su otto" — falso, verificato contro i dati
+reali del 14-15/09/2026 nella sessione che ha progettato la vista Coorti (§4,
+§6 sopra): riga soppressa (12 righe di onboarding su Coorti), `stability_jaccard`
+popolata (`voice`, §6), retention non calcolabile e coorte di soli
+sopravvissuti (entrambe lo stato dominante su Coorti, 34 e 51 righe) sono già
+nei dati reali, non ipotetici. Quello che manca ancora, verificato per assenza
+nella stessa sessione, è più mirato di "sei stati": **nessuna riga è oggi
+`is_significant = true`, su nessuna vista** (§6), e l'unico valore anomalo di
+`previous_gap_days` mai visto (1,0 su sette ore e mezza, regola 5) non esiste
+più in produzione dopo il rerun del 15/09. La ragione di sviluppare contro il
+fixture non è più "questi stati non sono mai successi": è che comparire una
+volta in produzione, per caso, non li rende **riproducibili a comando** per un
+test — e il valore anomalo di `previous_gap_days` lo dimostra: è successo, e un
+rerun lo ha già cancellato. Un percorso di rendering mai eseguito non è codice
+che funziona: è codice di cui non si sa niente.
 
-**Tre guild, tre scenari**, perché scegliere la guild è già il gesto che il
-flusso di autorizzazione richiede:
+**Quattro guild, quattro scenari**, perché scegliere la guild è già il gesto che
+il flusso di autorizzazione richiede:
 
 | Guild | Scenario |
 |---|---|
 | `900000000000000001` | Lo stato reale di oggi: **due** snapshot — l'11 pre-ancoraggio e il 12 ancorato — niente di significativo |
 | `900000000000000002` | Dodici settimane di serie e stabilità calcolata. Tre layer grandi e significativi; `voice` è il layer a basso traffico — assente in due snapshot, sotto soglia in un altro — ed è quello che esercita l'interruzione della linea e il caso misto |
 | `900000000000000003` | I casi che mordono: soppressione, `targeted_excess` negativo, baseline degenere, `node_overlap` sotto soglia, mediana non raggiunta, buco di osservazione, `code_version` assente |
+| `900000000000000004` | La **scala** delle coorti (aggiunta il 16/09/2026 con la vista Coorti): 25 `cohort_start` su un solo snapshot, nelle stesse proporzioni della produzione — 6 soppresse, 17 anteriori all'ancora, 2 immature — più le significative che la produzione non ha, e due buchi negli snapshot di grafo che spengono la copertura di due coorti. Un secondo run, undici giorni dopo l'ancora, porta l'unica combinazione che non può coesistere con una coorte significativa (§4, punto 2) |
 
-**Si costruisce contro `…003`**, che è il caso peggiore, e si controlla su
-`…001` e `…002`.
+**Si costruisce contro `…003`**, che è il caso peggiore, si verifica la scala su
+`…004`, e si controlla su `…001` e `…002`.
 
 **Perché il fixture non può divergere dal contratto.** Non descrive la forma
 delle risposte: istanzia i modelli di `api/models.py`, gli stessi che l'API usa
@@ -1272,8 +1866,13 @@ tools.fixture_api --check` valida tutte le righe e impone l'invariante che in
 produzione è imposta dal trigger `metric_suppressed_row_is_empty`: una riga
 soppressa ha tutti i `values` a `None` e `details` vuoto.
 
-**Non si butta via quando arrivano i dati.** Nemmeno fra un anno la produzione
-darà su richiesta una coorte soppressa o un `previous_gap_days` anomalo.
+**Non si butta via quando arrivano i dati.** Anche quando uno di questi stati
+compare in produzione — è già successo, per le coorti soppresse e per quelle
+di soli sopravvissuti — il fixture resta: è l'unico posto dove quello stato è
+riproducibile a comando, non un fatto che la produzione fornisce quando serve
+a un test. Nemmeno fra un anno la produzione darà su richiesta un
+`previous_gap_days` anomalo: quello, verificato sopra, è già comparso una
+volta e un rerun lo ha già cancellato.
 
 ## 8. Deploy, in due fasi
 

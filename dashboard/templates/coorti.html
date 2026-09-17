@@ -1,0 +1,152 @@
+{#- Vista Coorti (dashboard.md 4, "La vista Coorti, in dettaglio").
+
+    Le decisioni stanno in dashboard/coorti.py; qui solo l'aspetto. Invarianti di
+    template, verificati sul markup dai test:
+
+    - un GRUPPO per coorte, non cinque righe: le colonne condivise
+      (n, esclusi, maturità, copertura, etichette) si scrivono UNA volta, perché
+      il job le calcola una volta sola per tutte e cinque le righe;
+    - le etichette di riga si COMPONGONO (regola 8): zero, una o due, sempre
+      nell'ultima colonna. Una riga soppressa non ne porta nessuna, nemmeno
+      "solo sopravvissuti";
+    - censored_by_leave è una NOTA della cella "censurati", mai una colonna: è un
+      sotto-conteggio di censored_count, non un terzo esito;
+    - la retention ha due colonne per orizzonte — il numero e il suo stato — e lo
+      stato non si legge mai da details: è is_computable/not_computable_reason;
+    - nessun totale né media fra ambiti o fra orizzonti: sono letture diverse
+      della stessa coorte, non componenti di una somma;
+    - nessun grafico: limit=1 porta uno snapshot solo, e venticinque coorti
+      indipendenti non sono una serie (§4, "Rotta e dati").
+
+    quality.details non si legge (regola 2), e qui non servirebbe: i tre motivi di
+    non significatività sono colonne tipizzate. -#}
+{% extends "base.html" %}
+{% from "_cella.html" import mostra, etichette, spiegazione %}
+{% block titolo %}Coorti {{ guild_id }}{% endblock %}
+{% block contenuto %}
+<h1>Coorti</h1>
+<p class="sottotitolo">Server <code>{{ guild_id }}</code></p>
+<p class="nota">Una riga per settimana di ingresso. <strong>Integrazione</strong>:
+quanto in fretta chi è entrato quella settimana è arrivato a {{ k_connessioni }}
+connessioni distinte, stimato con una curva di sopravvivenza perché chi è entrato
+da poco non ha ancora avuto il tempo di arrivarci. <strong>Retention</strong>:
+quanti erano ancora presenti dopo 7, 14 e 28 giorni. Le due possono divergere, ed
+è l'incrocio a dire se l'accoglienza funziona: nessuna delle due riassume l'altra.</p>
+
+{% if vista.vuota %}
+<p class="frase-vuota">Il calcolo non è ancora girato per questo server: non esiste
+ancora nessuno snapshot delle metriche.</p>
+{% else %}
+<p>Snapshot del <strong>{{ vista.snapshot.as_of | data_ora }}</strong>.</p>
+<p class="riepilogo">{{ frase_di_stato(vista) }}</p>
+
+<div class="scorri">
+<table class="tabella-coorti">
+  <colgroup>
+    <col span="5">
+    <col span="7" class="gruppo-ambito">
+    <col span="7" class="gruppo-ambito">
+    <col span="6" class="gruppo-retention">
+    <col>
+  </colgroup>
+  <thead>
+    <tr class="intestazione-gruppi">
+      <th scope="colgroup" colspan="5">coorte</th>
+      {%- for ambito in ambiti %}
+      <th scope="colgroup" colspan="7" class="inizio-gruppo" data-ambito="{{ ambito }}">Integrazione — {{ nomi_ambito.get(ambito, ambito) }}</th>
+      {%- endfor %}
+      <th scope="colgroup" colspan="6" class="inizio-gruppo">Retention</th>
+      <th scope="col"></th>
+    </tr>
+    <tr>
+      <th scope="col">settimana</th>
+      <th scope="col">n</th>
+      <th scope="col">esclusi</th>
+      <th scope="col">maturità</th>
+      <th scope="col">copertura</th>
+      {%- for ambito in ambiti %}
+      <th scope="col" class="inizio-gruppo">eventi</th>
+      <th scope="col">censurati</th>
+      <th scope="col">mediana (giorni)</th>
+      <th scope="col">p25</th>
+      <th scope="col">p75</th>
+      <th scope="col">raggiunta a 14g</th>
+      <th scope="col">raggiunta a 28g</th>
+      {%- endfor %}
+      {%- for orizzonte in orizzonti %}
+      <th scope="col" class="inizio-gruppo">trattenuti a {{ orizzonte }}g</th>
+      <th scope="col">stato</th>
+      {%- endfor %}
+      <th scope="col">qualificazione</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for g in vista.gruppi %}
+    <tr class="riga-coorte" data-coorte="{{ g.cohort_start }}">
+      <td class="colonna-coorte">{{ g.cohort_start.strftime("%d/%m/%Y") }}</td>
+    {% if g.soppressa %}
+      {#- Soppressione: terminale per tutto il gruppo, e non solo per i valori.
+          n, maturità, copertura e "solo sopravvissuti" non sono nascosti dietro
+          il simbolo — su una riga soppressa non esistono (dashboard.md 4). -#}
+      <td colspan="25">{{ mostra(cella(g.guida, "event_count")) }}</td>
+    {% else %}
+      {% set q = g.guida.quality %}
+      {% set deq = ' cella--dequalificata' if q.significant is false else '' %}
+      <td><span class="cella cella--valore{{ deq }}"><span class="cella__testo" data-n-effective="{{ q.n_effective }}">{{ q.n_effective }}</span></span></td>
+      <td data-campo="excluded_rejoins"><span class="cella cella--valore{{ deq }}"><span class="cella__testo">{{ esclusi(g.guida) }}</span></span></td>
+      <td data-campo="is_mature"><span class="cella cella--valore{{ deq }}"><span class="cella__testo">{{ maturita(g.guida) }}</span></span></td>
+      <td data-campo="has_snapshot_coverage"><span class="cella cella--valore{{ deq }}"><span class="cella__testo">{{ copertura(g.guida) }}</span></span></td>
+      {%- for ambito in ambiti %}
+      {%- if ambito not in g.onboarding %}
+      {#- Ramo difensivo: il job scrive un ambito per coorte. Se ne mancasse uno,
+          la vista lo dichiara invece di lasciare sette celle vuote. -#}
+      <td colspan="7" class="frase-assente inizio-gruppo">Nessuna riga di onboarding per questo ambito.</td>
+      {%- else %}
+      {%- set r = g.onboarding[ambito] %}
+      <td class="inizio-gruppo" data-ambito="{{ ambito }}" data-campo="event_count">{{ mostra(cella(r, "event_count")) }}</td>
+      <td data-ambito="{{ ambito }}" data-campo="censored_count">{{ mostra(cella(r, "censored_count")) }}
+        {%- if censura(r) %}<span class="cella__nota" data-nota="censored_by_leave">{{ censura(r) }}</span>{% endif -%}
+      </td>
+      {%- for campo in ("median_days_to_k", "p25_days_to_k", "p75_days_to_k", "reached_by_14d", "reached_by_28d") %}
+      <td data-ambito="{{ ambito }}" data-campo="{{ campo }}">{{ mostra(cella(r, campo, vista.decimali[(ambito, campo)])) }}</td>
+      {%- endfor %}
+      {%- endif %}
+      {%- endfor %}
+      {%- for orizzonte in orizzonti %}
+      {%- if orizzonte not in g.retention %}
+      <td colspan="2" class="frase-assente inizio-gruppo">Nessuna riga di retention per questo orizzonte.</td>
+      {%- else %}
+      {%- set t = g.retention[orizzonte] %}
+      <td class="inizio-gruppo" data-orizzonte="{{ orizzonte }}" data-campo="retained_fraction">{{ mostra(cella(t, "retained_fraction", vista.decimali_retention[orizzonte]), spiegazione=false) }}</td>
+      <td data-orizzonte="{{ orizzonte }}" data-campo="not_computable_reason">{{ spiegazione(cella(t, "retained_fraction", vista.decimali_retention[orizzonte]), "calcolabile") }}</td>
+      {%- endif %}
+      {%- endfor %}
+      <td class="colonna-qualificazione">{{ etichette(cella(g.guida, "event_count")) }}</td>
+    {% endif %}
+    </tr>
+    {%- if g.divergenze %}
+    {#- Ramo difensivo (dashboard.md 4, "I rami difensivi"): le cinque righe di un
+        gruppo condividono questi campi per costruzione — stessa chiamata sugli
+        stessi membri. Se divergessero, la riga di gruppo starebbe mostrando il
+        valore di una riga sola come se fosse di tutte: si dichiara, non si
+        sceglie. -#}
+    <tr class="riga-divergenza" data-coorte="{{ g.cohort_start }}">
+      <td colspan="26" class="avviso">Le righe di questa coorte non concordano su
+        <code>{{ g.divergenze | join(", ") }}</code>: il job le calcola una volta
+        sola per tutta la coorte, quindi qui la riga di gruppo non è affidabile.</td>
+    </tr>
+    {%- endif %}
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<p class="nota">Le colonne <strong>maturità</strong> e <strong>copertura</strong> sono
+i due motivi di non significatività che non hanno un'etichetta propria: una coorte
+è significativa quando ha almeno {{ giorni_maturita }} giorni di osservazione
+dall'ultimo iscritto, uno snapshot che copre quei giorni, ed è iniziata dopo che
+Kindling ha cominciato a osservare. <strong>Eventi</strong> è quante persone della
+coorte sono arrivate a {{ k_connessioni }} connessioni: è il numero che dice quanto
+poggia la mediana accanto.</p>
+{% endif %}
+{% endblock %}

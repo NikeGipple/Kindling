@@ -34,7 +34,7 @@ from .client import (
     RispostaNonConforme,
     crea_http,
 )
-from . import community, robustezza
+from . import community, coorti, robustezza
 from .qualifica import cella
 
 logger = logging.getLogger(__name__)
@@ -78,6 +78,23 @@ def crea_templates() -> Environment:
     env.globals["percentuale"] = robustezza.percentuale
     env.globals["nodi_rimossi"] = robustezza.nodi_rimossi
     env.globals["senza_confronto"] = community.senza_confronto
+    # Vista Coorti: le colonne che NON passano da cella() perche' stanno in
+    # quality e non in values (maturita', copertura, esclusi), la nota di cella di
+    # censored_by_leave e la frase di stato. Sono decisioni di coorti.py, non del
+    # template: qui si registrano soltanto.
+    env.globals["maturita"] = coorti.maturita
+    env.globals["copertura"] = coorti.copertura
+    env.globals["esclusi"] = coorti.esclusi
+    env.globals["censura"] = coorti.censura
+    env.globals["frase_di_stato"] = coorti.frase_di_stato
+    # Ambiti, orizzonti e soglie arrivano da job/config.py passando per
+    # coorti.py: ricopiarli nel template li farebbe divergere dal job in
+    # silenzio, che e' il difetto di CLAUDE.md 7 applicato a un'intestazione.
+    env.globals["ambiti"] = coorti.AMBITI
+    env.globals["orizzonti"] = coorti.ORIZZONTI
+    env.globals["nomi_ambito"] = coorti.NOMI_AMBITO
+    env.globals["k_connessioni"] = coorti.K_CONNESSIONI
+    env.globals["giorni_maturita"] = coorti.GIORNI_MATURITA
     return env
 
 
@@ -208,6 +225,23 @@ def crea_app(*, api_http: Optional[httpx.AsyncClient] = None) -> FastAPI:
             guild_id=guild_id,
             vista=community.costruisci(righe),
             vista_corrente="community",
+        )
+
+    @app.get("/guilds/{guild_id}/coorti", response_class=HTMLResponse)
+    async def vista_coorti(request: Request, guild_id: int):
+        """Vista Coorti (dashboard.md 4): chi entra si integra, e chi resta?
+
+        ``cohorts()`` chiede uno snapshot solo, e il default e' nella firma del
+        client: qui non si passa ``limit``, perche' la vista non ha un'opinione
+        diversa da quella gia' dichiarata li'.
+        """
+        api: ApiClient = request.app.state.api
+        gruppi = await api.cohorts(guild_id)
+        return pagina(
+            "coorti.html",
+            guild_id=guild_id,
+            vista=coorti.costruisci(gruppi),
+            vista_corrente="coorti",
         )
 
     return app

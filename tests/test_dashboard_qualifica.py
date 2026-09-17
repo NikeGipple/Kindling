@@ -154,7 +154,9 @@ def test_non_calcolabile_e_una_parola_diversa_da_soppresso():
 
     assert c.esito == NON_CALCOLABILE
     assert c.motivo == "horizon_not_reached"
-    assert c.spiegazione == "l'orizzonte non e' ancora trascorso per tutta la coorte"
+    # Con l'accento: e' prosa che un lettore vede, e la vista Coorti la rende tre
+    # volte per ogni coorte immatura (16/09/2026).
+    assert c.spiegazione == "l'orizzonte non è ancora trascorso per tutta la coorte"
     assert SOPPRESSO not in c.stati
     assert c.testo == "non calcolabile"
 
@@ -220,7 +222,17 @@ def test_mediana_non_raggiunta_e_una_frase_non_un_assenza():
     c = cella(riga, "median_days_to_k")
 
     assert c.esito == MEDIANA_NON_RAGGIUNTA
-    assert c.testo == "meno di metà della coorte ha raggiunto 5 connessioni"
+    # La frase e' affermativa e dice il fatto giusto. Quella di prima — "meno di
+    # metà della coorte ha raggiunto 5 connessioni" — e' la formulazione che
+    # dashboard.md 5 ("Il sesto stato") dichiara FALSA: median_reached non conta
+    # persone, dice che S(t) non e' mai scesa a 0,5 entro l'osservazione
+    # disponibile. Corretta il 16/09/2026, quando la vista Coorti e' diventata la
+    # prima a rendere davvero questa cella.
+    assert c.testo == (
+        "tempo mediano per 5 connessioni non stimabile: "
+        "entro l'osservazione la curva non è mai scesa al 50%"
+    )
+    assert "meno di metà" not in c.testo
     assert SOPPRESSO not in c.stati and ASSENTE not in c.stati
     # Il flag e' puntuale: gli altri valori della riga restano leggibili.
     assert cella(riga, "p25_days_to_k").stati == {VALORE}

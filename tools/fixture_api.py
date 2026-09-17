@@ -44,8 +44,8 @@ Uso::
     python -m tools.fixture_api --check      # valida e basta, exit 1 se rotto
     uvicorn tools.fixture_api:app --port 8899
 
-Tre guild, tre scenari — si cambia scenario scegliendo la guild, che esercita
-anche il selettore multi-guild del flusso di autorizzazione:
+Quattro guild, quattro scenari — si cambia scenario scegliendo la guild, che
+esercita anche il selettore multi-guild del flusso di autorizzazione:
 
 ===================  =========================================================
 ``...001`` oggi      lo stato reale della produzione: due snapshot (7 e 14/09),
@@ -54,6 +54,9 @@ anche il selettore multi-guild del flusso di autorizzazione:
                      ``voice`` volatile (assente, soppresso), eccesso negativo,
                      prima osservazione confrontabile significativa (snapshot 29)
 ``...003`` limite    uno snapshot, ogni riga progettata per rompere una vista
+``...004`` scala     venticinque coorti su un solo snapshot, il numero della
+                     produzione: il muro di "solo sopravvissuti" (17 su 25) e
+                     le combinazioni di motivi che gli altri non esercitano
 ===================  =========================================================
 """
 
@@ -155,6 +158,7 @@ REASON_SECONDARY = "secondary"
 GUILD_TODAY = 900000000000000001
 GUILD_MATURE = 900000000000000002
 GUILD_EDGE = 900000000000000003
+GUILD_SCALE = 900000000000000004
 
 MONDAY = datetime(2026, 9, 7, 0, 0, tzinfo=timezone.utc)
 
@@ -634,6 +638,7 @@ def _membri_generati(
     *,
     snapshot_as_of: list[datetime],
     seme: int,
+    ore_ultimo: Optional[int] = None,
 ) -> list[_Membro]:
     """Membri sintetici deterministici per le coorti degli scenari senza produzione.
 
@@ -641,11 +646,26 @@ def _membri_generati(
     giorni: pesa sulla retention e su ``censored_by_leave``), raggiungimento di k
     per circa due membri su tre in ``any`` e uno su tre in ``voice``, osservato al
     primo snapshot utile. I VALORI li calcola il job; qui si scelgono solo i fatti.
+
+    ``ore_ultimo`` sposta l'ISTANTE DELL'ULTIMO INGRESSO da effetto collaterale a
+    fatto scelto. ``compute_cohort`` ricava ``observation_days`` — e quindi
+    ``is_mature`` — dal solo membro entrato piu' tardi, e con la spaziatura di
+    default quell'istante e' il massimo di un modulo: dipende da ``quanti`` e da
+    ``seme``, cioe' una coorte risulterebbe matura per il resto di una divisione.
+    La maturita' e' uno dei tre motivi che la vista Coorti deve poter esercitare a
+    comando (dashboard.md 4), e un fatto scelto non si lascia decidere
+    all'aritmetica. Con ``ore_ultimo`` gli ingressi si distribuiscono su
+    ``[3h, ore_ultimo]`` e l'ultimo cade esattamente a ``ore_ultimo``.
     """
     base = datetime.combine(inizio, datetime.min.time(), tzinfo=timezone.utc)
     membri: list[_Membro] = []
     for i in range(quanti):
-        joined = base + timedelta(hours=3 + (i * 37 + seme * 11) % 160)
+        ore = (
+            3 + (i * 37 + seme * 11) % 160
+            if ore_ultimo is None
+            else 3 + (ore_ultimo - 3) * i // max(1, quanti - 1)
+        )
+        joined = base + timedelta(hours=ore)
         left = joined + timedelta(days=4) if (i + seme) % 7 == 3 else None
         raggiunto: list[tuple[str, datetime]] = []
         if left is None and i % 3 != 0:
@@ -1224,10 +1244,177 @@ def _scenario_edge() -> dict[str, Any]:
     }
 
 
+# --- ...004: la scala reale delle coorti ------------------------------------
+#
+# Venticinque coorti su un solo snapshot, il numero della produzione del
+# 14/09/2026 (dashboard.md 4, "Rappresentativita' del fixture"). Gli altri tre
+# scenari hanno da tre a sette coorti per snapshot: abbastanza per i flag, non
+# per sapere se una tabella da 25 righe di gruppo resta leggibile, se
+# l'ordinamento porta in cima le coorti interessanti, e se diciassette righe
+# "solo sopravvissuti" consecutive restano distinguibili una dall'altra invece
+# di diventare un muro grigio.
+#
+# Le coorti si descrivono con TRE fatti — quante settimane fa, quanti membri, a
+# che ora entra l'ultimo — e tutto il resto lo calcola il job. In particolare la
+# combinazione di motivi di non significativita' NON e' scritta da nessuna parte
+# qui: e' cio' che compute_cohort deduce dai fatti, dall'ancora e dalle finestre
+# degli snapshot. Il commento a destra dice quale combinazione ci si aspetta, e
+# tests/test_dashboard_coorti.py la verifica riga per riga: se un parametro del
+# job cambia, il commento e il test si contraddicono invece di restare entrambi
+# zitti.
+#
+# (settimane fa, n, ore dell'ultimo ingresso)
+_SCALA_COORTI: tuple[tuple[int, int, int], ...] = (
+    (1, 9, 130),    # non matura (obs 1)                     -> non significativo
+    (2, 12, 150),   # non matura (obs 7)                     -> non significativo
+    (3, 18, 150),   # matura appena (obs 14), coperta        -> SIGNIFICATIVA
+    (4, 3, 120),    # n < min_cardinality                    -> soppressa
+    (5, 16, 140),   # matura, coperta                        -> SIGNIFICATIVA
+    (6, 11, 140),   # matura, dentro il buco di snapshot     -> no_snapshot_coverage solo
+    (7, 13, 140),   # matura, coperta                        -> SIGNIFICATIVA
+    (8, 4, 140),    # n < min_cardinality                    -> soppressa
+    (9, 10, 135),   # prima dell'ancora; al run vecchio e' anche non matura
+    (10, 8, 120),
+    (11, 9, 110),
+    (12, 4, 130),   # n < min_cardinality                    -> soppressa
+    (13, 7, 100),
+    (14, 11, 120),
+    (15, 6, 90),
+    (16, 9, 130),
+    (17, 12, 140),  # prima dell'ancora E dentro il buco vecchio di snapshot
+    (18, 8, 110),
+    (19, 3, 120),   # n < min_cardinality                    -> soppressa
+    (20, 10, 130),
+    (21, 7, 100),
+    (22, 9, 120),
+    (23, 4, 110),   # n < min_cardinality                    -> soppressa
+    (24, 8, 130),
+    (25, 4, 120),   # n < min_cardinality                    -> soppressa
+)
+
+
+def _scenario_scala() -> dict[str, Any]:
+    """Venticinque coorti su un solo snapshot: la scala della produzione.
+
+    **Due run, e la seconda non e' un di piu'.** Al run recente (14/09) le coorti
+    coprono cinque combinazioni di motivi piu' la soppressione; una sesta —
+    ``cohort_not_mature`` **insieme** a ``survivors_only_cohort`` — non puo'
+    esistere nello stesso snapshot di una coorte significativa, e non e' una
+    scelta di questo file: una guild ha un'ancora sola, ``observation_days``
+    decresce al crescere di ``cohort_start``, quindi una coorte anteriore
+    all'ancora e' sempre piu' vecchia — e quindi piu' matura — di qualunque
+    coorte posteriore. Al run del 27/07, undici giorni dopo l'ancora, la coorte
+    del 13/07 la esercita: e' anteriore all'ancora e ha sette giorni di
+    osservazione.
+
+    **Due combinazioni delle sette non esistono affatto**, verificato per
+    esecuzione e non dedotto dall'assenza nei dati:
+
+    - ``cohort_not_mature`` + ``no_snapshot_coverage`` — con finestre da 7 giorni
+      e ``min_observation_days`` 14, una coorte non matura e' iniziata da meno di
+      21 giorni, e la finestra dello snapshot su cui la run gira la copre sempre.
+      Resta il caso degenere ``cohort_start == as_of``, cioe' cinque persone
+      entrate nell'istante esatto dell'``as_of``;
+    - la tripla, che implica la precedente e in piu' vorrebbe un'ancora nel
+      futuro.
+
+    Sono rami che il job non produce, non buchi del fixture: si documentano qui e
+    non si costruiscono, come ``empty_cohort`` (dashboard.md 4).
+
+    **Il buco negli snapshot di grafo e' il modo in cui si spegne la
+    copertura.** Due settimane senza snapshot (10 e 17/08) tolgono la copertura
+    alla sola coorte del 03/08; altre due nel passato (25/05 e 01/06) a quella
+    del 18/05, che essendo anteriore all'ancora porta due motivi insieme. E'
+    esattamente cio' che ``has_snapshot_coverage`` esiste per dire: il tempo e'
+    passato, il grafo non c'era.
+    """
+    u = timezone.utc
+    as_of = datetime(2026, 9, 14, tzinfo=u)
+    as_of_vecchio = datetime(2026, 7, 27, tzinfo=u)
+    # Ancora fra il lunedi' della coorte 9 (13/07) e quello della 8 (20/07):
+    # diciassette coorti su venticinque le sono anteriori, il 68% della
+    # produzione del 14/09.
+    ancora = datetime(2026, 7, 16, 10, 0, tzinfo=u)
+
+    # Snapshot di grafo settimanali, meno i due buchi. L'id e' la settimana dalla
+    # prima: le due run girano su 126 (14/09) e 119 (27/07).
+    prima = datetime(2026, 3, 16, tzinfo=u)
+    sid_di = {prima + timedelta(weeks=k): 100 + k for k in range(27)}
+    buchi = {datetime(2026, 8, 10, tzinfo=u), datetime(2026, 8, 17, tzinfo=u),
+             datetime(2026, 5, 25, tzinfo=u), datetime(2026, 6, 1, tzinfo=u)}
+    snapshot_grafo = [t for t in sorted(sid_di) if t not in buchi]
+
+    membri: list[_Membro] = []
+    for settimane, n, ore_ultimo in _SCALA_COORTI:
+        membri += _membri_generati(
+            (as_of - timedelta(weeks=settimane)).date(), n,
+            snapshot_as_of=snapshot_grafo, seme=settimane, ore_ultimo=ore_ultimo,
+        )
+
+    cohorts = (
+        _coorti(sid_di[as_of], as_of, membri, ancora=ancora, snapshot_as_of=snapshot_grafo)
+        + _coorti(sid_di[as_of_vecchio], as_of_vecchio, membri, ancora=ancora,
+                  snapshot_as_of=snapshot_grafo)
+    )
+
+    # Robustezza e community esistono anche qui, e non per completezza
+    # decorativa: una guild con due run e nessuna riga strutturale non e' una
+    # risposta che l'API possa produrre, e --check non se ne accorgerebbe —
+    # i suoi controlli confrontano gli insiemi di (snapshot, layer) fra loro, e
+    # due insiemi vuoti sono coerenti.
+    robustness: list[RobustnessRow] = []
+    communities: list[CommunityRow] = []
+    nodi = {
+        sid_di[as_of]: {"reply": 41, "mention": 38, "reaction": 34, "voice": 12},
+        sid_di[as_of_vecchio]: {"reply": 33, "mention": 31, "reaction": 28, "voice": 9},
+    }
+    z = {"reply": 3.1, "mention": 2.8, "reaction": 2.4, "voice": 1.6}
+    for sid, quando in ((sid_di[as_of], as_of), (sid_di[as_of_vecchio], as_of_vecchio)):
+        precedente = _Precedente(sid - 1, quando - timedelta(weeks=1))
+        for layer in LAYERS:
+            n = nodi[sid][layer]
+            robustness += _robustness_layer(
+                sid, quando, layer, n=n,
+                excess={rf: round(0.14 + rf * 0.8, 3) for rf in REMOVAL_FRACTIONS},
+            )
+            riga = _community_layer(
+                sid, quando, layer, n=n, dimensioni=_partizione(n), modularity_z=z[layer],
+                precedente=precedente, overlap=0.82, stability=0.68,
+            )
+            if riga is not None:
+                communities.append(riga)
+
+    params = PARAMS.as_run_params()
+    return {
+        "guild": GuildRow(
+            guild_id=GUILD_SCALE,
+            first_seen_at=ancora,
+            backfilled_at=ancora + timedelta(minutes=5),
+            left_at=None, rejoined_at=None, latest_metrics_as_of=as_of,
+        ),
+        "runs": [
+            RunRow(
+                snapshot_id=sid_di[quando], as_of=quando, params=params,
+                stats={"durations_ms": {"cohorts_ms": 41.0, "robustness_ms": 210.4,
+                                        "communities_ms": 903.2},
+                       "snapshots_used": usati, "snapshots_skipped_params": 0,
+                       "snapshot_gaps": {"cadence_days_median": 7.0, "max_gap_days": 21.0}},
+                code_version="dfc1696",
+                created_at=quando + timedelta(hours=4, minutes=15),
+            )
+            for quando, usati in ((as_of, 23), (as_of_vecchio, 17))
+        ],
+        "robustness": robustness,
+        "communities": communities,
+        "cohorts": cohorts,
+    }
+
+
 SCENARIOS: dict[int, dict[str, Any]] = {
     GUILD_TODAY: _scenario_today(),
     GUILD_MATURE: _scenario_mature(),
     GUILD_EDGE: _scenario_edge(),
+    GUILD_SCALE: _scenario_scala(),
 }
 
 # --- le sette rotte --------------------------------------------------------
@@ -1678,6 +1865,18 @@ def check() -> int:
     # una riga soppressa ha TUTTI i values a None e details vuoto. In produzione
     # e' il database a imporlo; una fixture che la viola descriverebbe una
     # risposta che l'API non puo' emettere.
+    #
+    # E la stessa cosa vale per la QUALIFICAZIONE, che il controllo sui values non
+    # vedeva: job/suppression.py::suppress() azzera ogni campo della dataclass
+    # fuori da KEY_FIELDS, quindi su una riga soppressa sono None anche
+    # is_survivors_only, is_mature, has_snapshot_coverage, observation_days,
+    # excluded_rejoins, n_effective e significant. Per le coorti non e' un
+    # dettaglio: "soppressa" e "solo sopravvissuti" non possono comparire
+    # insieme, e la ragione non e' una scelta di rendering della dashboard —
+    # l'informazione a livello di dato non esiste piu' (dashboard.md 4,
+    # "Soppressione e 'solo sopravvissuti' si escludono per costruzione").
+    _CHIAVI_DELLA_SOPPRESSIONE = ("suppressed", "suppression_reason", "details")
+
     def _audit(rows: list[Any], label: str) -> None:
         for row in rows:
             q = getattr(row, "quality", None)
@@ -1686,6 +1885,12 @@ def check() -> int:
             leaked = [k for k, v in _fields(row.values).items() if v is not None]
             if leaked:
                 problems.append(f"{label}: riga soppressa con valori non nulli: {leaked}")
+            sporca = [
+                k for k, v in _fields(q).items()
+                if v is not None and k not in _CHIAVI_DELLA_SOPPRESSIONE
+            ]
+            if sporca:
+                problems.append(f"{label}: riga soppressa con qualificazione non nulla: {sporca}")
             if q.details:
                 problems.append(f"{label}: riga soppressa con details non vuoto")
 

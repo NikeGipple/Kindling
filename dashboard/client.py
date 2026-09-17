@@ -25,7 +25,7 @@ from typing import Any, Optional, TypeVar
 import httpx
 from pydantic import TypeAdapter, ValidationError
 
-from api.models import CommunityRow, GuildRow, Health, RobustnessRow, RunRow
+from api.models import CohortGroup, CommunityRow, GuildRow, Health, RobustnessRow, RunRow
 
 from .config import API_TIMEOUT_SECONDS
 
@@ -39,6 +39,9 @@ DEFAULT_RUNS_LIMIT = 12
 # Il limite delle serie conta SNAPSHOT, non righe (api/db.py): dodici snapshot
 # sono dodici settimane, ognuna con fino a 12 righe di robustezza o 4 di community.
 DEFAULT_SERIES_LIMIT = 12
+# Le coorti NON sono una serie: un solo snapshot, molte righe indipendenti. Il
+# default e' 1 e non il 12 condiviso dell'API — vedi ApiClient.cohorts.
+DEFAULT_COHORTS_LIMIT = 1
 
 
 class ErroreApi(Exception):
@@ -150,6 +153,32 @@ class ApiClient:
         return await self._get(
             f"/guilds/{guild_id}/communities",
             TypeAdapter(list[CommunityRow]),
+            params={"limit": limit},
+            guild_id=guild_id,
+        )
+
+    async def cohorts(
+        self, guild_id: int, *, limit: int = DEFAULT_COHORTS_LIMIT
+    ) -> list[CohortGroup]:
+        """Le coorti di uno snapshot solo, e il default e' scritto qui apposta.
+
+        ``DEFAULT_COHORTS_LIMIT`` e' 1, non 12 come robustezza e community, ed e'
+        una decisione (dashboard.md 4, "Rotta e dati, e perche' qui ``limit`` non
+        e' 12"): uno snapshot di coorti sono fino a 125 righe (25 coorti x 2
+        ambiti, piu' 3 orizzonti di retention), quindi il default condiviso
+        dell'API varrebbe una richiesta da oltre 1.500 righe per una vista che di
+        quelle dodici copie non usa niente. Le coorti non sono una serie: sono
+        venticinque fatti indipendenti su un solo snapshot.
+
+        Il valore sta nella FIRMA e non si lascia al server: ``limit`` e'
+        opzionale in ``api/config.py``, e affidarsi al suo default significa che
+        il giorno in cui qualcuno lo cambia questa vista cambia con lui, senza
+        che nessun punto del codice avesse mai dichiarato di volere uno snapshot
+        solo.
+        """
+        return await self._get(
+            f"/guilds/{guild_id}/cohorts",
+            TypeAdapter(list[CohortGroup]),
             params={"limit": limit},
             guild_id=guild_id,
         )

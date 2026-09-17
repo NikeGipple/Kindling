@@ -1,7 +1,7 @@
-{#- Il rendering di una Cella (dashboard/qualifica.py). Due macro, e la chiamata
+{#- Il rendering di una Cella (dashboard/qualifica.py). Tre macro, e la chiamata
     dice cosa fa (dashboard.md 5, "Dove va l'etichetta di riga"):
 
-      {% from "_cella.html" import mostra, etichette %}
+      {% from "_cella.html" import mostra, etichette, spiegazione %}
       <td>{{ mostra(cella(riga, "targeted_excess")) }}</td>    cella di valore
       <td>{{ etichette(cella(riga, "targeted_excess")) }}</td> colonna di qualificazione
 
@@ -10,24 +10,39 @@
       moltiplicherebbe fino a non distinguere piu' niente da niente.
     - etichette(c): le etichette della riga, una volta per riga, nell'ultima
       colonna. Non attaccate a un numero: qualificano la riga, non il campo.
+    - spiegazione(c): il perche' dello stato della cella, quando va in una
+      colonna sua invece che accanto al valore. In Coorti la retention ha due
+      colonne per orizzonte — il numero e il suo stato — e senza questa macro la
+      seconda andrebbe scritta leggendo values a mano, cioe' rifacendo altrove
+      la decisione che cella(row, campo) ha gia' preso. In quel layout il valore
+      si chiede con mostra(c, spiegazione=false), altrimenti il motivo comparirebbe
+      due volte sulla stessa riga.
 
     Mai con il numero estratto a mano da riga.values. I macro decidono solo
     l'aspetto: quale stato e' la cella lo ha gia' deciso cella(row, campo). -#}
-{% macro mostra(c) -%}
+{% macro mostra(c, spiegazione=true) -%}
 {%- set dequalificata = c.etichette | selectattr("tipo", "equalto", "non_significativo") | list -%}
 <span class="cella cella--{{ c.esito }}{% if dequalificata %} cella--dequalificata{% endif %}" data-esito="{{ c.esito }}">
   {%- if c.esito == "soppresso" -%}
     <span class="cella__simbolo" aria-hidden="true">⊘</span>
     <span class="cella__testo">soppresso</span>
-    <span class="cella__spiegazione">{{ c.spiegazione }}</span>
+    {%- if spiegazione %}<span class="cella__spiegazione">{{ c.spiegazione }}</span>{% endif -%}
   {%- elif c.esito == "non_calcolabile" -%}
     <span class="cella__simbolo" aria-hidden="true">∅</span>
     <span class="cella__testo">non calcolabile</span>
-    <span class="cella__spiegazione">{{ c.spiegazione }}</span>
+    {%- if spiegazione %}<span class="cella__spiegazione">{{ c.spiegazione }}</span>{% endif -%}
   {%- else -%}
     <span class="cella__testo">{{ c.testo }}</span>
   {%- endif -%}
 </span>
+{%- endmacro %}
+
+{% macro spiegazione(c, quando_va_bene) -%}
+{#- Il motivo per cui il valore non c'e', o la frase che dice che c'e'. Non e'
+    mai una cella vuota: "calcolabile" e "non calcolabile perche' X" sono due
+    stati distinti e distinguibili, e uno spazio bianco non e' ne' l'uno ne'
+    l'altro. -#}
+<span class="stato stato--{{ c.esito }}" data-esito="{{ c.esito }}">{{ c.spiegazione if c.spiegazione else quando_va_bene }}</span>
 {%- endmacro %}
 
 {% macro etichette(c) -%}

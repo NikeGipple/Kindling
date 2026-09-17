@@ -563,8 +563,10 @@ def test_navigazione_solo_con_le_viste_che_esistono(dashboard):
     for percorso in (f"/guilds/{GUILD_EDGE}", f"/guilds/{GUILD_EDGE}/robustezza"):
         html = dashboard.get(percorso).text
         nav = next(_albero(html).radice.trova("nav", classe="viste"))
-        assert [a.testo().strip() for a in nav.trova("a")] == ["Stato", "Robustezza", "Community"]
-        assert "Coorti" not in nav.testo()
+        # Quattro voci da quando la vista Coorti esiste (16/09/2026), e nessuna in
+        # piu': una voce per una vista che non c'e' sarebbe una promessa.
+        assert [a.testo().strip() for a in nav.trova("a")] == [
+            "Stato", "Robustezza", "Community", "Coorti"]
 
 
 def test_la_vista_non_legge_details():

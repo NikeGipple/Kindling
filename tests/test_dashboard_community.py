@@ -435,7 +435,8 @@ def test_una_sola_chiamata_con_limit_dodici():
 def test_navigazione_include_community(dashboard):
     html = dashboard.get(f"/guilds/{GUILD_EDGE}/community").text
     nav = next(_albero(html).radice.trova("nav", classe="viste"))
-    assert [a.testo().strip() for a in nav.trova("a")] == ["Stato", "Robustezza", "Community"]
+    assert [a.testo().strip() for a in nav.trova("a")] == [
+        "Stato", "Robustezza", "Community", "Coorti"]
     corrente = [a for a in nav.trova("a") if a.attrs.get("aria-current") == "page"]
     assert [a.testo().strip() for a in corrente] == ["Community"]
 

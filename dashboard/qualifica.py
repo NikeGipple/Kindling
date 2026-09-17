@@ -81,12 +81,12 @@ _QUALIFICATORI_PUNTUALI = frozenset({"median_reached", "is_computable", "not_com
 # un motivo sconosciuto e' comunque un motivo.
 MOTIVI_SOPPRESSIONE = {
     "below_threshold": "troppo poche persone per mostrare il dato",
-    "secondary": "soppressione secondaria: il dato si ricaverebbe per differenza da una cella gia' soppressa",
+    "secondary": "soppressione secondaria: il dato si ricaverebbe per differenza da una cella già soppressa",
 }
 MOTIVI_NON_CALCOLABILE = {
     "before_observability_anchor": "coorte anteriore all'inizio dell'osservazione",
     "empty_cohort": "coorte vuota",
-    "horizon_not_reached": "l'orizzonte non e' ancora trascorso per tutta la coorte",
+    "horizon_not_reached": "l'orizzonte non è ancora trascorso per tutta la coorte",
 }
 
 
@@ -168,9 +168,20 @@ def cella(row: BaseModel, campo: str, decimali: Optional[int] = None) -> Cella:
     ):
         k = getattr(row, "k", None)
         soglia = f"{k} connessioni" if k is not None else "le k connessioni"
+        # La formulazione ovvia — "meno di meta' della coorte ha raggiunto k" —
+        # e' FALSA, e dashboard.md 5 ("Il sesto stato") lo dice con il caso che
+        # lo dimostra: la coorte del 07/09 ha UN evento su otto persone e
+        # median_reached True, perche' con la censura amministrativa il gruppo a
+        # rischio si riduce prima dell'evento. Il flag non sa quante persone
+        # hanno fatto cosa; sa solo che S(t) non e' mai scesa a 0,5 entro
+        # l'osservazione disponibile. Questa cella diceva la frase falsa: e' il
+        # testo che la vista Coorti rende per la prima volta (16/09/2026).
         return Cella(
             esito=MEDIANA_NON_RAGGIUNTA,
-            testo=f"meno di metà della coorte ha raggiunto {soglia}",
+            testo=(
+                f"tempo mediano per {soglia} non stimabile: "
+                "entro l'osservazione la curva non è mai scesa al 50%"
+            ),
             etichette=etichette,
         )
 

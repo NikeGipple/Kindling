@@ -95,19 +95,63 @@
   .riferimento { stroke: var(--grigio); stroke-width: 1; stroke-dasharray: 2 3; }
   .campione--riferimento { border-top: 1px dashed var(--grigio); }
   .titolo-grafico { font-weight: 600; font-size: .95rem; margin-bottom: .25rem; }
+
+  /* --- vista Coorti -------------------------------------------------------- */
+  /* Venticinque righe di gruppo e ventisei colonne: la tabella scorre in
+     orizzontale (.scorri) e non si stringe. Le righe restano distinguibili una
+     dall'altra anche quando dicono tutte la stessa cosa — e' il muro grigio che
+     dashboard.md 4 chiede di non produrre. */
+  /* Larghezza naturale, non il 100% del contenitore: con ventisei colonne una
+     tabella che si stringe manda a capo ogni cella invece di far scorrere il
+     riquadro, e righe alte cinque linee rendono illeggibile proprio la scala che
+     questa vista deve reggere. */
+  .tabella-coorti { white-space: nowrap; width: max-content; min-width: 100%; }
+  .tabella-coorti th, .tabella-coorti td { vertical-align: baseline; }
+  /* Il fondo e' esplicito su OGNI cella, non solo sulle righe pari: la colonna
+     della settimana resta ferma mentre la tabella scorre, e una cella ferma e
+     trasparente lascia passare sotto di se' il testo delle altre. */
+  .tabella-coorti tbody td { background: var(--fondo); }
+  .tabella-coorti tbody tr:nth-child(even) td { background: #f4f4f0; }
+  .tabella-coorti tbody tr:hover td { background: #eceae2; }
+  .tabella-coorti thead th { background: var(--fondo); }
+  .colonna-coorte { font-variant-numeric: tabular-nums; font-weight: 600;
+                    position: sticky; left: 0; z-index: 1;
+                    border-right: 1px solid var(--riga); }
+  .tabella-coorti thead th:first-child { position: sticky; left: 0; z-index: 2; }
+  /* L'etichetta "solo sopravvissuti" e' una frase, e in tredici righe di fila
+     allargherebbe la colonna piu' di ogni altra: va a capo dentro una larghezza
+     sua, come la frase della mediana non raggiunta. */
+  .tabella-coorti .etichetta--solo_sopravvissuti { display: inline-block;
+     max-width: 13rem; }
+  /* Il confine fra i gruppi di colonne: due ambiti di integrazione e la
+     retention sono letture diverse, non un continuo da sommare. */
+  .inizio-gruppo { border-left: 2px solid var(--riga); }
+  .intestazione-gruppi th[colspan] { color: var(--testo); }
+  .cella__nota { color: var(--tenue); font-size: .85rem; margin-left: .35rem; }
+  /* La frase della mediana non raggiunta e' una frase, non un numero: e' l'unica
+     cella che va a capo, con una larghezza sua, invece di allargare la colonna
+     per tutte e venticinque le righe. */
+  .cella--mediana_non_raggiunta .cella__testo { white-space: normal;
+     display: inline-block; max-width: 17rem; font-size: .85rem; }
+  .stato { color: var(--tenue); font-size: .85rem; }
+  .stato--valore { color: var(--testo); }
+  .riepilogo { margin: .25rem 0 1rem; }
+  .riga-divergenza td { white-space: normal; }
 </style>
 </head>
 <body>
 <div class="pagina">
   <header class="sito">
     <a href="/">Kindling</a>
-    {#- Solo le viste che ESISTONO: una voce disabilitata per Coorti sarebbe una
-        promessa, e di cio' che non c'e' non si accenna (dashboard.md 4). -#}
+    {#- Solo le viste che ESISTONO: una voce disabilitata sarebbe una promessa, e
+        di cio' che non c'e' non si accenna (dashboard.md 4). Da oggi sono tutte e
+        quattro, nell'ordine in cui si leggono: Stato spiega le altre tre. -#}
     {% if guild_id is defined %}
     <nav class="viste" aria-label="Viste">
       <a href="/guilds/{{ guild_id }}"{% if vista_corrente is defined and vista_corrente == "stato" %} aria-current="page"{% endif %}>Stato</a>
       <a href="/guilds/{{ guild_id }}/robustezza"{% if vista_corrente is defined and vista_corrente == "robustezza" %} aria-current="page"{% endif %}>Robustezza</a>
       <a href="/guilds/{{ guild_id }}/community"{% if vista_corrente is defined and vista_corrente == "community" %} aria-current="page"{% endif %}>Community</a>
+      <a href="/guilds/{{ guild_id }}/coorti"{% if vista_corrente is defined and vista_corrente == "coorti" %} aria-current="page"{% endif %}>Coorti</a>
     </nav>
     {% endif %}
   </header>
