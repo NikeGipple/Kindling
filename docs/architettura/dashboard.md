@@ -188,6 +188,13 @@ Client id, client secret e chiave di firma della sessione in `.env`, mai in git.
 significa scrivere il `code` in chiaro dentro `journalctl`. Va disattivato su
 quella rotta **prima** del primo login reale, non dopo.
 
+**Fase 2: vedi `dashboard-fase2.md`.** Estende questa sezione con quello che
+qui manca o si è rivelato impreciso implementandola: come si ricontrolla il
+permesso senza il token (3-quinquies), la scadenza delle 8 ore che deve essere
+assoluta e imposta dalla guardia con `login_at` — il `max_age` del signer da
+solo è un timeout di inattività (3-quinquies) — e i log, che con Caddy davanti
+riguardano due componenti invece di uno (3-quater).
+
 ## 4. Le viste, e cosa contengono davvero
 
 Quattro, e nessuna in più per simmetria con gli endpoint.
@@ -1957,6 +1964,11 @@ il solo servizio Caddy, le sole porte 80 e 443. Ogni altro servizio, e ogni
 altra porta di Caddy, restano sul loopback. Un'eccezione scritta come "Caddy può
 pubblicare quello che vuole" riaprirebbe per intero la regola che questo test
 esiste per tenere chiusa.
+
+**Fase 2: vedi `dashboard-fase2.md`.** La forma del servizio `caddy`, i due
+hostname, Cloudflare, e l'ordine dei passi dell'esposizione (8-bis, 8-ter). La
+tabella qui sopra descrive il servizio `dashboard` della fase 1: in fase 2
+cambiano il `command` e l'`environment` (8-bis).
 
 ## 9. Memoria
 
