@@ -294,25 +294,42 @@ esattamente il comportamento giusto.
 
 **La dashboard mantiene `127.0.0.1:8000:8000`.** Caddy la raggiunge per nome
 sulla rete interna del compose (`dashboard:8000`); il binding sul loopback resta
-per il tunnel SSH, che continua a essere il modo di guardare la dashboard
-scavalcando l'autenticazione quando qualcosa non va. Non è una porta in più
-verso internet: è la stessa di oggi.
+per il tunnel SSH. Non è una porta in più verso internet: è la stessa di oggi.
+**Dal tunnel la guardia vale come da fuori: nessuno scavalcamento.**
 
-> **Punto aperto (18/09/2026), trovato implementando — non deciso.** La frase
-> qui sopra è falsa per il codice com'è scritto: la guardia vale su **ogni**
-> richiesta alla dashboard, anche su quelle che arrivano dal tunnel. Da
-> `http://localhost:8000` si viene rimandati a `/login`, e il login porta a
-> Discord con la redirect URI pubblica: il callback atterra su
-> `dashboard.kindling.nexus`, e il cookie di sessione nasce su quel nome, non su
-> `localhost`. Quindi **dal tunnel oggi la dashboard non si vede affatto**
-> (risponde solo `/health`), e il rollback di 8-ter — «chiudere 80/443, il
-> tunnel continua a funzionare» — lascia accesso ai log e all'API via
-> `docker compose exec`, ma non alla dashboard. Il binding sul loopback resta,
-> ed è sicuro; è la promessa dello scavalcamento a non essere mantenuta. Le
-> strade possibili cambiano il modello (una seconda porta senza guardia,
-> raggiungibile solo dal loopback; una seconda redirect URI per `localhost`,
-> contro «una sola redirect URI, esatta» di 3-ter; oppure rinunciare allo
-> scavalcamento e dirlo), e vanno decise, non scelte a margine del codice.
+> **Correzione (18/09/2026), trovata implementando.** La prima stesura diceva
+> che il tunnel SSH «continua a essere il modo di guardare la dashboard
+> scavalcando l'autenticazione quando qualcosa non va». Era falso dal momento in
+> cui la guardia è entrata in funzione: vale su ogni richiesta, anche su quelle
+> dal tunnel. Da `http://localhost:8000` si viene rimandati a `/login`, il login
+> porta a Discord con la redirect URI pubblica, il callback atterra su
+> `dashboard.kindling.nexus` e il cookie nasce su quel nome, non su `localhost`.
+
+**Decisione: niente scavalcamento, e l'emergenza diventa una procedura invece di
+una porta.** Le due alternative sono state valutate e scartate:
+
+- **una seconda porta senza guardia**, raggiungibile solo dal loopback: sarebbe
+  un accesso non autenticato all'intera dashboard, residente nel codice per
+  sempre, a un errore di configurazione dall'essere raggiungibile da fuori — in
+  un progetto la cui regola è «si nega, non si passa». Una comodità occasionale
+  non paga quel rischio;
+- **una redirect URI per `localhost` tenuta in permanenza**: non renderebbe
+  l'emergenza più rapida, perché la configurazione si legge all'avvio e usarla
+  richiederebbe comunque di cambiare il `.env` e riavviare. Se il costo al
+  momento del bisogno è lo stesso, tenere l'allowlist allargata ogni giorno in
+  attesa di un'emergenza che forse non arriva è costo puro — e contraddice «una
+  sola redirect URI, esatta» di 3-ter.
+
+**Cosa il tunnel serve davvero**, e non è poco: `/health`, i log, e
+`docker compose exec` verso Postgres e l'API — cioè tutto ciò che serve a capire
+perché qualcosa non va. **Per guardare l'interfaccia senza l'autenticazione di
+produzione c'è il fixture in locale** (`dashboard.md` §7: si sviluppa contro il
+fixture, non contro la produzione). Il tunnel verso la dashboard non era il modo
+giusto di farlo: era il modo disponibile in fase 1, quando non ce n'erano altri.
+
+Se un giorno serve davvero vedere l'interfaccia di produzione dal tunnel, la
+procedura — redirect URI temporanea per `localhost`, e soprattutto come si torna
+indietro — è scritta nel runbook della fase 2, in fondo.
 
 **`/health` non passa da Caddy.** Resta fuori dalla guardia, perché la chiama
 l'healthcheck del container e `depends_on` ci si appoggia; ma quell'healthcheck
@@ -445,6 +462,12 @@ fra loro c'è un ordine obbligato, e due punti in cui sbagliarlo costa.
 
 **Il rollback, deciso prima di servire.** Se qualcosa va storto dopo
 l'esposizione, il passo indietro è: chiudere 80/443 sul Cloud Firewall. Non
-fermare i container, non toccare il DNS — chiudere le porte. Il sistema torna
-esattamente allo stato di ieri, con il tunnel SSH che continua a funzionare, e
-si ragiona con calma.
+fermare i container, non toccare il DNS — chiudere le porte. Niente è più
+raggiungibile da internet, il tunnel SSH continua a dare `/health`, i log e
+`docker compose exec`, e si ragiona con calma.
+
+Da quel momento **la dashboard non è visibile da nessuna parte**: da fuori le
+porte sono chiuse, e dal tunnel la guardia vale come sempre (8-bis). È sicuro, è
+voluto, e non è un guasto da diagnosticare. *(Corretto il 18/09/2026: la prima
+stesura diceva che il sistema tornava «esattamente allo stato di ieri», quando
+ieri la dashboard si guardava dal tunnel senza login.)*

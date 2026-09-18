@@ -96,10 +96,11 @@ services:
   #
   # L'esposizione pubblica non passa mai da qui: davanti alla dashboard c'e'
   # Caddy (fase 2, servizio `caddy` qui sotto), che la raggiunge per nome sulla
-  # rete interna. Questo binding resta per il tunnel SSH. ATTENZIONE: la guardia
-  # del login vale anche per chi arriva dal tunnel (non scavalca
-  # l'autenticazione, e il login rimanda alla redirect URI pubblica): punto
-  # aperto in dashboard-fase2.md 8-bis. Allargarlo e' la versione dashboard
+  # rete interna. Questo binding resta per il tunnel SSH, che serve /health e
+  # affianca log e `docker compose exec`: la guardia del login vale anche da li',
+  # di proposito, e il tunnel NON scavalca l'autenticazione (dashboard-fase2.md
+  # 8-bis). L'interfaccia senza login si guarda con il fixture in locale
+  # (dashboard.md 7). Allargare il binding e' la versione dashboard
   # dell'incidente descritto in CLAUDE.md.
   # tests/test_dashboard_deploy.py fallisce su un binding senza IP o su 0.0.0.0.
   dashboard:
