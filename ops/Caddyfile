@@ -1,0 +1,53 @@
+# Caddy davanti alla sola dashboard (docs/architettura/dashboard.md 8,
+# dashboard-fase2.md 8-bis). TLS automatico da Let's Encrypt: i certificati e la
+# chiave dell'account ACME vivono in /data, che nel compose e' il volume nominato
+# caddy_data — senza, ogni ricreazione del container ne chiede di nuovi e al
+# sesto in una settimana Let's Encrypt rifiuta.
+#
+# I nomi stanno qui e da nessun'altra parte del repo. Record DNS "solo DNS"
+# (nuvola grigia su Cloudflare): con il proxy acceso questo file va cambiato
+# insieme agli altri tre passi di dashboard-fase2.md 3-bis, non da solo.
+#
+# HSTS: max-age di un giorno al primo giro, da alzare a un anno quando e' tutto
+# fermo; senza includeSubDomains, che impegnerebbe anche i sottodomini che non
+# esistono ancora. E' un impegno che un browser ricorda anche se si torna indietro.
+
+# ---- apex: pubblico, nessuna autenticazione, nessuna sessione --------------
+# Qui stanno le pagine che l'applicazione Discord richiede. Chi deve decidere
+# se autorizzare Kindling le legge PRIMA di avere un accesso: dietro il login
+# sarebbero illeggibili proprio a chi servono.
+kindling.nexus {
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=86400"
+	root * /srv/legal
+	file_server
+}
+
+# ---- la dashboard ----------------------------------------------------------
+dashboard.kindling.nexus {
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=86400"
+
+	# Access log ACCESO (senza la direttiva `log` Caddy non ne scrive nessuno),
+	# con il solo `code` OAuth tolto dalla query string. La riga del callback
+	# resta, con stato e durata: e' quella che serve a diagnosticare il primo
+	# login vero. Regola generale (dashboard-fase2.md 3-quater): nessun
+	# componente che veda l'URI del callback ne registra il `code`. Il filtro
+	# vale per l'access log; se anche i log di errore di Caddy riportino l'URI
+	# (es. un 502 sul callback) NON e' verificato: va guardato dopo un login vero.
+	# Cookie e Authorization Caddy li oscura gia' da se' (log_credentials spento).
+	log {
+		format filter {
+			request>uri query {
+				delete code
+			}
+		}
+	}
+
+	# /health e' per l'healthcheck del container, che la chiama dall'interno su
+	# localhost: da fuori non serve, e nel caso degradato restituisce il testo
+	# interno di un'eccezione. 404 e non 403: non conferma nemmeno che esista.
+	respond /health 404
+
+	reverse_proxy dashboard:8000
+}

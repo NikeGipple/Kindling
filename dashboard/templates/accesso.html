@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block titolo %}Accesso{% endblock %}
+{% block contenuto %}
+<h1>Accesso alla dashboard</h1>
+<p>La dashboard mostra le metriche aggregate dei server Discord osservati da
+Kindling, ed è riservata a chi ne è <strong>amministratore</strong>.</p>
+<p>Il bottone qui sotto ti porta su Discord, che ti chiede di autorizzare Kindling
+a leggere il tuo profilo e l'elenco dei tuoi server. Dall'elenco si vede su quali
+server osservati hai il permesso <strong>Amministratore</strong>: sono gli unici che
+vedrai qui.</p>
+<p class="nota">Perché proprio Amministratore: chi ha quel permesso può già leggere
+ogni canale del server, quindi gli aggregati non gli mostrano niente che non
+potesse ottenere da sé. Kindling non conserva nulla di chi accede: né un account,
+né il token di Discord, che si usa per quella lettura e si scarta. Il permesso si
+ricontrolla ogni 15 minuti, e dopo 8 ore bisogna accedere di nuovo.</p>
+{% include "_accedi.html" %}
+{% endblock %}

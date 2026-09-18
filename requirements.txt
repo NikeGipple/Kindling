@@ -19,3 +19,7 @@ pydantic>=2.7,<3
 # Discord non ci si scrive (docs/architettura/dashboard.md 2).
 jinja2>=3.1,<3.2
 httpx>=0.27,<0.29
+# Firma del cookie di sessione del login Discord (SessionMiddleware di Starlette
+# la importa). Firmato, non cifrato: in sessione non c'e' nessun token
+# (docs/architettura/dashboard.md 3).
+itsdangerous>=2.1,<3

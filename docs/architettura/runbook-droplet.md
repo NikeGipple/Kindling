@@ -280,10 +280,16 @@ colonna in più che nessuno seleziona ancora. La sequenza:
    Le quattro date devono essere ravvicinate (stesso minuto, tipicamente). Una
    `kindling-job` con una data vecchia mentre le altre due sono fresche è
    esattamente questo difetto che si ripete.
-3. `docker compose up -d api dashboard` — **solo `api` e `dashboard`, non
-   `up -d` senza argomenti**, e nemmeno `up -d api` da solo: `build` costruisce
-   anche l'immagine della `dashboard`, e senza nominarla qui il suo container
-   non parte (o resta quello vecchio) senza nessun errore.
+3. `docker compose up -d api dashboard caddy` — **solo `api`, `dashboard` e
+   `caddy`, non `up -d` senza argomenti**, e nemmeno `up -d api` da solo:
+   `build` costruisce anche l'immagine della `dashboard`, e senza nominarla qui
+   il suo container non parte (o resta quello vecchio) senza nessun errore.
+   `caddy` (fase 2, `dashboard-fase2.md` 8-bis) usa un'immagine ufficiale, ma
+   vale lo stesso: non nominato, resta spento. Subito dopo,
+   `docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile`:
+   il Caddyfile è un bind mount, e se è cambiato solo lui `up -d` non ricrea il
+   container ed esce 0 con la configurazione vecchia. `ops/kindling-deploy.sh`
+   fa entrambe le cose, e si ferma se il reload fallisce.
    `bot`, `api` e `dashboard` sono immagini distinte (non condivisa: `docker
    images` le elenca separate), ma nessuna ha un `profiles`, quindi un `up -d`
    senza argomenti ricrea **tutti** i container corrispondenti alle immagini

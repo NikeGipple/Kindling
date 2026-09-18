@@ -25,6 +25,7 @@ from pydantic import TypeAdapter
 from api.models import RobustnessRow
 from dashboard import config, robustezza
 from dashboard.main import crea_app, crea_templates
+from tests.sessione_dashboard import OAUTH_DI_TEST, client_autenticato
 from dashboard.qualifica import NON_VALUTATO, cella
 from tools.fixture_api import GUILD_EDGE, GUILD_MATURE, GUILD_TODAY, SCENARIOS, _robustness_layer
 from tools.fixture_api import app as fixture_app
@@ -37,7 +38,11 @@ def _nessuna_variabile_di_database(monkeypatch):
 
 
 def _client(transport: httpx.AsyncBaseTransport) -> TestClient:
-    return TestClient(crea_app(api_http=httpx.AsyncClient(transport=transport, base_url="http://api.test")))
+    # Dietro la guardia, con una sessione vera: vedi tests/sessione_dashboard.py.
+    return client_autenticato(crea_app(
+        api_http=httpx.AsyncClient(transport=transport, base_url="http://api.test"),
+        oauth=OAUTH_DI_TEST,
+    ))
 
 
 @pytest.fixture

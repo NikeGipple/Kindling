@@ -16,6 +16,7 @@ nel container la passa il compose, e solo quella.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 # Le chiamate all'API partono dalla stessa macchina, verso tabelle minuscole: un
@@ -65,3 +66,84 @@ def assert_no_database_variables() -> None:
             + ". Parla solo con l'API, mai con Postgres (docs/architettura/dashboard.md 1): "
             "toglile dall'environment del servizio."
         )
+
+
+# --- OAuth2 Discord e sessione (dashboard.md 3, dashboard-fase2.md) -----------
+#
+# Quattro variabili, tutte obbligatorie e tutte senza default, nello stesso stile
+# di KINDLING_API_BASE_URL: una configurazione mancante ferma il processo
+# all'avvio con un messaggio che la nomina, invece di produrre un login rotto
+# alla prima visita.
+
+# Sotto questa lunghezza la chiave di firma della sessione si indovina: la regola
+# e' `openssl rand -hex 32` (64 caratteri), e 32 e' il pavimento, non l'obiettivo.
+SESSION_SECRET_MIN_LENGTH = 32
+
+# Gli unici host su cui la redirect URI puo' essere http: la macchina di chi
+# sviluppa. Ovunque altrove http vorrebbe dire cookie di sessione in chiaro.
+_HOST_LOCALI = ("localhost", "127.0.0.1")
+
+
+@dataclass(frozen=True)
+class OAuthConfig:
+    client_id: str
+    client_secret: str = field(repr=False)
+    session_secret: str = field(repr=False)
+    redirect_uri: str
+
+    @property
+    def cookie_secure(self) -> bool:
+        """Cookie ``Secure`` se e solo se la redirect URI e' https.
+
+        Derivato, non una variabile a parte: una variabile in piu' e' una
+        variabile che qualcuno dimentica impostata male in produzione. La
+        combinazione pericolosa (http su un host pubblico) non arriva fin qui:
+        la rifiuta ``oauth_redirect_uri``.
+        """
+        return urlsplit(self.redirect_uri).scheme == "https"
+
+
+def _obbligatoria(nome: str) -> str:
+    valore = os.environ.get(nome, "").strip()
+    if not valore:
+        # Vuota e assente sono lo stesso errore, come per KINDLING_API_BASE_URL:
+        # il compose passa ${NOME:-}.
+        raise RuntimeError(
+            f"{nome} non impostata. Nessun default, di proposito: vedi .env.example "
+            "e docs/architettura/dashboard-fase2.md."
+        )
+    return valore
+
+
+def oauth_redirect_uri() -> str:
+    """La redirect URI registrata su Discord. https, oppure http solo in locale."""
+    uri = _obbligatoria("KINDLING_OAUTH_REDIRECT_URI")
+    parti = urlsplit(uri)
+    if parti.scheme == "https" and parti.hostname:
+        return uri
+    if parti.scheme == "http" and parti.hostname in _HOST_LOCALI:
+        return uri
+    raise RuntimeError(
+        f"KINDLING_OAUTH_REDIRECT_URI deve essere https (o http su localhost): {uri!r}. "
+        "Una redirect URI http su un host pubblico manderebbe il cookie di sessione "
+        "in chiaro, e non deve essere possibile per distrazione."
+    )
+
+
+def session_secret() -> str:
+    segreto = _obbligatoria("KINDLING_SESSION_SECRET")
+    if len(segreto) < SESSION_SECRET_MIN_LENGTH:
+        raise RuntimeError(
+            f"KINDLING_SESSION_SECRET e' troppo corta ({len(segreto)} caratteri, "
+            f"minimo {SESSION_SECRET_MIN_LENGTH}). Si genera con `openssl rand -hex 32`."
+        )
+    return segreto
+
+
+def oauth_da_ambiente() -> OAuthConfig:
+    return OAuthConfig(
+        client_id=_obbligatoria("KINDLING_DISCORD_CLIENT_ID"),
+        client_secret=_obbligatoria("KINDLING_DISCORD_CLIENT_SECRET"),
+        session_secret=session_secret(),
+        redirect_uri=oauth_redirect_uri(),
+    )

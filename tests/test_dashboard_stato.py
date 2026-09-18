@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from dashboard import config
 from dashboard.main import crea_app, data_ora
+from tests.sessione_dashboard import OAUTH_DI_TEST, client_autenticato
 from tools.fixture_api import GUILD_EDGE, GUILD_MATURE, GUILD_TODAY
 from tools.fixture_api import app as fixture_app
 
@@ -27,7 +28,8 @@ def _nessuna_variabile_di_database(monkeypatch):
 
 def _client(transport: httpx.AsyncBaseTransport) -> TestClient:
     http = httpx.AsyncClient(transport=transport, base_url="http://api.test")
-    return TestClient(crea_app(api_http=http))
+    # Dietro la guardia, con una sessione vera: vedi tests/sessione_dashboard.py.
+    return client_autenticato(crea_app(api_http=http, oauth=OAUTH_DI_TEST))
 
 
 @pytest.fixture
@@ -190,7 +192,10 @@ def test_nessun_default_per_l_indirizzo_dell_api(monkeypatch):
 @pytest.mark.parametrize("nome", ["DATABASE_URL", "API_DATABASE_URL"])
 def test_la_dashboard_non_parte_con_una_variabile_di_database(monkeypatch, nome):
     monkeypatch.setenv(nome, "")  # anche vuota: e' gia' una variabile ricevuta
-    app = crea_app(api_http=httpx.AsyncClient(transport=httpx.ASGITransport(app=fixture_app)))
+    app = crea_app(
+        api_http=httpx.AsyncClient(transport=httpx.ASGITransport(app=fixture_app)),
+        oauth=OAUTH_DI_TEST,
+    )
     with pytest.raises(RuntimeError, match=nome):
         with TestClient(app):
             pass
@@ -199,7 +204,7 @@ def test_la_dashboard_non_parte_con_una_variabile_di_database(monkeypatch, nome)
 def test_la_dashboard_non_parte_senza_indirizzo_dell_api(monkeypatch):
     monkeypatch.delenv("KINDLING_API_BASE_URL", raising=False)
     with pytest.raises(RuntimeError, match="KINDLING_API_BASE_URL"):
-        with TestClient(crea_app()):
+        with TestClient(crea_app(oauth=OAUTH_DI_TEST)):
             pass
 
 

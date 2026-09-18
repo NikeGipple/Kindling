@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block titolo %}Accesso negato{% endblock %}
+{% block contenuto %}
+{#- Quattro casi, quattro frasi: sono cose diverse, e dirle uguali nasconderebbe
+    a chi legge cosa fare dopo (stessa ragione di dashboard.md 6). -#}
+{% if caso == "nessun_server" %}
+<h1>Nessun server da mostrarti</h1>
+<p>Non risulti amministratore di nessuno dei server che Kindling osserva. La
+dashboard è riservata a chi ha il permesso <strong>Amministratore</strong> su un
+server osservato.</p>
+<p class="nota">Se il permesso ti è stato dato da poco, accedi di nuovo.</p>
+{% include "_accedi.html" %}
+{% elif caso == "verifica_fallita" %}
+<h1>La verifica non è riuscita</h1>
+<p>Non è stato possibile verificare con Discord i tuoi permessi, quindi l'accesso
+è negato: senza una verifica riuscita non si entra.</p>
+<p class="nota">Può essere un problema momentaneo di Discord, un accesso
+annullato, o un collegamento di accesso già usato. Riprova.</p>
+{% include "_accedi.html" %}
+{% elif caso == "scaduta" %}
+<h1>La sessione è scaduta</h1>
+<p>Una sessione dura al massimo 8 ore dall'accesso, anche se la stai usando.
+Accedi di nuovo per continuare.</p>
+{% include "_accedi.html" %}
+{% elif caso == "server_non_autorizzato" %}
+<h1>Server non disponibile</h1>
+<p>Questo server non è tra quelli che puoi vedere: non ne risulti amministratore,
+oppure Kindling non lo osserva.</p>
+<p><a href="/">I tuoi server</a></p>
+{% endif %}
+{% endblock %}

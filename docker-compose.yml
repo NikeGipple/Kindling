@@ -94,12 +94,14 @@ services:
   # di CLAUDE.md (dashboard.md 8). La regola e' "mai su tutte le interfacce", non
   # "mai una sezione ports:".
   #
-  # L'esposizione pubblica non passa mai da qui: in fase 2 davanti alla dashboard
-  # ci va Caddy, e solo quando i cinque prerequisiti di dashboard.md 8 (dominio,
-  # Caddy con TLS, Cloud Firewall, OAuth Discord, flow verificato) sono gia'
-  # fatti. Allargare questo binding prima e' la versione dashboard dell'incidente
-  # descritto in CLAUDE.md. tests/test_dashboard_deploy.py fallisce su un binding
-  # senza IP o su 0.0.0.0.
+  # L'esposizione pubblica non passa mai da qui: davanti alla dashboard c'e'
+  # Caddy (fase 2, servizio `caddy` qui sotto), che la raggiunge per nome sulla
+  # rete interna. Questo binding resta per il tunnel SSH. ATTENZIONE: la guardia
+  # del login vale anche per chi arriva dal tunnel (non scavalca
+  # l'autenticazione, e il login rimanda alla redirect URI pubblica): punto
+  # aperto in dashboard-fase2.md 8-bis. Allargarlo e' la versione dashboard
+  # dell'incidente descritto in CLAUDE.md.
+  # tests/test_dashboard_deploy.py fallisce su un binding senza IP o su 0.0.0.0.
   dashboard:
     build: .
     restart: unless-stopped
@@ -117,12 +119,26 @@ services:
       # su un .env che non ha ancora questa riga. Vuota, la fa fallire la
       # dashboard stessa all'avvio, con un messaggio che la nomina.
       KINDLING_API_BASE_URL: ${KINDLING_API_BASE_URL:-}
+      # Login Discord (dashboard.md 3, dashboard-fase2.md). Stessa forma, per la
+      # stessa ragione: vuota, la dashboard rifiuta di partire nominandola. Il
+      # client secret e la chiave di firma della sessione vivono solo nel .env
+      # della droplet. Il token del bot (DISCORD_TOKEN) NON entra qui: e' una
+      # credenziale distinta della stessa applicazione Discord.
+      KINDLING_DISCORD_CLIENT_ID: ${KINDLING_DISCORD_CLIENT_ID:-}
+      KINDLING_DISCORD_CLIENT_SECRET: ${KINDLING_DISCORD_CLIENT_SECRET:-}
+      KINDLING_SESSION_SECRET: ${KINDLING_SESSION_SECRET:-}
+      KINDLING_OAUTH_REDIRECT_URI: ${KINDLING_OAUTH_REDIRECT_URI:-}
     # Margine sopra i 54 MB misurati, ma un tetto (dashboard.md 9).
     mem_limit: 150m
     # 1 worker, per la stessa ragione dell'API: 1 vCPU condiviso con l'heartbeat
-    # del gateway Discord.
+    # del gateway Discord. --factory: l'app si costruisce all'avvio leggendo la
+    # configurazione OAuth, e una variabile mancante ferma il processo li'.
+    # --no-access-log: l'access log di uvicorn scrive la query string, e sul
+    # callback OAuth vuol dire il `code` in chiaro nei log (dashboard.md 3).
+    # L'access log vive in Caddy, con il `code` filtrato (ops/Caddyfile).
     command:
-      ["uvicorn", "dashboard.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+      ["uvicorn", "dashboard.main:crea_app", "--factory", "--host", "0.0.0.0", "--port", "8000",
+       "--workers", "1", "--no-access-log"]
     # /health della dashboard verifica di saper raggiungere l'API: un container
     # vivo che non legge dati non e' un container sano.
     healthcheck:
@@ -136,6 +152,41 @@ services:
     depends_on:
       api:
         condition: service_healthy
+
+  # Caddy: TLS automatico davanti alla sola dashboard, e le pagine legali
+  # sull'apex (dashboard-fase2.md 8-bis; la configurazione e' ops/Caddyfile).
+  #
+  # 80 e 443 su TUTTE le interfacce: e' l'unica eccezione alla regola del
+  # progetto, decisa in dashboard.md 8, ed e' stretta — solo questo servizio,
+  # solo queste due porte. tests/test_dashboard_deploy.py la misura in entrambe
+  # le direzioni: una terza porta di Caddy, o una porta pubblica su un altro
+  # servizio, falliscono.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./ops/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificati e chiave dell'account ACME. Volume NOMINATO, non un
+      # dettaglio: senza, ogni ricreazione del container chiede certificati
+      # nuovi, e Let's Encrypt ne concede 5 a settimana per lo stesso insieme di
+      # nomi — il sesto deploy della settimana lascia il dominio senza
+      # certificato, con tutto il resto che funziona. ops/kindling-deploy.sh
+      # verifica che /data sia montato su questo volume.
+      - caddy_data:/data
+      - caddy_config:/config
+      - ./legal:/srv/legal:ro
+    # ~30 MB misurati (dashboard.md 2): il tetto e' margine, non stima.
+    mem_limit: 96m
+    # service_started e NON service_healthy: legare Caddy alla salute della
+    # dashboard spegnerebbe con lei anche le pagine pubbliche sull'apex e il
+    # rinnovo dei certificati. Caddy risolve dashboard:8000 alla richiesta: se
+    # il backend e' giu' risponde 502 su quel nome e serve tutto il resto.
+    depends_on:
+      dashboard:
+        condition: service_started
 
   # Il job non e' un servizio sempre acceso: si lancia a mano o da cron con
   # `docker compose run --rm job ...`. E' definito qui, nello stesso compose di
@@ -178,3 +229,5 @@ services:
 
 volumes:
   pgdata:
+  caddy_data:
+  caddy_config:

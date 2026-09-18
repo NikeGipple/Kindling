@@ -342,6 +342,29 @@ DOCKER_STUB_DEPLOY = '\n'.join([
     '    *"ps -a -q dashboard"*)',
     '        if [ "${STUB_DASHBOARD_MISSING:-}" = "1" ]; then exit 0; fi',
     '        echo "c0ffee" ; exit 0 ;;',
+    # Caddy: STUB_CADDY_VALIDATE_FAILS / STUB_CADDY_RELOAD_FAILS simulano un
+    # Caddyfile rifiutato; STUB_CADDY_MISSING un container che non c'e';
+    # STUB_CADDY_VOLUMES i volumi con l'etichetta caddy_data, e STUB_CADDY_MOUNT
+    # cosa e' montato su /data ("TIPO NOME", come lo stampa lo script). Non
+    # impostate valgono "sano": i test che costruiscono l'ambiente da se' non
+    # devono conoscere Caddy per passare.
+    '    *"caddy validate"*)',
+    '        if [ "${STUB_CADDY_VALIDATE_FAILS:-}" = "1" ]; then',
+    '            echo "Error: adapting config" >&2 ; exit 1',
+    "        fi",
+    "        exit 0 ;;",
+    '    *"caddy reload"*)',
+    '        if [ "${STUB_CADDY_RELOAD_FAILS:-}" = "1" ]; then',
+    '            echo "Error: loading new config" >&2 ; exit 1',
+    "        fi",
+    "        exit 0 ;;",
+    '    *"ps -a -q caddy"*)',
+    '        if [ "${STUB_CADDY_MISSING:-}" = "1" ]; then exit 0; fi',
+    '        echo "cadd1e" ; exit 0 ;;',
+    '    *"label=com.docker.compose.volume=caddy_data"*)',
+    '        for v in ${STUB_CADDY_VOLUMES-kindling_caddy_data}; do printf "%s\\n" "$v"; done ; exit 0 ;;',
+    '    *".Mounts"*)',
+    '        printf "%s\\n" "${STUB_CADDY_MOUNT-volume kindling_caddy_data}" ; exit 0 ;;',
     '    "inspect "*)',
     '        if [ "${STUB_DASHBOARD_INSPECT_FAILS:-}" = "1" ]; then',
     '            echo "Error: no such object" >&2 ; exit 1',
@@ -372,6 +395,11 @@ def _run_deploy(
     dashboard_env: str = "PATH=/usr/local/bin:/usr/bin;KINDLING_API_BASE_URL=http://api:8000",
     dashboard_missing: bool = False,
     dashboard_inspect_fails: bool = False,
+    caddy_validate_fails: bool = False,
+    caddy_reload_fails: bool = False,
+    caddy_missing: bool = False,
+    caddy_volumes: str = "kindling_caddy_data",
+    caddy_mount: str = "volume kindling_caddy_data",
 ) -> EsitoDeploy:
     binaries = tmp_path / "bin"
     binaries.mkdir(exist_ok=True)
@@ -397,6 +425,12 @@ def _run_deploy(
         STUB_DASHBOARD_ENV=dashboard_env,
         STUB_DASHBOARD_MISSING="1" if dashboard_missing else "0",
         STUB_DASHBOARD_INSPECT_FAILS="1" if dashboard_inspect_fails else "0",
+        STUB_CADDY_VALIDATE_FAILS="1" if caddy_validate_fails else "0",
+        STUB_CADDY_RELOAD_FAILS="1" if caddy_reload_fails else "0",
+        STUB_CADDY_MISSING="1" if caddy_missing else "0",
+        STUB_CADDY_VOLUMES=caddy_volumes,
+        STUB_CADDY_MOUNT=caddy_mount,
+        KINDLING_CADDY_RELOAD_PAUSE="0",
         KINDLING_DOCKER_BIN=str(binaries / "docker"),
         KINDLING_GIT_BIN=str(binaries / "git"),
         KINDLING_PROJECT_DIR=str(project_dir),
@@ -473,7 +507,7 @@ def test_build_normale_e_build_del_profilo_tools_vanno_sempre_insieme(tmp_path):
 
 def test_non_lancia_mai_up_d_nudo(tmp_path):
     # Ricreerebbe anche `bot`, facendo cadere il gateway Discord per una
-    # modifica che non lo riguarda. Solo `up -d api dashboard`.
+    # modifica che non lo riguarda. Solo `up -d api dashboard caddy`.
     esito = _run_deploy(tmp_path)
 
     invocazioni_up = [
@@ -481,7 +515,80 @@ def test_non_lancia_mai_up_d_nudo(tmp_path):
     ]
     assert invocazioni_up, "lo script deve invocare up almeno una volta"
     for riga in invocazioni_up:
-        assert riga.endswith("up -d api dashboard"), riga
+        assert riga.endswith("up -d api dashboard caddy"), riga
+
+
+# --- caddy (dashboard-fase2.md 8-bis) ------------------------------------------
+
+
+def _indice(esito: EsitoDeploy, frammento: str) -> int:
+    righe = esito.docker_args.splitlines()
+    trovate = [i for i, riga in enumerate(righe) if frammento in riga]
+    assert len(trovate) == 1, (frammento, righe)
+    return trovate[0]
+
+
+def test_caddyfile_validato_prima_di_up_e_ricaricato_dopo(tmp_path):
+    esito = _run_deploy(tmp_path)
+
+    assert esito.status == 0, esito.log
+    up = _indice(esito, "up -d api dashboard caddy")
+    assert _indice(esito, "caddy validate") < up
+    # Il reload e' cio' che applica un Caddyfile cambiato: `up -d` non ricrea
+    # il container per un bind mount modificato ed esce 0 con la config vecchia.
+    assert _indice(esito, "caddy reload") > up
+    # Il container di validazione non pubblica porte e non avvia la dashboard.
+    validate = esito.docker_args.splitlines()[_indice(esito, "caddy validate")]
+    assert "run --rm --no-deps" in validate
+    assert "--service-ports" not in validate
+
+
+def test_caddyfile_non_valido_ferma_il_deploy_prima_di_up(tmp_path):
+    esito = _run_deploy(tmp_path, caddy_validate_fails=True)
+
+    assert esito.status == 15
+    assert "Caddyfile non valido" in esito.log
+    assert "up -d" not in esito.docker_args
+
+
+def test_reload_fallito_ferma_il_deploy_e_non_passa_per_riuscito(tmp_path):
+    esito = _run_deploy(tmp_path, caddy_reload_fails=True)
+
+    assert esito.status == 15
+    assert "caddy reload fallito" in esito.log
+    assert "=== fine (ok) ===" not in esito.log
+    # Qualche tentativo prima di arrendersi, non uno solo.
+    assert esito.docker_args.count("caddy reload") > 1
+
+
+@pytest.mark.parametrize(
+    ("argomenti", "atteso"),
+    [
+        ({"caddy_mount": "volume 3f9a0c1d2e"}, "non e' il volume caddy_data"),  # anonimo
+        ({"caddy_mount": ""}, "non e' il volume caddy_data"),  # niente montato
+        ({"caddy_mount": "bind "}, "non e' il volume caddy_data"),
+        ({"caddy_volumes": ""}, "nessun volume con etichetta"),
+        ({"caddy_missing": True}, "container caddy non trovato"),
+    ],
+    ids=["volume-anonimo", "niente-su-data", "bind", "volume-assente", "container-assente"],
+)
+def test_certificati_non_persistenti_fermano_il_deploy(tmp_path, argomenti, atteso):
+    esito = _run_deploy(tmp_path, **argomenti)
+
+    assert esito.status == 16, esito.log
+    assert atteso in esito.log
+    assert "=== fine (ok) ===" not in esito.log
+
+
+def test_il_volume_si_riconosce_per_etichetta_con_qualunque_prefisso(tmp_path):
+    # Il prefisso e' il nome del progetto Compose: non si indovina. Qualunque
+    # volume con l'etichetta giusta, purche' sia proprio quello montato su /data.
+    esito = _run_deploy(
+        tmp_path, caddy_volumes="altro_caddy_data project_caddy_data",
+        caddy_mount="volume project_caddy_data",
+    )
+
+    assert esito.status == 0, esito.log
 
 
 # --- la dashboard non ha variabili di database (dashboard.md 1, punto 2) -----

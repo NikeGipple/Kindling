@@ -5,7 +5,7 @@
 #
 # Stesso argomento di ops/kindling-weekly.sh, e per lo stesso motivo: una
 # procedura di sei passi con un ordine che conta, un comando controintuitivo
-# (`up -d api dashboard` e non `up -d`) e un valore calcolato (l'hash del commit) non si
+# (`up -d api dashboard caddy` e non `up -d`) e un valore calcolato (l'hash del commit) non si
 # legge, non si prova a mano e non si commenta se sta in una riga di
 # istruzioni copiaincollate dal runbook. Qui invece ogni scelta ha il suo
 # perche' accanto, e lo script si puo' rileggere, provare e correggere come
@@ -45,6 +45,9 @@ PROJECT_DIR="${KINDLING_PROJECT_DIR:-$(cd "$(dirname "$(readlink -f "$0")")/.." 
 DOCKER_BIN="${KINDLING_DOCKER_BIN:-/usr/bin/docker}"
 GIT_BIN="${KINDLING_GIT_BIN:-/usr/bin/git}"
 LOG_FILE="${KINDLING_DEPLOY_LOG_FILE:-/var/log/kindling/deploy.log}"
+# Pausa fra i tentativi di `caddy reload` (passo 5-bis). Variabile solo perche'
+# i test non aspettino dieci secondi per provare un reload che fallisce.
+CADDY_RELOAD_PAUSE="${KINDLING_CADDY_RELOAD_PAUSE:-2}"
 
 # --- log ---------------------------------------------------------------
 #
@@ -77,6 +80,8 @@ MIGRATIONS_NO_LEDGER_EXIT=11
 PERIMETER_BROKEN_EXIT=12
 DASHBOARD_DB_VARS_EXIT=13
 DASHBOARD_UNVERIFIED_EXIT=14
+CADDY_CONFIG_EXIT=15
+CADDY_VOLUME_EXIT=16
 
 # Le variabili che il container dashboard non deve AVERE (dashboard.md 1). Stesso
 # elenco di dashboard/config.py DATABASE_VARIABLES: tests/test_dashboard_deploy.py
@@ -197,9 +202,24 @@ log "START build"
 "$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" --profile tools build job
 log "END   build"
 
+# --- passo 4-bis: il Caddyfile si valida PRIMA di avviare qualunque cosa -----
+#
+# Un Caddyfile sbagliato fa andare il container in restart al primo avvio, o
+# (con un container gia' acceso) viene rifiutato dal reload del passo 5-bis:
+# in entrambi i casi meglio saperlo qui, prima di toccare i servizi. `run --rm
+# --no-deps`: un container usa e getta con lo stesso file montato, senza porte
+# pubblicate e senza avviare la dashboard.
+log "START caddy-validate"
+if ! "$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" run --rm --no-deps -T caddy \
+    caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile; then
+    log "ABORT ops/Caddyfile non valido: nessun servizio toccato"
+    exit "$CADDY_CONFIG_EXIT"
+fi
+log "END   caddy-validate"
+
 # --- passo 5: riavviare solo i servizi che servono --------------------------
 #
-# `up -d api dashboard`, MAI `up -d` nudo. `bot`, `api` e `dashboard` sono
+# `up -d api dashboard caddy`, MAI `up -d` nudo. `bot`, `api` e `dashboard` sono
 # immagini distinte (non condivisa: `docker images` le elenca separate), ma
 # nessuna ha un `profiles`, quindi un `up -d` senza argomenti ricrea TUTTI i
 # container corrispondenti alle immagini appena costruite — non solo quelli che
@@ -214,9 +234,41 @@ log "END   build"
 # compose mentre questa riga diceva ancora `up -d api` — la stessa forma del
 # difetto di `profiles`/`job` in CLAUDE.md 7. tests/test_dashboard_deploy.py
 # confronta questa riga con i servizi del compose.
-log "START up-api-dashboard"
-"$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" up -d api dashboard
-log "END   up-api-dashboard"
+#
+# `caddy` e' un'immagine ufficiale, non costruita da noi, ma sta qui per la stessa
+# ragione: senza profiles, un servizio del compose che il deploy non avvia resta
+# spento (o vecchio) con exit=0.
+log "START up-api-dashboard-caddy"
+"$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" up -d api dashboard caddy
+log "END   up-api-dashboard-caddy"
+
+# --- passo 5-bis: ricaricare il Caddyfile, e fallire se non si ricarica -----
+#
+# Il Caddyfile e' un bind mount: se cambia solo lui, `up -d` NON ricrea il
+# container ed esce 0 con la configurazione vecchia ancora attiva — la stessa
+# famiglia del `build` che saltava `job` perche' stava in un profilo (CLAUDE.md
+# 7). Il reload e' esplicito e decide l'esito: Caddy valida prima di applicare,
+# quindi un reload fallito lascia in piedi la configurazione precedente, ed e'
+# proprio per questo che lo script deve dirlo invece di proseguire.
+#
+# Qualche tentativo, perche' su un container appena creato l'endpoint di
+# amministrazione di Caddy puo' non essere ancora in ascolto: un fallimento
+# spurio a ogni primo avvio insegnerebbe a ignorarlo.
+log "START caddy-reload"
+caddy_ricaricato=0
+for tentativo in 1 2 3 4 5; do
+    if "$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" exec -T caddy \
+        caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile; then
+        caddy_ricaricato=1
+        break
+    fi
+    sleep "$CADDY_RELOAD_PAUSE"
+done
+if [ "$caddy_ricaricato" -ne 1 ]; then
+    log "ABORT caddy reload fallito: Caddy serve ancora la configurazione precedente (o non e' partito)"
+    exit "$CADDY_CONFIG_EXIT"
+fi
+log "END   caddy-reload"
 
 # --- passo 6: verifiche ------------------------------------------------
 #
@@ -254,12 +306,12 @@ echo "--- health dell'API ---"
     || echo "(fallito)"
 
 echo ""
-echo "--- stato dei container api e dashboard ---"
+echo "--- stato dei container api, dashboard e caddy ---"
 # `ps` e non un health check via exec: subito dopo `up -d` la dashboard puo'
 # essere ancora in avvio, e un "(fallito)" che compare a ogni deploy insegna a
 # ignorarlo. `ps` distingue "Up (health: starting)" da "Restarting", che e' il
 # sintomo di una dashboard che non parte (es. KINDLING_API_BASE_URL vuota).
-"$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" ps api dashboard \
+"$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" ps api dashboard caddy \
     || echo "(fallito)"
 
 echo ""
@@ -344,6 +396,45 @@ else
     fi
 fi
 
+# --- i certificati di Caddy persistono: non informativo ---------------------
+#
+# /data del container caddy deve essere il volume NOMINATO caddy_data, non un
+# volume anonimo ne' niente: altrimenti ogni ricreazione chiede certificati
+# nuovi e al sesto della settimana Let's Encrypt rifiuta (dashboard-fase2.md
+# 8-bis) — il guasto arriva giorni dopo il deploy che l'ha causato.
+#
+# Per ETICHETTA (com.docker.compose.volume=caddy_data) e non per nome: Compose
+# antepone il nome del progetto, e un controllo sul nome indovinato passerebbe
+# o fallirebbe per la ragione sbagliata. E dopo `up`: prima del primo avvio il
+# volume non esiste ancora.
+caddy_volume_rotto=0
+
+echo ""
+echo "--- /data di caddy e' il volume caddy_data ---"
+caddy_id="$("$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" ps -a -q caddy || true)"
+caddy_volumi="$("$DOCKER_BIN" volume ls -q --filter label=com.docker.compose.volume=caddy_data || true)"
+if [ -z "$caddy_id" ]; then
+    log "ABORT container caddy non trovato: persistenza dei certificati non verificabile"
+    caddy_volume_rotto=1
+elif [ -z "$caddy_volumi" ]; then
+    log "ABORT nessun volume con etichetta com.docker.compose.volume=caddy_data"
+    caddy_volume_rotto=1
+else
+    caddy_mount="$("$DOCKER_BIN" inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Type}} {{.Name}}{{end}}{{end}}' "$caddy_id" || true)"
+    montato=0
+    for volume in $caddy_volumi; do
+        if [ "$caddy_mount" = "volume $volume" ]; then
+            montato=1
+        fi
+    done
+    if [ "$montato" -eq 1 ]; then
+        echo "(ok: $caddy_mount)"
+    else
+        log "ABORT /data di caddy non e' il volume caddy_data (montato: '${caddy_mount:-niente}')"
+        caddy_volume_rotto=1
+    fi
+fi
+
 if [ "$perimetro_rotto" -ne 0 ]; then
     log "ABORT perimetro di kindling_api compromesso, vedi sopra"
     exit "$PERIMETER_BROKEN_EXIT"
@@ -357,6 +448,11 @@ fi
 if [ "$dashboard_non_verificata" -ne 0 ]; then
     log "ABORT variabili di database della dashboard non verificate, vedi sopra"
     exit "$DASHBOARD_UNVERIFIED_EXIT"
+fi
+
+if [ "$caddy_volume_rotto" -ne 0 ]; then
+    log "ABORT certificati di caddy non persistenti, vedi sopra"
+    exit "$CADDY_VOLUME_EXIT"
 fi
 
 log "END   verifiche"

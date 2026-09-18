@@ -76,26 +76,139 @@ def test_dashboard_pubblica_solo_sul_loopback():
     assert "network_mode" not in servizio
 
 
-def test_nessun_servizio_pubblica_su_tutte_le_interfacce():
-    # La regola del progetto, applicata a ogni servizio e non solo alla
-    # dashboard: un ports: aggiunto domani su api o bot fallisce qui.
-    esposti = [
+# L'unica eccezione alla regola, decisa in dashboard.md 8 e scritta STRETTA
+# (dashboard-fase2.md 8-bis): il solo servizio caddy, le sole porte 80 e 443,
+# ciascuna verso la stessa porta nel container. Non "caddy puo' pubblicare
+# quello che vuole".
+ECCEZIONE_PUBBLICA = {("caddy", 80, 80), ("caddy", 443, 443)}
+
+
+def _porte_del_binding(voce: Union[str, int, dict]) -> tuple[Optional[int], Optional[int]]:
+    """(porta dell'host, porta del container) di una voce di ``ports:``.
+
+    ``"8000"`` da solo pubblica la porta del container su una porta dell'host
+    scelta da Docker: l'host e' None, e None non e' mai nell'eccezione.
+    """
+    if isinstance(voce, dict):
+        pubblicata = voce.get("published")
+        return (int(pubblicata) if pubblicata is not None else None, int(voce["target"]))
+    testo = str(voce).split("/", 1)[0]
+    if testo.startswith("["):
+        testo = testo[testo.index("]") + 2:]
+    parti = testo.split(":")
+    if len(parti) == 1:
+        return (None, int(parti[0]))
+    return (int(parti[-2]), int(parti[-1]))
+
+
+def _esposti_non_ammessi(compose: dict) -> list:
+    """Ogni binding su tutte le interfacce che l'eccezione di caddy non copre."""
+    return [
         (nome, voce)
-        for nome, servizio in _compose()["services"].items()
+        for nome, servizio in compose["services"].items()
         for voce in servizio.get("ports", [])
         if _ip_del_binding(voce) not in LOOPBACK
+        and (nome, *_porte_del_binding(voce)) not in ECCEZIONE_PUBBLICA
     ]
+
+
+def test_nessun_servizio_pubblica_su_tutte_le_interfacce():
+    # La regola del progetto, applicata a ogni servizio e non solo alla
+    # dashboard: un ports: aggiunto domani su api o bot fallisce qui. Con
+    # l'unica eccezione di caddy, 80 e 443.
+    esposti = _esposti_non_ammessi(_compose())
     assert esposti == [], f"porte pubblicate su tutte le interfacce: {esposti}"
+
+
+def test_caddy_pubblica_esattamente_80_e_443():
+    # L'eccezione usata, per intero e non oltre: senza la 80 non passa la
+    # verifica di Let's Encrypt ne' il redirect verso https.
+    assert _compose()["services"]["caddy"]["ports"] == ["80:80", "443:443"]
+
+
+@pytest.mark.parametrize(
+    ("servizio", "voce"),
+    [
+        ("caddy", "8080:8080"),  # una terza porta di caddy
+        ("caddy", "2019:2019"),  # l'endpoint di amministrazione di caddy
+        ("caddy", "80:8000"),  # 80 dell'host, ma verso un'altra porta
+        ("caddy", "443"),  # porta dell'host scelta da Docker
+        ("caddy", {"target": 22, "published": 22}),
+        ("api", "80:80"),  # la porta giusta su un altro servizio
+        ("dashboard", "443:443"),
+        ("postgres", "5432:5432"),  # l'incidente di CLAUDE.md
+    ],
+)
+def test_l_eccezione_di_caddy_non_copre_altro(servizio, voce):
+    # Il test gemello: un'eccezione senza un test che ne misura il bordo e' un
+    # buco. Stesso compose di produzione, una voce in piu': deve fallire.
+    compose = _compose()
+    compose["services"][servizio].setdefault("ports", []).append(voce)
+    assert _esposti_non_ammessi(compose) == [(servizio, voce)]
+
+
+def test_caddy_ha_la_forma_di_dashboard_fase2_8_bis():
+    compose = _compose()
+    caddy = compose["services"]["caddy"]
+    assert caddy["image"] == "caddy:2-alpine"
+    assert caddy["restart"] == "unless-stopped"
+    assert caddy["mem_limit"] == "96m"
+    assert set(caddy["volumes"]) == {
+        "./ops/Caddyfile:/etc/caddy/Caddyfile:ro",
+        "caddy_data:/data",
+        "caddy_config:/config",
+        "./legal:/srv/legal:ro",
+    }
+    # caddy_data e' un volume NOMINATO del compose: senza, i certificati non
+    # sopravvivono alla ricreazione del container e al sesto in una settimana
+    # Let's Encrypt rifiuta.
+    assert "caddy_data" in compose["volumes"]
+    assert "caddy_config" in compose["volumes"]
+    # service_started, non service_healthy: una dashboard malata non deve
+    # spegnere le pagine pubbliche ne' il rinnovo dei certificati.
+    assert caddy["depends_on"] == {"dashboard": {"condition": "service_started"}}
+    assert "profiles" not in caddy
+    assert "env_file" not in caddy and "environment" not in caddy
+    # Ogni file montato esiste nel repo: un bind mount di un percorso assente
+    # crea una directory vuota al suo posto, in silenzio.
+    assert (REPO / "ops" / "Caddyfile").is_file()
+    assert (REPO / "legal" / "index.html").is_file()
+
+
+VARIABILI_DELLA_DASHBOARD = {
+    "KINDLING_API_BASE_URL",
+    "KINDLING_DISCORD_CLIENT_ID",
+    "KINDLING_DISCORD_CLIENT_SECRET",
+    "KINDLING_SESSION_SECRET",
+    "KINDLING_OAUTH_REDIRECT_URI",
+}
 
 
 def test_dashboard_non_riceve_variabili_di_database():
     servizio = _servizio()
-    # Niente env_file: .env contiene DATABASE_URL e API_DATABASE_URL.
+    # Niente env_file: .env contiene DATABASE_URL e API_DATABASE_URL (e il token
+    # del bot).
     assert "env_file" not in servizio
-    # L'environment e' l'elenco completo, ed e' di una riga sola.
-    assert set(servizio["environment"]) == {"KINDLING_API_BASE_URL"}
-    # Nessun indirizzo scritto nel compose: arriva da .env, senza default.
-    assert servizio["environment"]["KINDLING_API_BASE_URL"] == "${KINDLING_API_BASE_URL:-}"
+    # L'environment e' l'elenco completo, ESATTO e non "contiene": l'indirizzo
+    # dell'API e le quattro variabili del login, nient'altro.
+    assert set(servizio["environment"]) == VARIABILI_DELLA_DASHBOARD
+    # Nessun valore scritto nel compose: arrivano da .env, senza default.
+    for nome in VARIABILI_DELLA_DASHBOARD:
+        assert servizio["environment"][nome] == f"${{{nome}:-}}", nome
+
+
+def test_il_divieto_sulle_variabili_di_database_resta_separato():
+    # Le variabili nuove non hanno allargato il divieto ne' l'hanno aggirato.
+    from dashboard.config import DATABASE_VARIABLES
+
+    assert not set(DATABASE_VARIABLES) & set(_servizio()["environment"])
+    assert "DISCORD_TOKEN" not in _servizio()["environment"]
+
+
+def test_env_example_dichiara_le_variabili_del_login_senza_valori():
+    righe = (REPO / ".env.example").read_text(encoding="utf-8").splitlines()
+    for nome in VARIABILI_DELLA_DASHBOARD - {"KINDLING_API_BASE_URL"}:
+        assert f"{nome}=" in righe, nome  # presente, e VUOTA: nessun esempio di segreto
 
 
 def test_dashboard_ha_la_forma_di_dashboard_md_8():
@@ -103,7 +216,8 @@ def test_dashboard_ha_la_forma_di_dashboard_md_8():
     assert servizio["build"] == "."
     assert servizio["mem_limit"] == "150m"
     assert servizio["command"] == [
-        "uvicorn", "dashboard.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1",
+        "uvicorn", "dashboard.main:crea_app", "--factory", "--host", "0.0.0.0", "--port", "8000",
+        "--workers", "1", "--no-access-log",
     ]
     assert "localhost:8000/health" in " ".join(servizio["healthcheck"]["test"])
     assert servizio["depends_on"] == {"api": {"condition": "service_healthy"}}
@@ -184,3 +298,80 @@ def test_le_dipendenze_della_dashboard_sono_in_requirements():
     testo = (REPO / "requirements.txt").read_text(encoding="utf-8")
     assert "jinja2" in testo
     assert "httpx" in testo
+    # SessionMiddleware di Starlette la importa: senza, la dashboard non parte.
+    assert "itsdangerous" in testo
+
+
+# --- ops/Caddyfile -------------------------------------------------------------
+#
+# Controlli sul testo, per la stessa ragione del resto del file: un access log
+# spento, un HSTS che impegna i sottodomini o /health esposta non producono
+# nessun errore.
+
+CADDYFILE = REPO / "ops" / "Caddyfile"
+
+
+def _blocchi_caddy() -> dict[str, str]:
+    """Il corpo di ogni blocco di sito di primo livello, senza i commenti."""
+    righe = [
+        r.split("#", 1)[0].rstrip()
+        for r in CADDYFILE.read_text(encoding="utf-8").splitlines()
+    ]
+    blocchi: dict[str, str] = {}
+    nome, corpo, profondita = None, [], 0
+    for riga in righe:
+        if not riga.strip():
+            continue
+        if profondita == 0 and riga.endswith("{"):
+            nome, corpo = riga[:-1].strip(), []
+        elif profondita > 0:
+            corpo.append(riga.strip())
+        profondita += riga.count("{") - riga.count("}")
+        if profondita == 0 and nome is not None:
+            blocchi[nome] = "\n".join(corpo[:-1])
+            nome = None
+    return blocchi
+
+
+def test_caddyfile_due_hostname_e_nient_altro():
+    assert set(_blocchi_caddy()) == {"kindling.nexus", "dashboard.kindling.nexus"}
+
+
+def test_caddyfile_apex_pubblico_serve_solo_file_statici():
+    apex = _blocchi_caddy()["kindling.nexus"]
+    assert "root * /srv/legal" in apex
+    assert "file_server" in apex
+    assert "reverse_proxy" not in apex
+
+
+def test_caddyfile_hsts_di_un_giorno_senza_sottodomini():
+    for nome, corpo in _blocchi_caddy().items():
+        assert 'header Strict-Transport-Security "max-age=86400"' in corpo, nome
+        assert "includeSubDomains" not in corpo, nome
+
+
+def test_caddyfile_dashboard_logga_senza_il_code():
+    # Senza la direttiva `log` Caddy non scrive nessun access log: l'errore
+    # della prima stesura della spec (dashboard-fase2.md 3-quater). Con `log`,
+    # il `code` del callback va tolto dalla query string.
+    dashboard = _blocchi_caddy()["dashboard.kindling.nexus"]
+    assert "log {" in dashboard
+    assert "format filter {" in dashboard
+    assert "request>uri query {" in dashboard
+    assert "delete code" in dashboard
+    # Non uno skip del callback ne' un log buttato: la riga del callback serve.
+    assert "log_skip" not in dashboard
+    assert "output discard" not in dashboard
+
+
+def test_caddyfile_health_non_esposta_e_proxy_verso_la_dashboard():
+    dashboard = _blocchi_caddy()["dashboard.kindling.nexus"]
+    assert "respond /health 404" in dashboard
+    assert "reverse_proxy dashboard:8000" in dashboard
+
+
+def test_legal_index_linka_le_due_pagine_legali():
+    index = (REPO / "legal" / "index.html").read_text(encoding="utf-8")
+    assert 'href="informativa-privacy.html"' in index
+    assert 'href="termini-di-servizio.html"' in index
+    assert 'href="style.css"' in index

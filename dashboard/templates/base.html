@@ -22,6 +22,7 @@
   nav.viste { display: flex; gap: 1rem; }
   nav.viste a { color: var(--tenue); text-decoration: none; }
   nav.viste a[aria-current="page"] { color: var(--testo); border-bottom: 2px solid var(--testo); }
+  form.sessione { margin-left: auto; color: var(--tenue); font-size: .85rem; }
   h3 { font-size: 1rem; margin: 1.25rem 0 .25rem; }
   h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
   h2 { font-size: 1.1rem; margin: 2rem 0 .5rem; }
@@ -153,6 +154,9 @@
       <a href="/guilds/{{ guild_id }}/community"{% if vista_corrente is defined and vista_corrente == "community" %} aria-current="page"{% endif %}>Community</a>
       <a href="/guilds/{{ guild_id }}/coorti"{% if vista_corrente is defined and vista_corrente == "coorti" %} aria-current="page"{% endif %}>Coorti</a>
     </nav>
+    {% endif %}
+    {% if server_autorizzati is defined %}
+    <form class="sessione" method="post" action="/logout">Connesso · amministratore di {{ server_autorizzati }} server <button type="submit">Esci</button></form>
     {% endif %}
   </header>
   {% block contenuto %}{% endblock %}
