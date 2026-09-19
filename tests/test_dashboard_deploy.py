@@ -175,6 +175,67 @@ def test_caddy_ha_la_forma_di_dashboard_fase2_8_bis():
     assert (REPO / "legal" / "index.html").is_file()
 
 
+# --- KINDLING_CODE_VERSION: ogni immagine costruita da qui ne ha una ----------
+#
+# Fino al 19/09/2026 l'argomento lo riceveva solo `job`: bot, api e dashboard
+# avevano `build: .` e giravano con la versione vuota del fallback del
+# Dockerfile, senza nessun errore, mentre la verifica del deploy guardava
+# proprio `job` ed era verde. Qui fallisce un servizio che nasce con `build:`
+# senza l'argomento — anche uno che oggi non esiste.
+
+CODE_VERSION_ARG = "${KINDLING_CODE_VERSION:-}"
+
+
+def _servizi_senza_code_version(compose: dict) -> list[str]:
+    """I servizi con ``build:`` che non passano KINDLING_CODE_VERSION fra gli args.
+
+    Si accetta solo la forma lunga con ``args`` come mappa, e con il valore
+    esatto: ``build: .``, un ``args`` a lista o un default diverso sono tutti
+    "manca" — la forma che lo script di deploy si aspetta e' una sola.
+    """
+    mancanti = []
+    for nome, servizio in compose["services"].items():
+        if "build" not in servizio:
+            continue
+        build = servizio["build"]
+        args = build.get("args") if isinstance(build, dict) else None
+        if not isinstance(args, dict) or args.get("KINDLING_CODE_VERSION") != CODE_VERSION_ARG:
+            mancanti.append(nome)
+    return mancanti
+
+
+def test_ogni_servizio_costruito_riceve_kindling_code_version():
+    compose = _compose()
+    # Il controllo non deve passare perche' non trova niente da controllare.
+    costruiti = {n for n, s in compose["services"].items() if "build" in s}
+    assert costruiti >= {"bot", "api", "dashboard", "job"}, costruiti
+    assert _servizi_senza_code_version(compose) == []
+
+
+@pytest.mark.parametrize("servizio", ["bot", "api", "dashboard", "job"])
+def test_il_controllo_riconosce_un_build_senza_argomento(servizio):
+    compose = _compose()
+    compose["services"][servizio]["build"] = "."
+    assert _servizi_senza_code_version(compose) == [servizio]
+
+
+def test_il_controllo_vale_anche_per_un_servizio_nuovo():
+    compose = _compose()
+    compose["services"]["nuovo"] = {"build": {"context": "."}}
+    assert _servizi_senza_code_version(compose) == ["nuovo"]
+
+
+def test_nessun_servizio_mette_kindling_code_version_nell_environment():
+    # environment ed env_file vincono sul valore inciso con l'ARG: una riga,
+    # anche vuota, sovrascriverebbe il commit vero con la build riuscita.
+    for nome, servizio in _compose()["services"].items():
+        ambiente = servizio.get("environment") or {}
+        nomi = ambiente.keys() if isinstance(ambiente, dict) else [
+            voce.split("=", 1)[0] for voce in ambiente
+        ]
+        assert "KINDLING_CODE_VERSION" not in nomi, nome
+
+
 VARIABILI_DELLA_DASHBOARD = {
     "KINDLING_API_BASE_URL",
     "KINDLING_DISCORD_CLIENT_ID",
@@ -213,7 +274,7 @@ def test_env_example_dichiara_le_variabili_del_login_senza_valori():
 
 def test_dashboard_ha_la_forma_di_dashboard_md_8():
     servizio = _servizio()
-    assert servizio["build"] == "."
+    assert servizio["build"]["context"] == "."
     assert servizio["mem_limit"] == "150m"
     assert servizio["command"] == [
         "uvicorn", "dashboard.main:crea_app", "--factory", "--host", "0.0.0.0", "--port", "8000",
@@ -246,11 +307,16 @@ _ESCLUSI_DA_UP_DI_PROPOSITO = {"postgres", "bot"}
 
 
 def _comandi_up() -> list[list[str]]:
-    """Gli argomenti di ogni `compose ... up` NON commentato dello script."""
+    """Gli argomenti di ogni `compose ... up` eseguito dallo script.
+
+    Salta commenti ed `echo`: lo script stampa `docker compose up -d
+    --force-recreate bot` come istruzione per chi legge (verifica del bot), e
+    una riga stampata non avvia niente.
+    """
     comandi = []
     for riga in DEPLOY_SCRIPT.read_text(encoding="utf-8").splitlines():
         testo = riga.strip()
-        if testo.startswith("#") or " up " not in f" {testo} ":
+        if testo.startswith(("#", "echo ")) or " up " not in f" {testo} ":
             continue
         parole = testo.split()
         comandi.append(parole[parole.index("up") + 1:])

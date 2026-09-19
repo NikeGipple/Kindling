@@ -88,14 +88,21 @@ sul database (li elenca, non li applica), costruisce `bot`/`api`/`dashboard`
 le prime cinque (date delle immagini, `KINDLING_CODE_VERSION` dentro il
 container `job`, health dell'API, stato dei container `api` e `dashboard`,
 `API_DATABASE_URL`) sono **informative** — stampate, non decidono niente. Le
-ultime tre non lo sono: le due sul **perimetro del ruolo `kindling_api`**
+altre non lo sono: le due sul **perimetro del ruolo `kindling_api`**
 (`graph_edges` deve restare illeggibile, `metric_runs` deve essere leggibile)
 sono il primo invariante non negoziabile del progetto (vedi sotto, "Controllo
-che il perimetro sia davvero in piedi"), e la terza verifica che il container
-`dashboard` **non abbia** `DATABASE_URL` né `API_DATABASE_URL`
-(`dashboard.md` §1). Se una dà l'esito sbagliato lo script **si ferma** con un
-codice di uscita dedicato invece di limitarsi a stamparlo in fondo a una
-schermata lunga.
+che il perimetro sia davvero in piedi"); poi che il container `dashboard`
+**non abbia** `DATABASE_URL` né `API_DATABASE_URL` (`dashboard.md` §1), che
+`/data` di Caddy sia il volume `caddy_data`, e — dal 19/09/2026 — **quale
+codice gira davvero**: `api` e `dashboard` devono avere come
+`KINDLING_CODE_VERSION` il commit del deploy (uscita 17), e il `bot`, che lo
+script non ricrea, non deve eseguire un codice diverso da quello del
+repository (uscita 18, vedi il passo 3 della procedura manuale). Se una dà
+l'esito sbagliato lo script **si ferma** con un codice di uscita dedicato invece
+di limitarsi a stamparlo in fondo a una schermata lunga. La riga
+`KINDLING_CODE_VERSION` dentro `job` è rimasta ed è informativa: per dodici
+giorni è stata l'unica verifica della versione, verde perché `job` era l'unico
+servizio a cui il build-arg arrivava.
 
 Quello che **non** fa, di proposito — restano passi separati, a mano:
 
@@ -316,6 +323,35 @@ colonna in più che nessuno seleziona ancora. La sequenza:
    ```
    Per `postgres` la ricreazione è un intervento a sé (connessioni di bot e API
    che cadono), da non fare a margine di un deploy.
+
+   **Cosa lo script vede e cosa no.** Dal 19/09/2026 `ops/kindling-deploy.sh`
+   esce con **18** se il bot esegue codice diverso dal repository: legge
+   `KINDLING_CODE_VERSION` dal container e fallisce se da quel commit a `HEAD`
+   sono cambiati `bot/` o `requirements.txt` (non il `Dockerfile`, di
+   proposito: vedi il commento nello script). Un container vecchio con codice
+   invariato passa, ed è giusto così. **Non vede** invece le proprietà del
+   compose né le variabili di `.env`: un `mem_limit` o un `environment` cambiati
+   per il bot restano da ricordare a mano, come sopra.
+
+   **Il code_version di bot, api e dashboard diventa vero in quattro tempi**,
+   ed è qui che il difetto si ricrea se se ne salta uno. Fino al 19/09/2026 solo
+   `job` riceveva il build-arg: le altre tre immagini avevano
+   `KINDLING_CODE_VERSION` vuota da sempre.
+   1. Il commit che passa l'argomento a tutti e quattro entra nel repository:
+      in produzione non cambia niente.
+   2. Il deploy successivo ricostruisce le quattro immagini, ora tutte con la
+      versione incisa, e ricrea `api`, `dashboard` e `caddy`: `api` e
+      `dashboard` hanno subito il valore giusto (e se non l'hanno, uscita 17).
+   3. `bot` no: continua a girare il container di prima, da un'immagine senza
+      versione. **Quel deploy esce con 18**, per costruzione — «vuota» non passa
+      mai. È atteso, e dice il passo mancante:
+      ```bash
+      docker compose up -d --force-recreate bot
+      docker compose ps -q bot | xargs docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' | grep KINDLING_CODE_VERSION
+      # deve dire l'hash del deploy, non una riga vuota
+      ```
+   4. Da lì in avanti la verifica del bot funziona davvero: 18 solo quando
+      `bot/` o `requirements.txt` cambiano e il container non è stato ricreato.
 4. Il `job` non ha un container in esecuzione da ricreare: il `build` esplicito
    del passo 2 ha già prodotto la sua immagine nuova, quindi il prossimo
    `docker compose run --rm job ...` — a mano o da cron — la usa senza nessun

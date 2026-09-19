@@ -40,7 +40,10 @@ COPY dashboard/ ./dashboard/
 # ARG e non solo ENV: senza il build-arg il default e' stringa vuota, e
 # _code_version() (job/main.py) la tratta come assente — nessun errore di
 # build, solo un valore NULL come e' sempre stato finora, cioe' un fallback
-# sicuro invece di un build rotto.
+# sicuro invece di un build rotto. E' un fallback per chi costruisce senza lo
+# script, NON il caso normale: fino al 19/09/2026 lo era per bot, api e
+# dashboard, che nel compose non passavano l'argomento. Ora ogni servizio con
+# `build:` lo passa, e tests/test_dashboard_deploy.py lo impone.
 #
 # Dopo i COPY e subito prima di CMD, non prima: il valore cambia a ogni
 # deploy (e' l'hash del commit), quindi mettere ARG/ENV qui invalida solo

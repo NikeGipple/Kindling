@@ -42,7 +42,30 @@ services:
       retries: 10
 
   bot:
-    build: .
+    # KINDLING_CODE_VERSION, per TUTTI i servizi costruiti da qui (bot, api,
+    # dashboard, job): questo e' l'unico commento, gli altri rimandano qui.
+    #
+    # Incisa nell'immagine (vedi Dockerfile), non letta da .env a runtime:
+    # ops/kindling-deploy.sh la calcola da `git rev-parse --short HEAD` e la
+    # passa come build-arg. Il default vuoto serve solo a chi lancia
+    # `docker compose build` senza lo script (sviluppo locale).
+    #
+    # Forma lunga di `build:` su ogni servizio, non `build: .`: fino al
+    # 19/09/2026 l'argomento lo riceveva solo `job`, e bot, api e dashboard
+    # sono nati e cresciuti con la versione vuota del fallback del Dockerfile —
+    # mentre la verifica del deploy guardava proprio e solo `job`, ed era verde.
+    # tests/test_dashboard_deploy.py fallisce su un servizio con `build:` che
+    # non passa l'argomento.
+    #
+    # NON metterla in `environment:` ne' in .env (vedi .env.example): env_file ed
+    # environment vincono sempre sul valore inciso con l'ARG, quindi una riga
+    # anche vuota in .env sovrascriverebbe in silenzio il commit vero con una
+    # stringa vuota, con la build riuscita — il modo in cui questo difetto e'
+    # gia' successo una volta.
+    build:
+      context: .
+      args:
+        KINDLING_CODE_VERSION: "${KINDLING_CODE_VERSION:-}"
     restart: unless-stopped
     env_file:
       - .env
@@ -86,7 +109,11 @@ services:
   # Aggiungere `ports:` qui senza aver fatto quel passo e' la versione API
   # dell'incidente descritto in CLAUDE.md.
   api:
-    build: .
+    build:
+      context: .
+      args:
+        # Vedi il commento su bot.build.
+        KINDLING_CODE_VERSION: "${KINDLING_CODE_VERSION:-}"
     restart: unless-stopped
     env_file:
       - .env
@@ -134,7 +161,11 @@ services:
   # dell'incidente descritto in CLAUDE.md.
   # tests/test_dashboard_deploy.py fallisce su un binding senza IP o su 0.0.0.0.
   dashboard:
-    build: .
+    build:
+      context: .
+      args:
+        # Vedi il commento su bot.build.
+        KINDLING_CODE_VERSION: "${KINDLING_CODE_VERSION:-}"
     restart: unless-stopped
     ports:
       - "127.0.0.1:8000:8000"
@@ -227,24 +258,13 @@ services:
     build:
       context: .
       args:
-        # Incisa nell'immagine (vedi Dockerfile), non letta da .env a runtime:
-        # ops/kindling-deploy.sh la calcola da `git rev-parse --short HEAD` e
-        # la passa qui come build-arg. Il default vuoto serve solo a chi
-        # lancia `docker compose build` senza lo script (sviluppo locale):
-        # _code_version() tratta una versione vuota come assente, non come un
-        # errore.
+        # Vedi il commento su bot.build.
         KINDLING_CODE_VERSION: "${KINDLING_CODE_VERSION:-}"
     profiles: ["tools"]
     env_file:
       - .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-kindling}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-kindling}
-    # NON aggiungere KINDLING_CODE_VERSION qui ne' in .env (vedi .env.example):
-    # env_file e environment vincono sempre sul valore incastonato nell'immagine
-    # con l'ARG sopra, quindi una riga anche vuota in .env sovrascriverebbe in
-    # silenzio il commit vero con una stringa vuota, e code_version tornerebbe
-    # NULL con la build riuscita — il modo in cui questo difetto e' gia'
-    # successo una volta.
     # Se qualcosa deve morire per esaurimento memoria su una macchina da 1 GB,
     # deve morire il job, non il bot o Postgres: senza un limite esplicito
     # l'OOM killer sceglie il processo con piu' RSS, che e' il database.

@@ -72,7 +72,9 @@ mkdir -p "$(dirname "$LOG_FILE")"
 # mancanti, uno fermato perche' il ledger stesso manca, uno fermato perche' il
 # perimetro del ruolo kindling_api non e' quello atteso, uno fermato perche' la
 # dashboard ha variabili di database (o non si e' potuto verificarlo), e uno
-# fallito per un errore imprevisto sono situazioni diverse, e chi legge l'esito
+# fallito per un errore imprevisto sono situazioni diverse — e cosi' api o
+# dashboard che non eseguono il commit del deploy (17) e un bot che va ancora
+# ricreato a mano (18) — e chi legge l'esito
 # da fuori (una shell interattiva, o in futuro un monitoraggio) deve poterle
 # distinguere senza andare a leggere il log.
 MIGRATIONS_MISSING_EXIT=10
@@ -82,6 +84,8 @@ DASHBOARD_DB_VARS_EXIT=13
 DASHBOARD_UNVERIFIED_EXIT=14
 CADDY_CONFIG_EXIT=15
 CADDY_VOLUME_EXIT=16
+CODE_VERSION_MISMATCH_EXIT=17
+BOT_CODE_STALE_EXIT=18
 
 # Le variabili che il container dashboard non deve AVERE (dashboard.md 1). Stesso
 # elenco di dashboard/config.py DATABASE_VARIABLES: tests/test_dashboard_deploy.py
@@ -285,17 +289,22 @@ log "END   caddy-reload"
 # fondo a una schermata lunga, dopo un build: il posto esatto in cui un avviso
 # non viene letto. Un deploy che lascia l'API in grado di leggere le tabelle
 # interne non e' un deploy riuscito con una nota a margine, quindi adesso
-# ferma lo script con un codice di uscita dedicato.
+# ferma lo script con un codice di uscita dedicato. Stesso criterio, dopo, per
+# la dashboard senza variabili di database, i certificati di Caddy e la
+# versione del codice che api, dashboard e bot eseguono davvero.
 log "START verifiche"
 
 echo ""
-echo "--- date delle immagini (da guardare, nessuno le controlla: la verifica e' KINDLING_CODE_VERSION qui sotto) ---"
+echo "--- date delle immagini (da guardare, nessuno le controlla: la verifica e' KINDLING_CODE_VERSION di api, dashboard e bot, piu' sotto) ---"
 "$DOCKER_BIN" images --format '{{.Repository}}	{{.CreatedAt}}' | grep kindling || true
 
 echo ""
-echo "--- KINDLING_CODE_VERSION dentro il container job ---"
-# Verifica diretta del punto di oggi: se questo stampa vuoto invece
-# dell'hash appena calcolato, il build-arg non e' arrivato all'immagine.
+echo "--- KINDLING_CODE_VERSION dentro il container job (informativo) ---"
+# Solo il job, e solo da guardare. Per dodici giorni e' stata l'UNICA verifica
+# della versione, ed era verde perche' il job era l'unico servizio a cui il
+# build-arg arrivava: copriva il caso gia' sano. Le verifiche che decidono sono
+# quelle di api, dashboard e bot, piu' sotto. Attenzione a leggerla: `printenv`
+# di una variabile vuota stampa una riga vuota ed esce 0.
 "$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" run --rm -T job \
     printenv KINDLING_CODE_VERSION || echo "(vuoto o comando fallito)"
 
@@ -435,6 +444,141 @@ else
     fi
 fi
 
+# --- quale codice gira davvero: non informativo -----------------------------
+#
+# KINDLING_CODE_VERSION letta dalla CONFIGURAZIONE del container (`docker
+# inspect`, Config.Env), non con `exec ... printenv`, per due ragioni:
+# - `printenv` di una variabile vuota esce 0 e stampa una riga vuota, quindi un
+#   controllo sul codice di uscita prenderebbe "vuota" per un successo — la
+#   classe di difetto di CLAUDE.md 7 dentro il controllo scritto per scoprirla;
+# - un container in restart non accetta `exec`, e la sua configurazione si
+#   legge lo stesso.
+# Quattro esiti distinti, e solo il primo porta un valore: "ok <hash>", "vuota"
+# (immagine costruita senza il build-arg), "assente" (immagine costruita senza
+# l'ARG del Dockerfile), e "non verificabile" (nessun container, inspect
+# fallito). Solo "ok" puo' passare.
+code_version_del_container() {
+    local servizio="$1"
+    local id
+    local ambiente
+    local riga
+    id="$("$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" ps -a -q "$servizio" || true)"
+    if [ -z "$id" ]; then
+        echo "non-verificabile: nessun container $servizio"
+        return
+    fi
+    if ! ambiente="$("$DOCKER_BIN" inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$id")"; then
+        echo "non-verificabile: docker inspect di $servizio fallito"
+        return
+    fi
+    # Here-string e non una pipe, come per la dashboard sopra: con pipefail un
+    # grep che si ferma al primo match puo' rendere falsa la pipeline.
+    riga="$(grep -m1 '^KINDLING_CODE_VERSION=' <<<"$ambiente" || true)"
+    if [ -z "$riga" ]; then
+        echo "assente"
+    elif [ "$riga" = "KINDLING_CODE_VERSION=" ]; then
+        echo "vuota"
+    else
+        echo "ok ${riga#KINDLING_CODE_VERSION=}"
+    fi
+}
+
+# api e dashboard: questo script li ha appena ricreati, quindi DEVONO eseguire
+# il commit del deploy. Nessuno scostamento ha una lettura innocente: o il
+# build-arg non e' arrivato all'immagine, o il container non e' stato
+# ricreato — le due cose successe insieme il 17/09/2026 senza che niente lo
+# dicesse. Anche "non verificabile" ferma: subito dopo `up`, un container api o
+# dashboard che non c'e' e' gia' un deploy fallito, non un dubbio.
+versione_rotta=0
+
+echo ""
+echo "--- api e dashboard eseguono il commit del deploy ($KINDLING_CODE_VERSION) ---"
+for servizio in api dashboard; do
+    stato="$(code_version_del_container "$servizio")"
+    case "$stato" in
+        "ok $KINDLING_CODE_VERSION")
+            echo "$servizio: $KINDLING_CODE_VERSION (ok)" ;;
+        "ok "*)
+            log "ABORT $servizio esegue ${stato#ok } invece di $KINDLING_CODE_VERSION: container non ricreato o immagine non ricostruita"
+            versione_rotta=1 ;;
+        vuota)
+            log "ABORT $servizio ha KINDLING_CODE_VERSION vuota: il build-arg non e' arrivato all'immagine (docker-compose.yml, $servizio.build.args)"
+            versione_rotta=1 ;;
+        assente)
+            log "ABORT $servizio non ha KINDLING_CODE_VERSION: immagine costruita senza l'ARG del Dockerfile"
+            versione_rotta=1 ;;
+        *)
+            log "ABORT versione di $servizio ${stato}"
+            versione_rotta=1 ;;
+    esac
+done
+
+# bot: questo script NON lo ricrea, di proposito (passo 5: non si stacca il
+# gateway per un deploy che non lo riguarda). Uno scostamento dal commit del
+# deploy e' quindi normale, e un controllo di uguaglianza sarebbe rosso a ogni
+# deploy — un controllo sempre rosso si impara a ignorare. Si ferma solo se il
+# codice che il bot esegue e' DIVERSO da quello del repository: se fra la sua
+# versione e HEAD sono cambiati bot/ o requirements.txt.
+#
+# bot/ perche' e' il suo codice (bot/ non importa niente da api/, job/ o
+# dashboard/); requirements.txt perche' un container vecchio ha anche le
+# dipendenze vecchie, e un aggiornamento di discord.py non ricreato e' codice
+# diverso da quello del repository quanto una modifica a bot/. NON il
+# Dockerfile: quasi ogni sua modifica sono commenti o COPY di altre componenti,
+# e un rosso a ogni ritocco di commento e' di nuovo un rosso da ignorare — un
+# cambio vero di CMD o di immagine base va ricordato a mano.
+#
+# Errore e non avviso: un avviso in fondo a questa schermata e' il posto
+# esatto in cui non viene letto (vedi il perimetro di kindling_api). Tutto il
+# resto del deploy e' gia' fatto quando si arriva qui; il codice di uscita dice
+# solo che c'e' ancora un passo, e quale.
+bot_da_ricreare=0
+
+echo ""
+echo "--- il bot esegue il codice del repository ---"
+stato="$(code_version_del_container bot)"
+case "$stato" in
+    "ok "*)
+        versione_bot="${stato#ok }"
+        if [ "$versione_bot" = "$KINDLING_CODE_VERSION" ]; then
+            echo "bot: $versione_bot (ok, stesso commit del deploy)"
+        elif ! "$GIT_BIN" -C "$PROJECT_DIR" cat-file -e "${versione_bot}^{commit}" 2>/dev/null; then
+            # Storia riscritta, clone superficiale: non verificabile vuol dire
+            # non verificato, non "presumibilmente uguale".
+            log "ABORT bot esegue $versione_bot, commit assente dal repository: non verificabile"
+            bot_da_ricreare=1
+        else
+            set +e
+            "$GIT_BIN" -C "$PROJECT_DIR" diff --quiet "$versione_bot" HEAD -- bot/ requirements.txt
+            diff_esito=$?
+            set -e
+            case "$diff_esito" in
+                0)
+                    echo "bot: $versione_bot, bot/ e requirements.txt invariati fino a HEAD (ok: container vecchio, codice uguale)" ;;
+                1)
+                    log "ABORT bot esegue $versione_bot, e da li' a HEAD bot/ o requirements.txt sono cambiati"
+                    bot_da_ricreare=1 ;;
+                *)
+                    log "ABORT git diff fallito (uscita $diff_esito): codice del bot non verificabile"
+                    bot_da_ricreare=1 ;;
+            esac
+        fi ;;
+    vuota)
+        log "ABORT bot ha KINDLING_CODE_VERSION vuota: il container precede il meccanismo, va ricreato"
+        bot_da_ricreare=1 ;;
+    assente)
+        log "ABORT bot non ha KINDLING_CODE_VERSION: il container precede il meccanismo, va ricreato"
+        bot_da_ricreare=1 ;;
+    *)
+        log "ABORT versione del bot ${stato}"
+        bot_da_ricreare=1 ;;
+esac
+if [ "$bot_da_ricreare" -ne 0 ]; then
+    echo "Il bot non esegue (o non si sa se esegue) il codice del repository." >&2
+    echo "Ricrearlo, sapendo che il gateway Discord cade per qualche secondo:" >&2
+    echo "  docker compose up -d --force-recreate bot" >&2
+fi
+
 if [ "$perimetro_rotto" -ne 0 ]; then
     log "ABORT perimetro di kindling_api compromesso, vedi sopra"
     exit "$PERIMETER_BROKEN_EXIT"
@@ -453,6 +597,18 @@ fi
 if [ "$caddy_volume_rotto" -ne 0 ]; then
     log "ABORT certificati di caddy non persistenti, vedi sopra"
     exit "$CADDY_VOLUME_EXIT"
+fi
+
+if [ "$versione_rotta" -ne 0 ]; then
+    log "ABORT api o dashboard non eseguono il commit del deploy, vedi sopra"
+    exit "$CODE_VERSION_MISMATCH_EXIT"
+fi
+
+# Ultimo, dopo tutti gli altri: e' l'unico esito che non dice "il deploy e'
+# sbagliato" ma "manca ancora un passo a mano".
+if [ "$bot_da_ricreare" -ne 0 ]; then
+    log "ABORT il bot va ricreato, vedi sopra"
+    exit "$BOT_CODE_STALE_EXIT"
 fi
 
 log "END   verifiche"

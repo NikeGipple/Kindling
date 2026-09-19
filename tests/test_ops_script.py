@@ -281,11 +281,23 @@ DEPLOY_SCRIPT = REPO / "ops" / "kindling-deploy.sh"
 
 # git: risponde a `pull` e a `rev-parse --short HEAD` con un hash fisso, cosi'
 # i test possono verificare che sia proprio QUELLO ad arrivare al build.
+#
+# E alle due domande della verifica del bot: `cat-file -e` (il commit che il
+# container esegue esiste nel repository? STUB_GIT_COMMIT_MISSING=1 dice di no)
+# e `diff --quiet ... -- bot/ ...` (e' cambiato qualcosa da li' a HEAD? l'uscita
+# e' STUB_GIT_BOT_DIFF: 0 no, 1 si', altro = git fallito). Le invocazioni di diff
+# si registrano in GIT_ARGS_FILE, per verificare COSA viene confrontato.
 GIT_STUB = '\n'.join([
     "#!/usr/bin/env bash",
     'case "$*" in',
     '    *pull) echo "Already up to date." ; exit 0 ;;',
     '    *"rev-parse --short HEAD") echo "deadbee" ; exit 0 ;;',
+    '    *"cat-file -e"*)',
+    '        if [ "${STUB_GIT_COMMIT_MISSING:-}" = "1" ]; then exit 128; fi',
+    "        exit 0 ;;",
+    '    *"diff --quiet"*)',
+    '        printf "%s\\n" "$*" >>"${GIT_ARGS_FILE:-/dev/null}"',
+    '        exit "${STUB_GIT_BOT_DIFF:-0}" ;;',
     "esac",
     "exit 1",
     "",
@@ -305,8 +317,17 @@ GIT_STUB = '\n'.join([
 # STUB_GRAPH_EDGES_LEAKS e STUB_METRIC_RUNS_DENIED simulano il perimetro del
 # ruolo kindling_api rotto nei due versi possibili: legge quello che non
 # dovrebbe, o non legge quello che dovrebbe.
+#
+# KINDLING_CODE_VERSION dei container api, dashboard e bot (letta dallo script
+# con `docker inspect`): STUB_API_CODE_VERSION, STUB_DASHBOARD_CODE_VERSION,
+# STUB_BOT_CODE_VERSION. Una stringa vuota e' la variabile VUOTA, "<absent>" la
+# variabile assente — sono due casi diversi, ed e' il punto. Non impostate
+# valgono "sano": api e dashboard al commit del deploy (deadbee), il bot a un
+# commit precedente (cafe123), cioe' il caso normale di un container che il
+# deploy non ricrea. STUB_BOT_MISSING=1: nessun container bot.
 DOCKER_STUB_DEPLOY = '\n'.join([
     "#!/usr/bin/env bash",
+    '_versione() { if [ "$1" != "<absent>" ]; then printf "KINDLING_CODE_VERSION=%s\\n" "$1"; fi; }',
     'printf "%s\\n" "$*" >>"$DEPLOY_DOCKER_ARGS_FILE"',
     'printf "KINDLING_CODE_VERSION=%s\\n" "${KINDLING_CODE_VERSION:-<unset>}" >>"$DEPLOY_DOCKER_ENV_FILE"',
     'case "$*" in',
@@ -365,11 +386,23 @@ DOCKER_STUB_DEPLOY = '\n'.join([
     '        for v in ${STUB_CADDY_VOLUMES-kindling_caddy_data}; do printf "%s\\n" "$v"; done ; exit 0 ;;',
     '    *".Mounts"*)',
     '        printf "%s\\n" "${STUB_CADDY_MOUNT-volume kindling_caddy_data}" ; exit 0 ;;',
+    '    *"ps -a -q api"*)',
+    '        echo "a91a91" ; exit 0 ;;',
+    '    *"ps -a -q bot"*)',
+    '        if [ "${STUB_BOT_MISSING:-}" = "1" ]; then exit 0; fi',
+    '        echo "b07b07" ; exit 0 ;;',
+    '    "inspect "*" a91a91")',
+    '        echo "PATH=/usr/local/bin:/usr/bin"',
+    '        _versione "${STUB_API_CODE_VERSION-deadbee}" ; exit 0 ;;',
+    '    "inspect "*" b07b07")',
+    '        echo "PATH=/usr/local/bin:/usr/bin"',
+    '        _versione "${STUB_BOT_CODE_VERSION-cafe123}" ; exit 0 ;;',
     '    "inspect "*)',
     '        if [ "${STUB_DASHBOARD_INSPECT_FAILS:-}" = "1" ]; then',
     '            echo "Error: no such object" >&2 ; exit 1',
     "        fi",
-    '        printf "%s\\n" "$STUB_DASHBOARD_ENV" | tr ";" "\\n" ; exit 0 ;;',
+    '        printf "%s\\n" "$STUB_DASHBOARD_ENV" | tr ";" "\\n"',
+    '        _versione "${STUB_DASHBOARD_CODE_VERSION-deadbee}" ; exit 0 ;;',
     "esac",
     "exit 0",
     "",
@@ -382,6 +415,8 @@ class EsitoDeploy:
     log: str
     docker_args: str
     docker_env: str
+    git_args: str = ""
+    stderr: str = ""
 
 
 def _run_deploy(
@@ -400,6 +435,12 @@ def _run_deploy(
     caddy_missing: bool = False,
     caddy_volumes: str = "kindling_caddy_data",
     caddy_mount: str = "volume kindling_caddy_data",
+    api_code_version: str = "deadbee",
+    dashboard_code_version: str = "deadbee",
+    bot_code_version: str = "cafe123",
+    bot_missing: bool = False,
+    git_commit_missing: bool = False,
+    git_bot_diff: int = 0,
 ) -> EsitoDeploy:
     binaries = tmp_path / "bin"
     binaries.mkdir(exist_ok=True)
@@ -430,6 +471,13 @@ def _run_deploy(
         STUB_CADDY_MISSING="1" if caddy_missing else "0",
         STUB_CADDY_VOLUMES=caddy_volumes,
         STUB_CADDY_MOUNT=caddy_mount,
+        STUB_API_CODE_VERSION=api_code_version,
+        STUB_DASHBOARD_CODE_VERSION=dashboard_code_version,
+        STUB_BOT_CODE_VERSION=bot_code_version,
+        STUB_BOT_MISSING="1" if bot_missing else "0",
+        STUB_GIT_COMMIT_MISSING="1" if git_commit_missing else "0",
+        STUB_GIT_BOT_DIFF=str(git_bot_diff),
+        GIT_ARGS_FILE=str(tmp_path / "git-args.txt"),
         KINDLING_CADDY_RELOAD_PAUSE="0",
         KINDLING_DOCKER_BIN=str(binaries / "docker"),
         KINDLING_GIT_BIN=str(binaries / "git"),
@@ -453,6 +501,8 @@ def _run_deploy(
         log=_read(log),
         docker_args=_read(args_file),
         docker_env=_read(env_file),
+        git_args=_read(tmp_path / "git-args.txt"),
+        stderr=completed.stderr,
     )
 
 
@@ -744,3 +794,79 @@ def test_nessun_comando_eredita_uno_stdin_leggibile_nel_deploy(tmp_path):
     )
 
     assert completed.returncode == 0
+
+
+# --- quale codice gira davvero: api, dashboard, bot (19/09/2026) --------------
+#
+# Fino a questa data l'unica verifica della versione era `printenv` dentro
+# `job`, l'unico servizio a cui il build-arg arrivava: verde per dodici giorni
+# mentre bot, api e dashboard non avevano provenienza. Qui ogni esito che non e'
+# "stesso codice" deve fermare lo script — compreso "vuota", che `printenv`
+# avrebbe preso per un successo.
+
+
+def test_il_caso_normale_passa_con_il_bot_vecchio_e_bot_invariato(tmp_path):
+    esito = _run_deploy(tmp_path)
+
+    assert esito.status == 0, esito.log
+    # Il bot (cafe123) non e' il commit del deploy: si confronta, e su cosa.
+    assert "diff --quiet cafe123 HEAD -- bot/ requirements.txt" in esito.git_args
+
+
+@pytest.mark.parametrize(
+    ("argomenti", "atteso"),
+    [
+        ({"api_code_version": "0ld0ld0"}, "api esegue 0ld0ld0 invece di deadbee"),
+        ({"dashboard_code_version": "0ld0ld0"}, "dashboard esegue 0ld0ld0 invece di deadbee"),
+        ({"api_code_version": ""}, "api ha KINDLING_CODE_VERSION vuota"),
+        ({"dashboard_code_version": ""}, "dashboard ha KINDLING_CODE_VERSION vuota"),
+        ({"api_code_version": "<absent>"}, "api non ha KINDLING_CODE_VERSION"),
+    ],
+    ids=["api-vecchia", "dashboard-vecchia", "api-vuota", "dashboard-vuota", "api-assente"],
+)
+def test_api_o_dashboard_fuori_commit_fermano_il_deploy(tmp_path, argomenti, atteso):
+    esito = _run_deploy(tmp_path, **argomenti)
+
+    assert esito.status == 17, esito.log
+    assert atteso in esito.log
+    assert "=== fine (ok) ===" not in esito.log
+
+
+@pytest.mark.parametrize(
+    ("argomenti", "atteso"),
+    [
+        ({"bot_code_version": ""}, "bot ha KINDLING_CODE_VERSION vuota"),
+        ({"bot_code_version": "<absent>"}, "bot non ha KINDLING_CODE_VERSION"),
+        ({"git_bot_diff": 1}, "bot/ o requirements.txt sono cambiati"),
+        ({"git_bot_diff": 128}, "codice del bot non verificabile"),
+        ({"git_commit_missing": True}, "commit assente dal repository"),
+        ({"bot_missing": True}, "nessun container bot"),
+    ],
+    ids=["vuota", "assente", "codice-cambiato", "diff-fallito", "commit-assente", "container-assente"],
+)
+def test_bot_da_ricreare_ferma_il_deploy_e_dice_come(tmp_path, argomenti, atteso):
+    esito = _run_deploy(tmp_path, **argomenti)
+
+    assert esito.status == 18, esito.log
+    assert atteso in esito.log
+    assert "=== fine (ok) ===" not in esito.log
+    assert "docker compose up -d --force-recreate bot" in esito.stderr
+    # Lo script non lo ricrea da se': staccare il gateway resta una scelta.
+    assert "force-recreate" not in esito.docker_args
+
+
+def test_il_bot_allo_stesso_commit_non_chiede_nessun_diff(tmp_path):
+    esito = _run_deploy(tmp_path, bot_code_version="deadbee", git_bot_diff=1)
+
+    assert esito.status == 0, esito.log
+    assert esito.git_args == ""
+
+
+def test_api_fuori_commit_e_bot_da_ricreare_si_vedono_entrambi(tmp_path):
+    # Il codice di uscita e' quello di api/dashboard, che dice "deploy
+    # sbagliato"; il bot dice solo "manca un passo", e viene dopo.
+    esito = _run_deploy(tmp_path, api_code_version="", bot_code_version="")
+
+    assert esito.status == 17
+    assert "api ha KINDLING_CODE_VERSION vuota" in esito.log
+    assert "bot ha KINDLING_CODE_VERSION vuota" in esito.log

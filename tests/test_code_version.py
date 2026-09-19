@@ -143,6 +143,10 @@ def test_dockerfile_incide_kindling_code_version_dopo_i_copy():
 
 
 def test_docker_compose_passa_kindling_code_version_come_build_arg_al_job():
+    # Il caso del job e basta. L'invariante che conta — OGNI servizio con
+    # `build:` riceve l'argomento — e' in tests/test_dashboard_deploy.py: questo
+    # test da solo e' stato verde per dodici giorni mentre bot, api e dashboard
+    # non lo ricevevano.
     import yaml
 
     compose = yaml.safe_load((REPO / "docker-compose.yml").read_text(encoding="utf-8"))
