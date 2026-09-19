@@ -1845,7 +1845,16 @@ nei dati reali, non ipotetici. Quello che manca ancora, verificato per assenza
 nella stessa sessione, è più mirato di "sei stati": **nessuna riga è oggi
 `is_significant = true`, su nessuna vista** (§6), e l'unico valore anomalo di
 `previous_gap_days` mai visto (1,0 su sette ore e mezza, regola 5) non esiste
-più in produzione dopo il rerun del 15/09. La ragione di sviluppare contro il
+più in produzione dopo il rerun del 15/09. E manca il **layer assente** (§4,
+vista Robustezza: *nessuna interazione di questo tipo in questa settimana*):
+sugli snapshot 11 e 12 i quattro layer ci sono tutti, `voice` compreso (9 e 15
+nodi, §6); il fixture lo genera apposta su `…002`. *(Aggiunto il 19/09/2026.
+Non era un'omissione della correzione del 16/09: questo paragrafo non ha mai
+nominato il layer assente, nemmeno nella prima stesura del 14/09, che contava
+"sei stati" senza di lui; la docstring di `tools/fixture_api.py`, scritta lo
+stesso giorno, lo aveva. La correzione del 16/09 ha ereditato la lista corta
+restringendola ancora, e nessuno dei due passaggi ha deciso che il layer
+assente dovesse restarne fuori.)* La ragione di sviluppare contro il
 fixture non è più "questi stati non sono mai successi": è che comparire una
 volta in produzione, per caso, non li rende **riproducibili a comando** per un
 test — e il valore anomalo di `previous_gap_days` lo dimostra: è successo, e un

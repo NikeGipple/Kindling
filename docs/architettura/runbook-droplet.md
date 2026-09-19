@@ -12,7 +12,7 @@ Versione formattata con comandi copiabili: artifact pubblicato "Kindling Fase 1"
 - Droplet creata: `kindling-app-01`, progetto DO separato "Kindling", non condivisa con altri progetti del team.
 - Chiave SSH dedicata a Kindling (distinta da quelle di altri progetti del team).
 - fail2ban attivo su SSH.
-- Cloud Firewall verificato: solo SSH/22 in ingresso da tutti gli IP, nient'altro — finché non ci sono servizi pubblici da esporre.
+- Cloud Firewall: in ingresso SSH/22, e dal 19/09/2026 anche TCP 80 e 443 per Caddy — nient'altro, nemmeno UDP 443. Il perché e la procedura sono in `runbook-esposizione.md`, passo 4. *(Fino al 18/09 questa riga diceva «solo SSH/22»: vera quando è stata scritta, resa falsa dall'esposizione della fase 2, non da un errore.)*
 - **Automated Backups di DigitalOcean attivi** (verificato 02/09/2026): snapshot dell'intera droplet, **settimanali, la domenica tra le 4:00 e le 8:00 UTC**, retention ~4 settimane. Comprendono il volume `pgdata`, quindi `raw_events` e `members`. **Il tema backup è chiuso**: niente `pg_dump` verso DO Spaces da costruire. Unico limite noto, accettato: finestra di perdita massima di 7 giorni (razionale in `architettura.md`, sezione Storage).
 
 ## Da fare, in ordine
@@ -300,6 +300,22 @@ colonna in più che nessuno seleziona ancora. La sequenza:
    riguarda. `job` non ha questo problema: `profiles: ["tools"]` lo tiene fuori
    da qualunque `up`, con o senza argomenti — è per questo che non ha un passo
    `up` proprio, solo il `build` esplicito del punto 2.
+
+   **Il rovescio: il deploy non ricrea `bot` né `postgres`, quindi nessuna
+   loro modifica entra in vigore da sola.** Tutto ciò che si applica alla
+   creazione del container resta com'era, con exit=0: le proprietà del compose
+   (`mem_limit`, `environment`, `ports`), le variabili di `.env`, e per `bot`
+   anche il **codice** — l'immagine `kindling-bot` viene ricostruita e la sua
+   data sembra fresca, ma il container gira ancora quella vecchia. Caso
+   concreto: il `mem_limit: 128m` del bot (commit `7163650`, 19/09/2026) non
+   esiste finché il container non viene ricreato. Quando serve, a mano e
+   sapendo che il gateway Discord cade per qualche secondo:
+   ```bash
+   docker compose up -d --force-recreate bot
+   docker stats --no-stream   # il limite del bot deve essere 128MiB, non la RAM della droplet
+   ```
+   Per `postgres` la ricreazione è un intervento a sé (connessioni di bot e API
+   che cadono), da non fare a margine di un deploy.
 4. Il `job` non ha un container in esecuzione da ricreare: il `build` esplicito
    del passo 2 ha già prodotto la sua immagine nuova, quindi il prossimo
    `docker compose run --rm job ...` — a mano o da cron — la usa senza nessun

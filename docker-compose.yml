@@ -61,6 +61,17 @@ services:
     # al gateway — e il numero misurato e' quello a riposo. Da riguardare se
     # cresce il numero di membri osservati. Postgres invece NON ha un tetto, di
     # proposito: vedi il commento sul servizio.
+    #
+    # IL TETTO NON E' IN VIGORE FINCHE' IL CONTAINER NON VIENE RICREATO.
+    # mem_limit si applica alla creazione, e ops/kindling-deploy.sh non ricrea
+    # mai `bot` (di proposito: un deploy della dashboard non deve staccare il
+    # gateway). Dopo un deploy `docker stats` mostra ancora la memoria della
+    # droplet come limite, e cercare OOMKilled su quel container non ha senso.
+    # Per applicarlo, sapendo che il gateway cade per qualche secondo:
+    #   docker compose up -d --force-recreate bot
+    # poi `docker stats --no-stream` deve mostrare 128MiB come limite del bot.
+    # Vale per ogni modifica a questo servizio, non solo per questa riga
+    # (runbook-droplet.md, "Procedura manuale, passo per passo", passo 3).
     mem_limit: 128m
     depends_on:
       postgres:
