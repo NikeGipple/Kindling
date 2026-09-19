@@ -311,8 +311,11 @@ def test_le_dipendenze_della_dashboard_sono_in_requirements():
 CADDYFILE = REPO / "ops" / "Caddyfile"
 
 
-def _blocchi_caddy() -> dict[str, str]:
-    """Il corpo di ogni blocco di sito di primo livello, senza i commenti."""
+def _blocchi_di_primo_livello() -> dict[str, str]:
+    """Il corpo di ogni blocco di primo livello, senza i commenti.
+
+    Il blocco di opzioni globali non ha nome: compare con la chiave ``""``.
+    """
     righe = [
         r.split("#", 1)[0].rstrip()
         for r in CADDYFILE.read_text(encoding="utf-8").splitlines()
@@ -331,6 +334,26 @@ def _blocchi_caddy() -> dict[str, str]:
             blocchi[nome] = "\n".join(corpo[:-1])
             nome = None
     return blocchi
+
+
+def _blocchi_caddy() -> dict[str, str]:
+    """I soli blocchi di sito, senza quello di opzioni globali."""
+    return {n: c for n, c in _blocchi_di_primo_livello().items() if n}
+
+
+def test_caddyfile_http3_spento():
+    # Con h3 acceso Caddy annuncia `Alt-Svc: h3=":443"` su ogni risposta, ma la
+    # 443/UDP non e' pubblicata (test_caddy_pubblica_esattamente_80_e_443) ne'
+    # aperta sul firewall: ogni browser pagherebbe un timeout prima di ripiegare
+    # su TCP. Le opzioni globali valgono solo come PRIMO blocco del file.
+    righe = [
+        r.split("#", 1)[0].strip()
+        for r in CADDYFILE.read_text(encoding="utf-8").splitlines()
+    ]
+    assert [r for r in righe if r][0] == "{"
+    globali = _blocchi_di_primo_livello()[""]
+    assert "protocols h1 h2" in globali.splitlines()
+    assert "h3" not in globali
 
 
 def test_caddyfile_due_hostname_e_nient_altro():

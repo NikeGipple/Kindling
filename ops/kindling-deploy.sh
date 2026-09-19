@@ -289,7 +289,7 @@ log "END   caddy-reload"
 log "START verifiche"
 
 echo ""
-echo "--- date delle immagini (devono essere ravvicinate) ---"
+echo "--- date delle immagini (da guardare, nessuno le controlla: la verifica e' KINDLING_CODE_VERSION qui sotto) ---"
 "$DOCKER_BIN" images --format '{{.Repository}}	{{.CreatedAt}}' | grep kindling || true
 
 echo ""

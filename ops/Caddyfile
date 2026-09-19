@@ -12,6 +12,21 @@
 # fermo; senza includeSubDomains, che impegnerebbe anche i sottodomini che non
 # esistono ancora. E' un impegno che un browser ricorda anche se si torna indietro.
 
+# ---- opzioni globali: niente HTTP/3 ----------------------------------------
+# Con il default (h1 h2 h3) Caddy mette `Alt-Svc: h3=":443"` su ogni risposta,
+# ma la 443/UDP non e' pubblicata nel compose ne' aperta sul Cloud Firewall: i
+# browser tentano l'UDP, aspettano il timeout e ripiegano su TCP, e poiche'
+# Alt-Svc va in cache lo rifanno alle visite successive. Senza h3 fra i
+# protocolli Caddy non avvia il server HTTP/3, e l'annuncio sparisce con lui.
+# Riaccendere h3 solo insieme a "443:443/udp" nel compose E alla regola UDP 443
+# sul firewall: le tre cose vanno insieme o non vanno fatte.
+# Deve restare il primo blocco del file (vincolo di Caddy sulle opzioni globali).
+{
+	servers {
+		protocols h1 h2
+	}
+}
+
 # ---- apex: pubblico, nessuna autenticazione, nessuna sessione --------------
 # Qui stanno le pagine che l'applicazione Discord richiede. Chi deve decidere
 # se autorizzare Kindling le legge PRIMA di avere un accesso: dietro il login

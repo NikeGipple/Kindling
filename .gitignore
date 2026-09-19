@@ -149,6 +149,15 @@ activemq-data/
 
 # Environments
 .env
+# Ogni variante di .env: backup (.env.bak.20260919, che il runbook fa creare
+# prima di ogni modifica), copie, .env.local. Contengono le stesse credenziali
+# del file originale — token del bot, password del database, salt di
+# pseudonimizzazione — e `.env` da solo copre un nome esatto e nient'altro: un
+# .env.bak con tutto dentro e' stato trovato untracked e non ignorato sulla
+# droplet il 19/09/2026. .env.example resta tracciato: non contiene segreti ed
+# e' la documentazione delle variabili.
+.env.*
+!.env.example
 .envrc
 .venv
 env/

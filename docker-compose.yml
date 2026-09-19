@@ -28,6 +28,13 @@ services:
       # alfabetico, solo al primo avvio (volume dati vuoto). Applica quindi
       # 0001_raw_events.sql e ogni migrazione futura numerata di conseguenza.
       - ./migrations:/docker-entrypoint-initdb.d:ro
+    # NESSUN mem_limit, e non e' una dimenticanza (bot invece ce l'ha: vedi
+    # sotto). Postgres e' l'unica cosa che non si vuole vedere uccisa a meta'
+    # di una scrittura, e un tetto troppo basso non lo fa degradare: lo fa
+    # morire. La sua protezione e' la sua configurazione (shared_buffers,
+    # work_mem, max_connections), non un limite del container — e il tetto
+    # degli altri servizi esiste proprio perche' sotto pressione muoiano loro,
+    # non lui (architettura.md, sezione Hosting).
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kindling} -d ${POSTGRES_DB:-kindling}"]
       interval: 5s
@@ -43,6 +50,18 @@ services:
       # Sovrascrive DATABASE_URL dell'.env per puntare al postgres del
       # compose invece che all'istanza online.
       DATABASE_URL: postgresql://${POSTGRES_USER:-kindling}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-kindling}
+    # Il tetto qui non e' per l'OOM dell'host ma per le perdite: un processo
+    # Python di lunga durata connesso al gateway, dove una perdita di memoria
+    # cresce in silenzio per giorni. Con il tetto diventa un riavvio visibile
+    # (OOMKilled e RestartCount in `docker inspect`, restart: unless-stopped lo
+    # rimette in piedi) invece di un sistema strozzato. 128m su 18 MB misurati
+    # a regime (docker stats, 19/09/2026): ~7x, piu' largo del ~3x di caddy e
+    # dashboard perche' il bot ha picchi che loro non hanno — il backfill dei
+    # membri all'avvio e il riallineamento della cache dopo una riconnessione
+    # al gateway — e il numero misurato e' quello a riposo. Da riguardare se
+    # cresce il numero di membri osservati. Postgres invece NON ha un tetto, di
+    # proposito: vedi il commento sul servizio.
+    mem_limit: 128m
     depends_on:
       postgres:
         condition: service_healthy

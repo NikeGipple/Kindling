@@ -5,6 +5,8 @@ la macchina unica su cui gira l'intera vertical slice. Le scelte di
 architettura e il criterio per cambiare taglia sono in `architettura.md`.
 Versione formattata con comandi copiabili: artifact pubblicato "Kindling Fase 1".*
 
+*Esposizione pubblica (DNS, firewall 80/443, Caddy, login Discord, procedura d'emergenza): `runbook-esposizione.md`.*
+
 ## Già pronto (verificato 28/08/2026, backup aggiunti il 02/09/2026)
 
 - Droplet creata: `kindling-app-01`, progetto DO separato "Kindling", non condivisa con altri progetti del team.

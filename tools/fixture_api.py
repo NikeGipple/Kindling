@@ -4,14 +4,18 @@ Espone le stesse sette rotte dell'API reale, con risposte sintetiche. Serve a
 sviluppare la dashboard senza toccare la droplet e — soprattutto — a esercitare
 gli stati che in produzione oggi NON esistono.
 
-**Perche' non si sviluppa contro i dati veri.** Oggi la produzione ha due
-snapshot, tutto sotto la soglia dei 30 nodi e le coorti non mature: esercita
-pochi degli stati che la dashboard deve saper rendere. Gli altri — riga
-soppressa, valore significativo, ``previous_gap_days`` anomalo, retention non
-calcolabile, coorte di soli sopravvissuti, layer assente — comparirebbero per la
-prima volta in produzione, da soli, quando nessuno sta guardando. Un percorso di
-rendering mai eseguito non e' codice che funziona: e' codice di cui non si sa
-niente. E' la classe di difetto di CLAUDE.md 7 applicata alla UI.
+**Perche' non si sviluppa contro i dati veri.** Non perche' la produzione non
+eserciti niente: verificato sui dati reali del 14-15/09/2026 (dashboard.md 6 e
+7), riga soppressa, ``stability_jaccard`` popolata, retention non calcolabile e
+coorte di soli sopravvissuti ci sono gia'. Mancano ancora una riga
+``is_significant = true``, su qualunque vista, e il layer assente; l'unico
+``previous_gap_days`` anomalo mai visto (1,0 su sette ore e mezza) non esiste
+piu' dopo il rerun del 15/09. La ragione e' un'altra: comparire una volta in
+produzione, per caso, non rende uno stato **riproducibile a comando** per un
+test — e quel valore anomalo lo dimostra: e' successo, e un rerun lo ha gia'
+cancellato. Un percorso di rendering mai eseguito non e' codice che funziona:
+e' codice di cui non si sa niente. E' la classe di difetto di CLAUDE.md 7
+applicata alla UI.
 
 **Perche' le fixture si costruiscono con i modelli veri.** Ogni riga qui sotto e'
 un'istanza di ``api.models``, non un dizionario scritto a mano. Se un campo
@@ -49,7 +53,8 @@ esercita anche il selettore multi-guild del flusso di autorizzazione:
 
 ===================  =========================================================
 ``...001`` oggi      lo stato reale della produzione: due snapshot (7 e 14/09),
-                     niente di significativo, stabilita' misurata a 7,5 ore
+                     niente di significativo, stabilita' solo su ``voice``
+                     (gap di 6,823 giorni, dopo il rerun del 15/09)
 ``...002`` maturo    dodici settimane di serie: layer grandi significativi,
                      ``voice`` volatile (assente, soppresso), eccesso negativo,
                      prima osservazione confrontabile significativa (snapshot 29)
