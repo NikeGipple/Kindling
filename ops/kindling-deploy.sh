@@ -295,9 +295,23 @@ log "END   caddy-reload"
 #
 # Le due meta':
 # - in esercizio: l'admin API del container che serve il traffico
-#   (localhost:2019/config/, raggiungibile solo dall'interno: la 2019 non e'
+#   (127.0.0.1:2019/config/, raggiungibile solo dall'interno: la 2019 non e'
 #   pubblicata e non va pubblicata). `wget` e' quello di busybox, che
 #   l'immagine alpine ha; curl no.
+#
+#   127.0.0.1 e NON `localhost`, anche se si legge peggio: il wget di busybox
+#   risolve `localhost` e prova ::1 per primo, senza ripiegare su IPv4, mentre
+#   Caddy ascolta su `localhost:2019` che in Go diventa 127.0.0.1 soltanto. Con
+#   `localhost` il primo deploy di questo passo e' uscito 19 per un
+#   "Connection refused" immediato, a configurazione identica (19/09/2026).
+#   `caddy reload`, che e' Go e prova entrambe le famiglie, passava lo stesso.
+#   tests/test_ops_script.py fallisce se qui torna un nome invece di un IPv4.
+#
+#   Nessun tentativo ripetuto, di proposito, a differenza dei cinque del
+#   reload: il reload gira prima, riprova finche' l'endpoint risponde e ferma
+#   lo script se non risponde. Quando si arriva qui la 2019 e' in ascolto per
+#   costruzione. I tentativi del reload non sono di troppo: sono loro a
+#   garantirlo.
 # - attesa: `caddy adapt` in un container NUOVO, l'unico modo di leggere con
 #   certezza il file che sta oggi sull'host.
 #
@@ -306,11 +320,11 @@ log "END   caddy-reload"
 # corta), quindi ordine delle chiavi, spazi e 1e+09 contro 1000000000 possono
 # differire senza che la configurazione differisca. Un confronto testuale
 # sarebbe rosso sempre. Si confronta TUTTA la configurazione e non una
-# sottostruttura: /config/ restituisce il JSON cosi' come e' stato caricato
-# (rawCfg nel sorgente di Caddy, riempito dal corpo del /load che `caddy
-# reload` invia), senza campi aggiunti. Se un giorno Caddy ne aggiungesse, il
-# messaggio stampa il primo percorso diverso, e li' si decide — non prima, su
-# un'ipotesi.
+# sottostruttura: /config/ restituisce esattamente cio' che `caddy adapt`
+# produce. MISURATO in produzione sul deploy d2bffce (19/09/2026): le due meta'
+# UGUALI, stesse chiavi di primo livello (`apps`, `logging`) — `logging`
+# compreso. Non c'e' niente da ritagliare, e restringere il confronto a una
+# parte vorrebbe dire smettere di vedere una modifica al resto.
 #
 # Non si esce subito: si registra, e l'uscita (19) viene con le altre in fondo,
 # cosi' il perimetro di kindling_api e le altre verifiche si vedono comunque.
@@ -318,7 +332,7 @@ log "START caddy-config-in-esercizio"
 caddy_config_stantia=0
 caddy_config_motivo=""
 if ! caddy_in_esercizio="$("$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" exec -T caddy \
-    wget -qO- http://localhost:2019/config/)"; then
+    wget -qO- http://127.0.0.1:2019/config/)"; then
     caddy_config_stantia=1
     caddy_config_motivo="admin API di caddy non raggiungibile: configurazione in esercizio non verificabile"
 elif ! caddy_attesa="$("$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" run --rm --no-deps -T caddy \

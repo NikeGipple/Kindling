@@ -309,14 +309,17 @@ colonna in più che nessuno seleziona ancora. La sequenza:
    **19** se differiscono o se il confronto non si può fare. Il rimedio è
    `docker compose up -d --force-recreate caddy`. A mano, le due metà sono:
    ```bash
-   docker compose exec -T caddy wget -qO- http://localhost:2019/config/
+   docker compose exec -T caddy wget -qO- http://127.0.0.1:2019/config/
    docker compose run --rm --no-deps -T caddy caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile
    ```
    Il confronto è per struttura (ordine delle chiavi e spazi non contano), e il
-   messaggio dice il primo punto diverso. Al primo deploy che lo esegue vale la
-   pena lanciare i due comandi anche a mano, una volta: che le due metà
-   coincidano quando la configurazione è la stessa è dedotto dal sorgente di
-   Caddy, non ancora misurato.
+   messaggio dice il primo punto diverso. Si confronta **tutta** la
+   configurazione, e non per prudenza: misurato sul deploy `d2bffce`
+   (19/09/2026), a configurazione uguale le due metà coincidono per intero,
+   `logging` compreso. `127.0.0.1` e non `localhost`: il `wget` di busybox
+   prova `::1` per primo, e Caddy ascolta solo su IPv4 — con `localhost` quel
+   primo deploy è uscito 19 per un `Connection refused`, non per una
+   configurazione diversa.
    `bot`, `api` e `dashboard` sono immagini distinte (non condivisa: `docker
    images` le elenca separate), ma nessuna ha un `profiles`, quindi un `up -d`
    senza argomenti ricrea **tutti** i container corrispondenti alle immagini

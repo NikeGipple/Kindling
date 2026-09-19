@@ -27,7 +27,9 @@ dati sullo stdin del processo e controllando che non arrivino fino a docker.
 
 from __future__ import annotations
 
+import ipaddress
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -380,7 +382,7 @@ DOCKER_STUB_DEPLOY = '\n'.join([
     # container nuovo. STUB_CADDY_RUNNING_FILE / STUB_CADDY_ADAPTED_FILE: file
     # con il JSON da restituire; non impostati, entrambe {"apps":{}}.
     # STUB_CADDY_ADMIN_FAILS / STUB_CADDY_ADAPT_FAILS: il comando fallisce.
-    '    *"localhost:2019/config/"*)',
+    '    *":2019/config/"*)',
     '        if [ "${STUB_CADDY_ADMIN_FAILS:-}" = "1" ]; then exit 1; fi',
     '        if [ -n "${STUB_CADDY_RUNNING_FILE:-}" ]; then cat "$STUB_CADDY_RUNNING_FILE"; exit 0; fi',
     "        printf '%s\\n' '{\"apps\":{}}' ; exit 0 ;;",
@@ -935,7 +937,7 @@ def test_il_confronto_legge_le_due_meta_nei_posti_giusti(tmp_path):
     esito = _run_deploy(tmp_path)
 
     # In esercizio: exec nel container che serve il traffico, sulla 2019 interna.
-    admin = esito.docker_args.splitlines()[_indice(esito, "localhost:2019/config/")]
+    admin = esito.docker_args.splitlines()[_indice(esito, ":2019/config/")]
     assert " exec -T caddy " in f" {admin} "
     # Attesa: un container NUOVO, l'unico che vede il file corrente.
     adapt = esito.docker_args.splitlines()[_indice(esito, "caddy adapt")]
@@ -1000,3 +1002,17 @@ def test_caddy_stantio_non_nasconde_il_perimetro(tmp_path):
     assert esito.status == 12
     assert "admin API di caddy non raggiungibile" in esito.log
     assert "perimetro compromesso" in esito.log
+
+
+def test_l_admin_api_di_caddy_si_chiama_su_un_ipv4_letterale(tmp_path):
+    # Il wget di busybox risolve `localhost` e prova ::1 per primo; Caddy
+    # ascolta su 127.0.0.1 soltanto. Con `localhost` il passo 5-ter e' uscito 19
+    # al primo deploy per un "Connection refused", a configurazione identica
+    # (19/09/2026). Si guarda l'invocazione vera, non il sorgente: e' quello
+    # che arriva a docker a dover essere un IPv4. Un nome qualunque fa fallire
+    # ip_address(), non solo `localhost`.
+    esito = _run_deploy(tmp_path)
+    admin = esito.docker_args.splitlines()[_indice(esito, ":2019/config/")]
+    host = re.search(r"http://([^/:]+):2019/config/", admin)
+    assert host, admin
+    assert ipaddress.ip_address(host.group(1)).version == 4, admin
