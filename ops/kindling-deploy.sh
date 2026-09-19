@@ -48,6 +48,9 @@ LOG_FILE="${KINDLING_DEPLOY_LOG_FILE:-/var/log/kindling/deploy.log}"
 # Pausa fra i tentativi di `caddy reload` (passo 5-bis). Variabile solo perche'
 # i test non aspettino dieci secondi per provare un reload che fallisce.
 CADDY_RELOAD_PAUSE="${KINDLING_CADDY_RELOAD_PAUSE:-2}"
+# python3 dell'host, per confrontare due JSON (passo 5-ter). Su Ubuntu c'e' di
+# serie; variabile per i test, come docker e git.
+PYTHON_BIN="${KINDLING_PYTHON_BIN:-/usr/bin/python3}"
 
 # --- log ---------------------------------------------------------------
 #
@@ -74,7 +77,8 @@ mkdir -p "$(dirname "$LOG_FILE")"
 # dashboard ha variabili di database (o non si e' potuto verificarlo), e uno
 # fallito per un errore imprevisto sono situazioni diverse — e cosi' api o
 # dashboard che non eseguono il commit del deploy (17) e un bot che va ancora
-# ricreato a mano (18) — e chi legge l'esito
+# ricreato a mano (18), o un Caddy che non esegue il Caddyfile corrente (19)
+# — e chi legge l'esito
 # da fuori (una shell interattiva, o in futuro un monitoraggio) deve poterle
 # distinguere senza andare a leggere il log.
 MIGRATIONS_MISSING_EXIT=10
@@ -86,6 +90,7 @@ CADDY_CONFIG_EXIT=15
 CADDY_VOLUME_EXIT=16
 CODE_VERSION_MISMATCH_EXIT=17
 BOT_CODE_STALE_EXIT=18
+CADDY_CONFIG_STALE_EXIT=19
 
 # Le variabili che il container dashboard non deve AVERE (dashboard.md 1). Stesso
 # elenco di dashboard/config.py DATABASE_VARIABLES: tests/test_dashboard_deploy.py
@@ -216,7 +221,7 @@ log "END   build"
 log "START caddy-validate"
 if ! "$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" run --rm --no-deps -T caddy \
     caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile; then
-    log "ABORT ops/Caddyfile non valido: nessun servizio toccato"
+    log "ABORT ops/caddy/Caddyfile non valido: nessun servizio toccato"
     exit "$CADDY_CONFIG_EXIT"
 fi
 log "END   caddy-validate"
@@ -248,7 +253,13 @@ log "END   up-api-dashboard-caddy"
 
 # --- passo 5-bis: ricaricare il Caddyfile, e fallire se non si ricarica -----
 #
-# Il Caddyfile e' un bind mount: se cambia solo lui, `up -d` NON ricrea il
+# Il reload funziona solo perche' il mount e' una DIRECTORY (ops/caddy ->
+# /etc/caddy, vedi docker-compose.yml). Fino al 19/09/2026 era il singolo file,
+# legato all'inode: `git pull` sostituisce il file invece di riscriverlo, e
+# questo `exec` nel container vecchio ricaricava il Caddyfile di quando il
+# container era partito — riuscendo. Il passo 5-ter esiste per quel caso.
+#
+# Il Caddyfile sta in un bind mount: se cambia solo lui, `up -d` NON ricrea il
 # container ed esce 0 con la configurazione vecchia ancora attiva — la stessa
 # famiglia del `build` che saltava `job` perche' stava in un profilo (CLAUDE.md
 # 7). Il reload e' esplicito e decide l'esito: Caddy valida prima di applicare,
@@ -273,6 +284,111 @@ if [ "$caddy_ricaricato" -ne 1 ]; then
     exit "$CADDY_CONFIG_EXIT"
 fi
 log "END   caddy-reload"
+
+# --- passo 5-ter: la configurazione in esercizio e' quella del file ---------
+#
+# Un reload riuscito dice che Caddy ha caricato QUALCOSA, non che abbia
+# caricato il Caddyfile del repository: e' esattamente cosi' che il mount di
+# file ha nascosto una modifica, scoperta solo perche' un `Alt-Svc` si vedeva
+# da fuori. Una modifica che non si vede in un'intestazione sarebbe passata
+# inosservata per sempre.
+#
+# Le due meta':
+# - in esercizio: l'admin API del container che serve il traffico
+#   (localhost:2019/config/, raggiungibile solo dall'interno: la 2019 non e'
+#   pubblicata e non va pubblicata). `wget` e' quello di busybox, che
+#   l'immagine alpine ha; curl no.
+# - attesa: `caddy adapt` in un container NUOVO, l'unico modo di leggere con
+#   certezza il file che sta oggi sull'host.
+#
+# Il confronto e' fra STRUTTURE, non fra stringhe: l'admin API riserializza il
+# JSON caricato (in Go: chiavi in ordine alfabetico, numeri nella forma piu'
+# corta), quindi ordine delle chiavi, spazi e 1e+09 contro 1000000000 possono
+# differire senza che la configurazione differisca. Un confronto testuale
+# sarebbe rosso sempre. Si confronta TUTTA la configurazione e non una
+# sottostruttura: /config/ restituisce il JSON cosi' come e' stato caricato
+# (rawCfg nel sorgente di Caddy, riempito dal corpo del /load che `caddy
+# reload` invia), senza campi aggiunti. Se un giorno Caddy ne aggiungesse, il
+# messaggio stampa il primo percorso diverso, e li' si decide — non prima, su
+# un'ipotesi.
+#
+# Non si esce subito: si registra, e l'uscita (19) viene con le altre in fondo,
+# cosi' il perimetro di kindling_api e le altre verifiche si vedono comunque.
+log "START caddy-config-in-esercizio"
+caddy_config_stantia=0
+caddy_config_motivo=""
+if ! caddy_in_esercizio="$("$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" exec -T caddy \
+    wget -qO- http://localhost:2019/config/)"; then
+    caddy_config_stantia=1
+    caddy_config_motivo="admin API di caddy non raggiungibile: configurazione in esercizio non verificabile"
+elif ! caddy_attesa="$("$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" run --rm --no-deps -T caddy \
+    caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile)"; then
+    caddy_config_stantia=1
+    caddy_config_motivo="caddy adapt fallito: configurazione attesa non verificabile"
+else
+    # Uscite: 0 uguali, 1 diverse (stampa il primo percorso diverso), 2 non
+    # confrontabili (JSON illeggibile, configurazione attesa vuota). Un bool non
+    # e' mai uguale a un numero, anche se per Python True == 1.
+    set +e
+    caddy_scarto="$(CADDY_IN_ESERCIZIO="$caddy_in_esercizio" CADDY_ATTESA="$caddy_attesa" \
+        "$PYTHON_BIN" -c '
+import json, os, sys
+
+def primo_scarto(a, b, via):
+    if isinstance(a, dict) and isinstance(b, dict):
+        for chiave in sorted(set(a) | set(b)):
+            if chiave not in a or chiave not in b:
+                return via + "." + chiave
+            trovato = primo_scarto(a[chiave], b[chiave], via + "." + chiave)
+            if trovato:
+                return trovato
+        return None
+    if isinstance(a, list) and isinstance(b, list):
+        if len(a) != len(b):
+            return via + " (lunghezza %d contro %d)" % (len(a), len(b))
+        for i, (x, y) in enumerate(zip(a, b)):
+            trovato = primo_scarto(x, y, "%s[%d]" % (via, i))
+            if trovato:
+                return trovato
+        return None
+    if isinstance(a, bool) or isinstance(b, bool):
+        return None if type(a) is type(b) and a == b else via
+    return None if a == b else via
+
+try:
+    in_esercizio = json.loads(os.environ["CADDY_IN_ESERCIZIO"])
+    attesa = json.loads(os.environ["CADDY_ATTESA"])
+except Exception as errore:
+    print("JSON illeggibile: %s" % errore)
+    sys.exit(2)
+if not isinstance(attesa, dict) or not attesa:
+    print("configurazione attesa vuota")
+    sys.exit(2)
+scarto = primo_scarto(in_esercizio, attesa, "$")
+if scarto is None:
+    sys.exit(0)
+print(scarto)
+sys.exit(1)
+')"
+    confronto=$?
+    set -e
+    case "$confronto" in
+        0) ;;
+        1)
+            caddy_config_stantia=1
+            caddy_config_motivo="Caddy non esegue il Caddyfile corrente (primo punto diverso: $caddy_scarto)" ;;
+        *)
+            caddy_config_stantia=1
+            caddy_config_motivo="confronto della configurazione di caddy non riuscito (${caddy_scarto:-uscita $confronto}): non verificabile" ;;
+    esac
+fi
+if [ "$caddy_config_stantia" -ne 0 ]; then
+    log "ABORT $caddy_config_motivo"
+    echo "Ricreare il container di Caddy, che rilegge il Caddyfile da zero:" >&2
+    echo "  docker compose up -d --force-recreate caddy" >&2
+else
+    log "END   caddy-config-in-esercizio uguale al Caddyfile corrente"
+fi
 
 # --- passo 6: verifiche ------------------------------------------------
 #
@@ -597,6 +713,11 @@ fi
 if [ "$caddy_volume_rotto" -ne 0 ]; then
     log "ABORT certificati di caddy non persistenti, vedi sopra"
     exit "$CADDY_VOLUME_EXIT"
+fi
+
+if [ "$caddy_config_stantia" -ne 0 ]; then
+    log "ABORT caddy non esegue il Caddyfile corrente, vedi sopra"
+    exit "$CADDY_CONFIG_STALE_EXIT"
 fi
 
 if [ "$versione_rotta" -ne 0 ]; then

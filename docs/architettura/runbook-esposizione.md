@@ -224,7 +224,7 @@ stai per deployare il codice di ieri con tutte le verifiche verdi.
 
 Lo script ha due uscite nuove, entrambe bloccanti:
 
-- **15** — `ops/Caddyfile` non valido (fermato *prima* di `up`, niente
+- **15** — `ops/caddy/Caddyfile` non valido (fermato *prima* di `up`, niente
   toccato), oppure `caddy reload` fallito dopo `up` (Caddy serve ancora la
   configurazione precedente);
 - **16** — `/data` del container caddy non è il volume `caddy_data`: i

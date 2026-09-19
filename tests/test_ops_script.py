@@ -30,6 +30,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -374,6 +375,19 @@ DOCKER_STUB_DEPLOY = '\n'.join([
     '            echo "Error: adapting config" >&2 ; exit 1',
     "        fi",
     "        exit 0 ;;",
+    # Configurazione di Caddy (passo 5-ter): la meta' in esercizio dall'admin
+    # API (wget dentro il container), quella attesa da `caddy adapt` in un
+    # container nuovo. STUB_CADDY_RUNNING_FILE / STUB_CADDY_ADAPTED_FILE: file
+    # con il JSON da restituire; non impostati, entrambe {"apps":{}}.
+    # STUB_CADDY_ADMIN_FAILS / STUB_CADDY_ADAPT_FAILS: il comando fallisce.
+    '    *"localhost:2019/config/"*)',
+    '        if [ "${STUB_CADDY_ADMIN_FAILS:-}" = "1" ]; then exit 1; fi',
+    '        if [ -n "${STUB_CADDY_RUNNING_FILE:-}" ]; then cat "$STUB_CADDY_RUNNING_FILE"; exit 0; fi',
+    "        printf '%s\\n' '{\"apps\":{}}' ; exit 0 ;;",
+    '    *"caddy adapt"*)',
+    '        if [ "${STUB_CADDY_ADAPT_FAILS:-}" = "1" ]; then echo "Error: adapting" >&2; exit 1; fi',
+    '        if [ -n "${STUB_CADDY_ADAPTED_FILE:-}" ]; then cat "$STUB_CADDY_ADAPTED_FILE"; exit 0; fi',
+    "        printf '%s\\n' '{\"apps\":{}}' ; exit 0 ;;",
     '    *"caddy reload"*)',
     '        if [ "${STUB_CADDY_RELOAD_FAILS:-}" = "1" ]; then',
     '            echo "Error: loading new config" >&2 ; exit 1',
@@ -409,6 +423,21 @@ DOCKER_STUB_DEPLOY = '\n'.join([
 ])
 
 
+# La stessa configurazione come la restituisce l'admin API (Go: chiavi in
+# ordine alfabetico, compatta, numeri nella forma piu' corta) e come la stampa
+# `caddy adapt` (ordine del Caddyfile, spazi, intero). Sono UGUALI: un
+# confronto fra stringhe le direbbe diverse a ogni deploy.
+CADDY_IN_ESERCIZIO = (
+    '{"apps":{"http":{"servers":{"srv0":{"idle_timeout":1e+09,'
+    '"listen":[":443"],"protocols":["h1","h2"]}}}}}'
+)
+CADDY_ATTESA = """{
+  "apps": {"http": {"servers": {"srv0": {
+    "listen": [":443"], "protocols": ["h1", "h2"], "idle_timeout": 1000000000
+  }}}}
+}"""
+
+
 @dataclass(frozen=True)
 class EsitoDeploy:
     status: int
@@ -441,6 +470,10 @@ def _run_deploy(
     bot_missing: bool = False,
     git_commit_missing: bool = False,
     git_bot_diff: int = 0,
+    caddy_running: str = CADDY_IN_ESERCIZIO,
+    caddy_adapted: str = CADDY_ATTESA,
+    caddy_admin_fails: bool = False,
+    caddy_adapt_fails: bool = False,
 ) -> EsitoDeploy:
     binaries = tmp_path / "bin"
     binaries.mkdir(exist_ok=True)
@@ -449,6 +482,10 @@ def _run_deploy(
 
     project_dir = tmp_path / "progetto"
     (project_dir / "migrations").mkdir(parents=True, exist_ok=True)
+    running_file = tmp_path / "caddy-running.json"
+    adapted_file = tmp_path / "caddy-adapted.json"
+    running_file.write_text(caddy_running, encoding="utf-8")
+    adapted_file.write_text(caddy_adapted, encoding="utf-8")
     for nome in migrations:
         (project_dir / "migrations" / nome).write_text("-- fake\n", encoding="utf-8")
 
@@ -478,6 +515,11 @@ def _run_deploy(
         STUB_GIT_COMMIT_MISSING="1" if git_commit_missing else "0",
         STUB_GIT_BOT_DIFF=str(git_bot_diff),
         GIT_ARGS_FILE=str(tmp_path / "git-args.txt"),
+        STUB_CADDY_RUNNING_FILE=str(running_file),
+        STUB_CADDY_ADAPTED_FILE=str(adapted_file),
+        STUB_CADDY_ADMIN_FAILS="1" if caddy_admin_fails else "0",
+        STUB_CADDY_ADAPT_FAILS="1" if caddy_adapt_fails else "0",
+        KINDLING_PYTHON_BIN=sys.executable,
         KINDLING_CADDY_RELOAD_PAUSE="0",
         KINDLING_DOCKER_BIN=str(binaries / "docker"),
         KINDLING_GIT_BIN=str(binaries / "git"),
@@ -778,6 +820,7 @@ def test_nessun_comando_eredita_uno_stdin_leggibile_nel_deploy(tmp_path):
         DEPLOY_DOCKER_ARGS_FILE=str(tmp_path / "docker-args.txt"),
         DEPLOY_DOCKER_ENV_FILE=str(tmp_path / "docker-env.txt"),
         STUB_SCHEMA_MIGRATIONS="0001_a.sql",
+        KINDLING_PYTHON_BIN=sys.executable,
         KINDLING_DOCKER_BIN=str(binaries / "docker"),
         KINDLING_GIT_BIN=str(binaries / "git"),
         KINDLING_PROJECT_DIR=str(project_dir),
@@ -870,3 +913,90 @@ def test_api_fuori_commit_e_bot_da_ricreare_si_vedono_entrambi(tmp_path):
     assert esito.status == 17
     assert "api ha KINDLING_CODE_VERSION vuota" in esito.log
     assert "bot ha KINDLING_CODE_VERSION vuota" in esito.log
+
+
+# --- Caddy esegue il Caddyfile corrente (19/09/2026) -------------------------
+#
+# Con il Caddyfile montato come file, un `git pull` lasciava il container sul
+# file vecchio e il reload riusciva lo stesso: HTTP/3 e' rimasto acceso dopo il
+# deploy che lo spegneva. Il mount ora e' una directory; questo e' il controllo
+# che se ne accorgerebbe se succedesse di nuovo, per qualunque causa.
+
+
+def test_la_stessa_configurazione_serializzata_diversamente_passa(tmp_path):
+    # Chiavi in altro ordine, spazi, 1e+09 contro 1000000000: stessa config.
+    esito = _run_deploy(tmp_path)
+
+    assert esito.status == 0, esito.log
+    assert "caddy-config-in-esercizio uguale al Caddyfile corrente" in esito.log
+
+
+def test_il_confronto_legge_le_due_meta_nei_posti_giusti(tmp_path):
+    esito = _run_deploy(tmp_path)
+
+    # In esercizio: exec nel container che serve il traffico, sulla 2019 interna.
+    admin = esito.docker_args.splitlines()[_indice(esito, "localhost:2019/config/")]
+    assert " exec -T caddy " in f" {admin} "
+    # Attesa: un container NUOVO, l'unico che vede il file corrente.
+    adapt = esito.docker_args.splitlines()[_indice(esito, "caddy adapt")]
+    assert "run --rm --no-deps" in adapt
+    # Dopo il reload, non prima.
+    assert _indice(esito, "caddy adapt") > _indice(esito, "caddy reload")
+
+
+def test_configurazione_in_esercizio_vecchia_ferma_il_deploy(tmp_path):
+    # Il caso del 19/09: il container gira ancora senza il blocco globale.
+    vecchia = '{"apps":{"http":{"servers":{"srv0":{"idle_timeout":1e+09,"listen":[":443"]}}}}}'
+    esito = _run_deploy(tmp_path, caddy_running=vecchia)
+
+    assert esito.status == 19, esito.log
+    assert "Caddy non esegue il Caddyfile corrente" in esito.log
+    assert "$.apps.http.servers.srv0.protocols" in esito.log
+    assert "docker compose up -d --force-recreate caddy" in esito.stderr
+    assert "=== fine (ok) ===" not in esito.log
+
+
+def test_un_valore_diverso_in_una_lista_ferma_il_deploy(tmp_path):
+    diversa = CADDY_IN_ESERCIZIO.replace('"h1","h2"', '"h1","h2","h3"')
+    esito = _run_deploy(tmp_path, caddy_running=diversa)
+
+    assert esito.status == 19, esito.log
+    assert "protocols (lunghezza 3 contro 2)" in esito.log
+
+
+def test_un_booleano_non_e_uguale_a_un_numero(tmp_path):
+    # Per Python True == 1: senza la regola apposta, questi due passerebbero.
+    esito = _run_deploy(
+        tmp_path, caddy_running='{"apps":{"x":true}}', caddy_adapted='{"apps":{"x":1}}',
+    )
+
+    assert esito.status == 19, esito.log
+
+
+@pytest.mark.parametrize(
+    ("argomenti", "atteso"),
+    [
+        ({"caddy_admin_fails": True}, "admin API di caddy non raggiungibile"),
+        ({"caddy_adapt_fails": True}, "caddy adapt fallito"),
+        ({"caddy_running": ""}, "JSON illeggibile"),
+        ({"caddy_adapted": "non json"}, "JSON illeggibile"),
+        ({"caddy_running": "{}", "caddy_adapted": "{}"}, "configurazione attesa vuota"),
+    ],
+    ids=["admin-giu", "adapt-fallito", "in-esercizio-vuota", "attesa-illeggibile", "entrambe-vuote"],
+)
+def test_un_confronto_che_non_si_puo_fare_non_passa_per_riuscito(tmp_path, argomenti, atteso):
+    esito = _run_deploy(tmp_path, **argomenti)
+
+    assert esito.status == 19, esito.log
+    assert atteso in esito.log
+    assert "=== fine (ok) ===" not in esito.log
+
+
+def test_caddy_stantio_non_nasconde_il_perimetro(tmp_path):
+    # Si registra e si esce in fondo: il perimetro di kindling_api si verifica
+    # lo stesso, e il suo codice ha la precedenza.
+    esito = _run_deploy(tmp_path, caddy_admin_fails=True, graph_edges_leaks=True)
+
+    assert esito.status == 12
+    assert "admin API di caddy non raggiungibile" in esito.log
+    assert "perimetro compromesso" in esito.log

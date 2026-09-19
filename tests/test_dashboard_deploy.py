@@ -154,7 +154,7 @@ def test_caddy_ha_la_forma_di_dashboard_fase2_8_bis():
     assert caddy["restart"] == "unless-stopped"
     assert caddy["mem_limit"] == "96m"
     assert set(caddy["volumes"]) == {
-        "./ops/Caddyfile:/etc/caddy/Caddyfile:ro",
+        "./ops/caddy:/etc/caddy:ro",
         "caddy_data:/data",
         "caddy_config:/config",
         "./legal:/srv/legal:ro",
@@ -171,7 +171,7 @@ def test_caddy_ha_la_forma_di_dashboard_fase2_8_bis():
     assert "env_file" not in caddy and "environment" not in caddy
     # Ogni file montato esiste nel repo: un bind mount di un percorso assente
     # crea una directory vuota al suo posto, in silenzio.
-    assert (REPO / "ops" / "Caddyfile").is_file()
+    assert (REPO / "ops" / "caddy" / "Caddyfile").is_file()
     assert (REPO / "legal" / "index.html").is_file()
 
 
@@ -368,13 +368,73 @@ def test_le_dipendenze_della_dashboard_sono_in_requirements():
     assert "itsdangerous" in testo
 
 
-# --- ops/Caddyfile -------------------------------------------------------------
+# --- ops/caddy/Caddyfile -------------------------------------------------------
 #
 # Controlli sul testo, per la stessa ragione del resto del file: un access log
 # spento, un HSTS che impegna i sottodomini o /health esposta non producono
 # nessun errore.
 
-CADDYFILE = REPO / "ops" / "Caddyfile"
+CADDYFILE = REPO / "ops" / "caddy" / "Caddyfile"
+
+
+def _mount_del_caddyfile(compose: dict) -> list[str]:
+    """Le voci di volume di caddy che portano il Caddyfile dentro il container."""
+    return [
+        v for v in compose["services"]["caddy"]["volumes"]
+        if isinstance(v, str) and ":/etc/caddy" in v
+    ]
+
+
+def _problemi_del_mount(compose: dict) -> list[str]:
+    """Cosa c'e' di sbagliato nel mount del Caddyfile; vuoto se va bene.
+
+    Una DIRECTORY, non il file: un bind mount di file e' legato all'inode, e
+    `git pull` sostituisce il Caddyfile invece di riscriverlo. Il container
+    vedeva il file di quando era partito e il `caddy reload` del deploy lo
+    ricaricava riuscendo (19/09/2026, HTTP/3 rimasto acceso). E in sola
+    lettura, e non `./ops` intera, che contiene gli script di deploy.
+    """
+    voci = _mount_del_caddyfile(compose)
+    if len(voci) != 1:
+        return [f"attesa una voce sola verso /etc/caddy, trovate {voci}"]
+    parti = voci[0].split(":")
+    if len(parti) != 3:
+        return [f"forma inattesa: {voci[0]}"]
+    sorgente, destinazione, modo = parti
+    problemi = []
+    if not (REPO / sorgente).is_dir():
+        problemi.append(f"la sorgente {sorgente} non e' una directory del repo")
+    if destinazione != "/etc/caddy":
+        problemi.append(f"destinazione {destinazione}: deve essere la directory /etc/caddy")
+    if modo != "ro":
+        problemi.append(f"modo {modo}: deve essere ro")
+    if sorgente.rstrip("/") in (".", "./ops"):
+        problemi.append(f"{sorgente} monta piu' del solo Caddyfile")
+    return problemi
+
+
+def test_il_caddyfile_si_monta_come_directory_in_sola_lettura():
+    assert _problemi_del_mount(_compose()) == []
+    assert (REPO / "ops" / "caddy" / "Caddyfile").is_file()
+
+
+@pytest.mark.parametrize(
+    "voce",
+    [
+        "./ops/caddy/Caddyfile:/etc/caddy/Caddyfile:ro",  # il ritorno al mount di file
+        "./ops/caddy:/etc/caddy",  # senza :ro
+        "./ops/caddy:/etc/caddy:rw",
+        "./ops:/etc/caddy:ro",  # gli script di deploy dentro il proxy
+    ],
+    ids=["file", "senza-modo", "rw", "ops-intera"],
+)
+def test_il_controllo_del_mount_riconosce_le_forme_sbagliate(voce):
+    compose = _compose()
+    volumi = compose["services"]["caddy"]["volumes"]
+    compose["services"]["caddy"]["volumes"] = [
+        voce if v in _mount_del_caddyfile(compose) else v for v in volumi
+    ]
+    assert _problemi_del_mount(compose) != []
 
 
 def _blocchi_di_primo_livello() -> dict[str, str]:

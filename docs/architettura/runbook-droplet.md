@@ -296,9 +296,27 @@ colonna in più che nessuno seleziona ancora. La sequenza:
    `caddy` (fase 2, `dashboard-fase2.md` 8-bis) usa un'immagine ufficiale, ma
    vale lo stesso: non nominato, resta spento. Subito dopo,
    `docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile`:
-   il Caddyfile è un bind mount, e se è cambiato solo lui `up -d` non ricrea il
-   container ed esce 0 con la configurazione vecchia. `ops/kindling-deploy.sh`
+   il Caddyfile sta in un bind mount, e se è cambiato solo lui `up -d` non
+   ricrea il container ed esce 0 con la configurazione vecchia. `ops/kindling-deploy.sh`
    fa entrambe le cose, e si ferma se il reload fallisce.
+   **Il mount è la directory `ops/caddy` su `/etc/caddy`, non il file**
+   (corretto il 19/09/2026). Con il file, montato per inode, un `git pull` che
+   sostituisce il Caddyfile lasciava il container sul file di prima, e il
+   reload ricaricava quello riuscendo: HTTP/3 è rimasto acceso dopo il deploy
+   che lo spegneva. Per questo, dopo il reload, lo script confronta la
+   configurazione in esercizio (admin API, dall'interno del container) con
+   `caddy adapt` del Caddyfile corrente in un container nuovo, e esce con
+   **19** se differiscono o se il confronto non si può fare. Il rimedio è
+   `docker compose up -d --force-recreate caddy`. A mano, le due metà sono:
+   ```bash
+   docker compose exec -T caddy wget -qO- http://localhost:2019/config/
+   docker compose run --rm --no-deps -T caddy caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile
+   ```
+   Il confronto è per struttura (ordine delle chiavi e spazi non contano), e il
+   messaggio dice il primo punto diverso. Al primo deploy che lo esegue vale la
+   pena lanciare i due comandi anche a mano, una volta: che le due metà
+   coincidano quando la configurazione è la stessa è dedotto dal sorgente di
+   Caddy, non ancora misurato.
    `bot`, `api` e `dashboard` sono immagini distinte (non condivisa: `docker
    images` le elenca separate), ma nessuna ha un `profiles`, quindi un `up -d`
    senza argomenti ricrea **tutti** i container corrispondenti alle immagini

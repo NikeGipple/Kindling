@@ -197,7 +197,7 @@ services:
     # configurazione OAuth, e una variabile mancante ferma il processo li'.
     # --no-access-log: l'access log di uvicorn scrive la query string, e sul
     # callback OAuth vuol dire il `code` in chiaro nei log (dashboard.md 3).
-    # L'access log vive in Caddy, con il `code` filtrato (ops/Caddyfile).
+    # L'access log vive in Caddy, con il `code` filtrato (ops/caddy/Caddyfile).
     command:
       ["uvicorn", "dashboard.main:crea_app", "--factory", "--host", "0.0.0.0", "--port", "8000",
        "--workers", "1", "--no-access-log"]
@@ -216,7 +216,7 @@ services:
         condition: service_healthy
 
   # Caddy: TLS automatico davanti alla sola dashboard, e le pagine legali
-  # sull'apex (dashboard-fase2.md 8-bis; la configurazione e' ops/Caddyfile).
+  # sull'apex (dashboard-fase2.md 8-bis; la configurazione e' ops/caddy/Caddyfile).
   #
   # 80 e 443 su TUTTE le interfacce: e' l'unica eccezione alla regola del
   # progetto, decisa in dashboard.md 8, ed e' stretta — solo questo servizio,
@@ -230,7 +230,18 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./ops/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Una DIRECTORY, non il file, e non e' un dettaglio: un bind mount di un
+      # singolo file e' legato all'inode, e `git pull` non riscrive un file sul
+      # posto — ne scrive uno nuovo e lo rinomina sopra il vecchio. Il container
+      # continuava a vedere il Caddyfile di quando era stato avviato, e il
+      # `caddy reload` del deploy (che gira con `exec` in quel container)
+      # ricaricava quello, senza errori: una modifica al Caddyfile non entrava
+      # mai in esercizio (19/09/2026, HTTP/3 rimasto acceso dopo il deploy che
+      # lo spegneva). Con una directory il nome si risolve a ogni apertura.
+      # Non `./ops` intera: ci sono gli script di deploy, che in un reverse
+      # proxy non hanno niente da fare. Sola lettura.
+      # tests/test_dashboard_deploy.py fallisce su un ritorno al mount di file.
+      - ./ops/caddy:/etc/caddy:ro
       # Certificati e chiave dell'account ACME. Volume NOMINATO, non un
       # dettaglio: senza, ogni ricreazione del container chiede certificati
       # nuovi, e Let's Encrypt ne concede 5 a settimana per lo stesso insieme di

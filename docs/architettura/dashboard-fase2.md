@@ -133,7 +133,7 @@ di configurazione invece che di codice.
 > access log del sistema — il rimedio peggiore del problema. `log_skip` esiste
 > (da Caddy 2.8; `caddy:2-alpine` è oggi 2.11.4), ma la forma scelta è un'altra.
 
-**La forma adottata** (`ops/Caddyfile`): `log` attivo sull'hostname della
+**La forma adottata** (`ops/caddy/Caddyfile`): `log` attivo sull'hostname della
 dashboard, con `format filter` che toglie **il solo parametro `code`** dalla
 query string (`request>uri query { delete code }`). La riga del callback resta,
 con stato e durata: è quella che serve a diagnosticare il primo login vero, e
@@ -265,7 +265,7 @@ Come per `dashboard` in §8, scritta qui e non decisa a margine del codice.
 | Nome del servizio | `caddy` |
 | Immagine | `caddy:2-alpine` — ufficiale, non costruita da noi |
 | Porte | `80` e `443` **su tutte le interfacce**. È l'unica eccezione alla regola del progetto, ed è stretta: solo questo servizio, solo queste due porte |
-| `volumes` | `./ops/Caddyfile:/etc/caddy/Caddyfile:ro`, `caddy_data:/data`, `caddy_config:/config`, `./legal:/srv/legal:ro` |
+| `volumes` | `./ops/caddy:/etc/caddy:ro` (una directory: vedi sotto, «Il reload del Caddyfile»), `caddy_data:/data`, `caddy_config:/config`, `./legal:/srv/legal:ro` |
 | `mem_limit` | `96m` (misurato ~30 MB in `dashboard.md` §2; il tetto è margine, non stima) |
 | `depends_on` | `dashboard`, con `condition: service_started` — **non** `service_healthy`, vedi sotto |
 | `restart` | `unless-stopped` |
@@ -357,6 +357,21 @@ script verifica anche che `/data` del container sia il volume con etichetta
 `com.docker.compose.volume=caddy_data` (codice 16): per etichetta e non per
 nome, perché Compose antepone il nome del progetto, e dopo `up`, perché prima del
 primo avvio il volume non esiste.
+
+*Corretto il 19/09/2026: il reload così com'era scritto non poteva applicare
+niente.* Il Caddyfile era montato come **singolo file**
+(`./ops/Caddyfile:/etc/caddy/Caddyfile:ro`), e un bind mount di file è legato
+all'inode. `git pull` sostituisce i file (ne scrive uno nuovo e lo rinomina),
+quindi il container continuava a vedere il file di quando era stato avviato; il
+reload, eseguito con `exec` proprio in quel container, ricaricava quello — senza
+errori. La validazione passava perché gira in un container nuovo (`run`), che
+monta il file corrente. Il rimedio conteneva il difetto che doveva curare: il
+problema (`up -d` non ricrea per un bind mount cambiato) era capito al livello
+giusto, il comportamento di `exec` sullo stesso mount no. Ora si monta la
+**directory** `./ops/caddy` su `/etc/caddy`, in sola lettura, e dopo il reload
+lo script confronta la configurazione in esercizio (admin API, dall'interno del
+container) con l'adattamento del Caddyfile corrente in un container nuovo
+(codice 19 se differiscono).
 
 ### I file statici stanno sull'apex, non sulla dashboard
 
