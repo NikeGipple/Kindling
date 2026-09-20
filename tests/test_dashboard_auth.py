@@ -163,7 +163,7 @@ def test_l_insieme_autorizzato_e_l_intersezione_con_le_osservate():
         _guild(GUILD_MATURE, "0"),  # osservata, non admin
         _guild(999, "8"),  # admin, non osservata
     ]
-    assert auth.guild_autorizzate(risposta, {GUILD_TODAY, GUILD_MATURE}) == {GUILD_TODAY}
+    assert auth.guild_autorizzate(risposta, {GUILD_TODAY, GUILD_MATURE}).guilds == {GUILD_TODAY}
 
 
 # --- il login ------------------------------------------------------------------
@@ -190,9 +190,11 @@ def test_login_interattivo_completo(client_per):
 def test_la_sessione_non_contiene_token_ne_identita(client_per):
     client = client_per()
     _login(client)
-    # Esattamente questi tre campi: nessun token, nessuno username, nessun id
-    # Discord di chi si collega (dashboard.md 3). Il cookie e' leggibile.
-    assert set(_sessione(client)) == {"guilds", "login_at", "checked_at"}
+    # Esattamente questi quattro campi: nessun token, nessuno username, nessun
+    # id Discord di chi si collega (dashboard.md 3). Il cookie e' leggibile.
+    # "nomi" non e' un'identita': e' come si chiama una cosa che chi legge
+    # quel cookie amministra, e che quindi sa gia'.
+    assert set(_sessione(client)) == {"guilds", "nomi", "login_at", "checked_at"}
     assert _sessione(client)["guilds"] == [GUILD_TODAY]
     assert "token-finto" not in client.cookies.get(auth.COOKIE_SESSIONE)
 

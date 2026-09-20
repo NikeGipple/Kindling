@@ -15,10 +15,9 @@
     quality.details non si legge (regola 2). -#}
 {% extends "base.html" %}
 {% from "_cella.html" import mostra, etichette %}
-{% block titolo %}Community {{ guild_id }}{% endblock %}
+{% block titolo %}Community · {{ nome_server }}{% endblock %}
 {% block contenuto %}
 <h1>Community</h1>
-<p class="sottotitolo">Server <code>{{ guild_id }}</code></p>
 <p class="nota">Due domande per ogni tipo di interazione. <strong>Struttura</strong>:
 le persone formano gruppi distinguibili da quelli di un grafo casuale con gli stessi
 gradi? <strong>Stabilità</strong>: quei gruppi sono gli stessi dello snapshot precedente,

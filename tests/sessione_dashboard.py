@@ -16,7 +16,7 @@ import json
 import secrets
 import time
 from base64 import b64encode
-from typing import Iterable, Optional
+from typing import Iterable, Mapping, Optional
 
 import itsdangerous
 from fastapi.testclient import TestClient
@@ -68,13 +68,26 @@ def dati_di_sessione(
     *,
     login_at: Optional[float] = None,
     checked_at: Optional[float] = None,
+    nomi: Optional[Mapping[int, str]] = None,
 ) -> dict:
+    """Il contenuto di una sessione firmata.
+
+    **Senza ``nomi`` il risultato ha la forma PRECEDENTE al commit dei nomi dei
+    server**, cioe' senza la chiave: e' voluto, e non e' una svista da sistemare.
+    Cosi' quasi tutta la suite gira sul cookie che le persone gia' collegate
+    avevano in mano nel momento del deploy, che e' l'unico caso che in produzione
+    non si puo' riprovare.
+    """
     ora = time.time()
-    return {
+    dati = {
         "guilds": sorted(guilds),
         "login_at": ora if login_at is None else login_at,
         "checked_at": ora if checked_at is None else checked_at,
     }
+    if nomi is not None:
+        # Le chiavi di un oggetto JSON sono stringhe, come le scrive auth.py.
+        dati["nomi"] = {str(gid): nome for gid, nome in sorted(nomi.items())}
+    return dati
 
 
 def entra(client: TestClient, dati: Optional[dict] = None, **firma) -> TestClient:

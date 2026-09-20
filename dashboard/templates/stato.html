@@ -7,10 +7,9 @@
     come testo letterale: stats e' diagnostica, non contratto (api.md 3), e le sue
     chiavi non possono diventare etichette ne' condizioni. -#}
 {% extends "base.html" %}
-{% block titolo %}Stato {{ guild.guild_id }}{% endblock %}
+{% block titolo %}Stato · {{ nome_server }}{% endblock %}
 {% block contenuto %}
 <h1>Stato</h1>
-<p class="sottotitolo">Server <code>{{ guild.guild_id }}</code></p>
 
 <section aria-labelledby="osservazione">
   <h2 id="osservazione">Da quando osserviamo</h2>

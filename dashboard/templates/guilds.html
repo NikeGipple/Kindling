@@ -9,7 +9,14 @@
   <tbody>
   {% for g in guilds %}
     <tr>
-      <td><a href="/guilds/{{ g.guild_id }}"><code>{{ g.guild_id }}</code></a></td>
+      {#- Il nome se la sessione ce l'ha, l'ID sotto in piccolo: e' quello che si
+          incolla in un comando o in un messaggio, e senza non si distinguono due
+          server chiamati uguale. Un cookie firmato prima del deploy dei nomi non
+          ne ha nessuno, e l'elenco torna com'era. -#}
+      <td>
+        <a href="/guilds/{{ g.guild_id }}">{{ nomi[g.guild_id] if g.guild_id in nomi else g.guild_id }}</a>
+        {% if g.guild_id in nomi %}<div class="nota"><code>{{ g.guild_id }}</code></div>{% endif %}
+      </td>
       <td>{{ g.first_seen_at | data_ora }}</td>
       <td>{% if g.latest_metrics_as_of %}{{ g.latest_metrics_as_of | data_ora }}{% else %}nessun calcolo ancora{% endif %}</td>
     </tr>

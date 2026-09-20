@@ -12,10 +12,9 @@
     quality.details non si legge (regola 2). -#}
 {% extends "base.html" %}
 {% from "_cella.html" import mostra, etichette %}
-{% block titolo %}Robustezza {{ guild_id }}{% endblock %}
+{% block titolo %}Robustezza · {{ nome_server }}{% endblock %}
 {% block contenuto %}
 <h1>Robustezza</h1>
-<p class="sottotitolo">Server <code>{{ guild_id }}</code></p>
 <p class="nota">La connettività di questa community dipende da pochi connettori?
 Per ogni tipo di interazione si tolgono dal grafo i nodi più centrali e, a parità di
 numero, nodi presi a caso. L'<strong>eccesso mirato</strong> è quanta componente

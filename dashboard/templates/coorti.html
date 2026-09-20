@@ -22,10 +22,9 @@
     non significatività sono colonne tipizzate. -#}
 {% extends "base.html" %}
 {% from "_cella.html" import mostra, etichette, spiegazione %}
-{% block titolo %}Coorti {{ guild_id }}{% endblock %}
+{% block titolo %}Coorti · {{ nome_server }}{% endblock %}
 {% block contenuto %}
 <h1>Coorti</h1>
-<p class="sottotitolo">Server <code>{{ guild_id }}</code></p>
 <p class="nota">Una riga per settimana di ingresso. <strong>Integrazione</strong>:
 quanto in fretta chi è entrato quella settimana è arrivato a {{ k_connessioni }}
 connessioni distinte, stimato con una curva di sopravvivenza perché chi è entrato

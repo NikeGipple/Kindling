@@ -18,20 +18,29 @@ ore, ``state`` monouso, token Discord scartato appena usato. Le due aggiunte di
   continuo — o il ricontrollo stesso, ogni 15 minuti — terrebbe vivo per sempre.
   Il signer resta come seconda difesa, non come la difesa.
 
-Nella sessione stanno le guild autorizzate, ``checked_at`` e ``login_at`` — piu'
-``state`` e destinazione, solo fino al callback. Nessun token, nessuno username,
-nessun id Discord di chi si collega (dashboard.md 3): il cookie e' firmato, non
-cifrato, e quello che ci finisce dentro e' leggibile da chi ce l'ha.
+Nella sessione stanno le guild autorizzate, i loro nomi, ``checked_at`` e
+``login_at`` — piu' ``state`` e destinazione, solo fino al callback. Nessun token,
+nessuno username, nessun id Discord di chi si collega (dashboard.md 3): il cookie
+e' firmato, non cifrato, e quello che ci finisce dentro e' leggibile da chi ce
+l'ha. Il nome di un server non e' un'identita' di chi si collega: e' il nome di
+una cosa che quella persona amministra, e lo sa gia'.
+
+I nomi vengono da ``GET /users/@me/guilds``, non dal database
+(stato-progetto.md 7-R): ``guilds`` non ha una colonna ``name``, e Discord il nome
+lo manda gia' a ogni login e a ogni ricontrollo. **Il nome non decide mai niente**
+— l'autorizzazione si gioca sugli id, e se i nomi sparissero del tutto chi entra e
+chi no non cambierebbe di una riga.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import secrets
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Awaitable, Callable, Iterable, Mapping, Optional
+from typing import Any, Awaitable, Callable, Iterable, Mapping, MutableMapping, Optional
 from urllib.parse import urlencode
 
 import httpx
@@ -57,7 +66,26 @@ DISCORD_TIMEOUT_SECONDI = 5.0
 
 COOKIE_SESSIONE = "kindling_sessione"
 
+# Discord dichiara il nome di una guild fra 2 e 100 caratteri (campo ``name`` di
+# https://discord.com/developers/docs/resources/guild, letto il 20/09/2026). Il
+# troncamento e' una rete contro una risposta che violi il proprio limite, non
+# una regola nostra: in pratica non deve mai scattare.
+LUNGHEZZA_MASSIMA_NOME = 100
+
+# Il budget del JSON di sessione, in byte, PRIMA di base64 e firma. Un cookie sta
+# sotto i 4096 byte contando nome, valore e attributi, e da quel tetto si torna
+# indietro: il valore e' ``base64(json)`` firmato, cioe' 4*ceil(n/3) byte piu' 35
+# di firma (il punto separatore, il timestamp e l'HMAC-SHA1 in base64 di
+# itsdangerous), piu' 73 fra il nome del cookie e gli attributi che
+# SessionMiddleware scrive sempre (``path``, ``Max-Age``, ``httponly``,
+# ``samesite``, ``secure``). Con n = 2800: 4*934 + 35 + 73 = 3844, e restano ~250
+# byte di margine. La misura si fa con lo stesso ``json.dumps`` di Starlette, che
+# scrive i separatori larghi e sfugge i non-ASCII: e' il caso peggiore, quindi si
+# sbaglia dalla parte prudente.
+BUDGET_JSON_SESSIONE_BYTE = 2800
+
 _K_GUILDS = "guilds"
+_K_NOMI = "nomi"
 _K_CHECKED_AT = "checked_at"
 _K_LOGIN_AT = "login_at"
 _K_FLUSSO = "oauth_flusso"
@@ -119,12 +147,57 @@ def e_amministratore(guild: Mapping[str, Any]) -> bool:
     return int(permessi) & ADMINISTRATOR == ADMINISTRATOR
 
 
-def guild_autorizzate(risposta_discord: Any, osservate: Iterable[int]) -> frozenset[int]:
-    """Le guild osservate da Kindling su cui l'utente e' amministratore.
+@dataclass(frozen=True)
+class Autorizzazione:
+    """Chi entra, e come si chiamano i server. Due campi, una sola decisione.
+
+    ``guilds`` e' l'autorizzazione. ``nomi`` la accompagna: contiene solo guild
+    che stanno gia' in ``guilds``, e solo quelle che un nome ce l'hanno.
+    """
+
+    guilds: frozenset[int]
+    nomi: Mapping[int, str]
+
+    def __bool__(self) -> bool:
+        # Prima di questo commit la funzione restituiva un insieme, e
+        # ``if not autorizzate`` era una riga vera di completa_callback. Su un
+        # oggetto quella riga e' sempre falsa: farla alzare e' l'unico modo
+        # perche' un insieme autorizzato vuoto non passi in silenzio.
+        raise TypeError("Autorizzazione non si valuta come booleana: guarda .guilds")
+
+
+def _nome_di_guild(guild: Mapping[str, Any]) -> Optional[str]:
+    """Il nome della guild, se c'e' ed e' una stringa. Mai un motivo per negare.
+
+    E' qui la differenza con ``id`` e ``permissions``, e vale dirla: quelli fanno
+    alzare quando sono fuori forma, perche' sono i dati su cui si decide. Un
+    ``name`` assente, non stringa o vuoto non fa niente — la guild resta
+    autorizzata e semplicemente non ha nome. Il nome non vota, ne' per concedere
+    ne' per negare.
+
+    Si tronca in SCRITTURA, non in rendering: una sessione con dentro un nome
+    lungo quanto pare sarebbe un problema del cookie, non della pagina.
+    """
+    nome = guild.get("name")
+    if not isinstance(nome, str):
+        return None
+    # Prima il taglio, poi lo strip: cosi' un troncamento non lascia uno spazio
+    # in coda, e uno spazio in testa (che Discord dichiara di escludere) sparisce
+    # comunque.
+    nome = nome[:LUNGHEZZA_MASSIMA_NOME].strip()
+    return nome or None
+
+
+def guild_autorizzate(risposta_discord: Any, osservate: Iterable[int]) -> Autorizzazione:
+    """Le guild osservate da Kindling su cui l'utente e' amministratore, e i loro nomi.
 
     ``risposta_discord`` e' il JSON di ``GET /users/@me/guilds``, non ancora
     fidato: qualunque voce fuori forma fa alzare, e un'eccezione qui e' un
     accesso negato. Mai un "salto la voce strana e tengo le altre".
+
+    "Fuori forma" riguarda ``id`` e ``permissions``, non ``name``: vedi
+    ``_nome_di_guild``. I nomi si raccolgono per le guild gia' autorizzate, dopo
+    che la decisione e' presa.
 
     Discord restituisce al massimo 200 guild per pagina e qui se ne legge una:
     chi e' in piu' di 200 server puo' non vedere quelli oltre la prima pagina.
@@ -134,6 +207,7 @@ def guild_autorizzate(risposta_discord: Any, osservate: Iterable[int]) -> frozen
         raise RispostaDiscordNonValida("la risposta delle guild non e' una lista")
     osservate = frozenset(osservate)
     autorizzate = set()
+    nomi: dict[int, str] = {}
     for guild in risposta_discord:
         if not isinstance(guild, dict):
             raise RispostaDiscordNonValida("una guild non e' un oggetto")
@@ -142,7 +216,10 @@ def guild_autorizzate(risposta_discord: Any, osservate: Iterable[int]) -> frozen
             raise RispostaDiscordNonValida(f"id di guild non valido: {gid!r}")
         if e_amministratore(guild) and int(gid) in osservate:
             autorizzate.add(int(gid))
-    return frozenset(autorizzate)
+            nome = _nome_di_guild(guild)
+            if nome is not None:
+                nomi[int(gid)] = nome
+    return Autorizzazione(guilds=frozenset(autorizzate), nomi=nomi)
 
 
 # --- sessione ----------------------------------------------------------------
@@ -153,10 +230,62 @@ class Sessione:
     guilds: frozenset[int]
     login_at: float
     checked_at: float
+    # I nomi dei server autorizzati che ne hanno uno in sessione. Le chiavi
+    # stanno sempre dentro ``guilds``: lo impone ``_nomi_di_sessione``.
+    nomi: Mapping[int, str]
+
+
+def _nomi_di_sessione(dati: Mapping[str, Any], guilds: frozenset[int]) -> Optional[dict[int, str]]:
+    """I nomi scritti in sessione, o ``None`` se la chiave c'e' e non va bene.
+
+    Tre casi, tenuti distinti di proposito.
+
+    1. **Chiave assente**: mappa vuota, sessione valida. E' il cookie firmato
+       prima del deploy di questo codice, e un cambio di formato che sloggia
+       tutti sarebbe rumore per niente: la testata mostra l'ID finche' il
+       ricontrollo dei 15 minuti non riscrive la sessione con i nomi.
+    2. **Chiave presente e fuori forma** — non una mappa, una chiave che non e'
+       un intero, un valore che non e' una stringa: ``None``, cioe' nessuna
+       sessione. O tutta o niente, mai "salto la voce strana e tengo le altre".
+    3. **Chiave presente e valida, ma con una guild fuori dall'insieme
+       autorizzato**: ``None`` anche qui, ed e' la decisione meno ovvia delle
+       tre. Questi dati li scriviamo noi, e ``completa_callback`` scrive
+       ``guilds`` e ``nomi`` insieme subito dopo un ``clear()``: non esiste un
+       cammino normale che li faccia divergere. Se divergono, o la firma l'ha
+       prodotta qualcun altro o il difetto e' nostro, e in nessuno dei due casi
+       "tengo il resto" e' automaticamente giusto — vorrebbe dire continuare su
+       dati che abbiamo appena dimostrato di non capire. Non costa niente alle
+       sessioni gia' vive, che ricadono nel caso 1, e rende rumoroso un futuro
+       scrittore che sbagli l'invariante invece di lasciarlo passare.
+    """
+    if _K_NOMI not in dati:
+        return {}
+    grezzi = dati[_K_NOMI]
+    if not isinstance(grezzi, dict):
+        return None
+    nomi: dict[int, str] = {}
+    for chiave, valore in grezzi.items():
+        # Le chiavi di un oggetto JSON sono stringhe: l'id torna intero qui.
+        if not isinstance(chiave, str) or not (chiave.isascii() and chiave.isdigit()):
+            return None
+        if not isinstance(valore, str):
+            return None
+        gid = int(chiave)
+        if gid not in guilds:
+            return None
+        nomi[gid] = valore
+    return nomi
 
 
 def leggi_sessione(dati: Mapping[str, Any]) -> Optional[Sessione]:
-    """La sessione autenticata, o None. Un campo fuori forma vale "nessuna sessione"."""
+    """La sessione autenticata, o None. Un campo fuori forma vale "nessuna sessione".
+
+    **Questa funzione non alza mai.** ``guild_autorizzate`` legge Discord e, su
+    una risposta fuori forma, alza: li' l'eccezione diventa un accesso negato.
+    Qui si legge un cookie nostro, e l'esito e' ``None``. Stesso principio — o
+    tutta la sessione o niente — meccanismo diverso, e chiamarlo con il nome
+    dell'altro e' un modo di aspettarsi un'eccezione che non arrivera'.
+    """
     guilds = dati.get(_K_GUILDS)
     login_at = dati.get(_K_LOGIN_AT)
     checked_at = dati.get(_K_CHECKED_AT)
@@ -166,7 +295,15 @@ def leggi_sessione(dati: Mapping[str, Any]) -> Optional[Sessione]:
         return None
     if not all(isinstance(t, (int, float)) and not isinstance(t, bool) for t in (login_at, checked_at)):
         return None
-    return Sessione(guilds=frozenset(guilds), login_at=float(login_at), checked_at=float(checked_at))
+    nomi = _nomi_di_sessione(dati, frozenset(guilds))
+    if nomi is None:
+        return None
+    return Sessione(
+        guilds=frozenset(guilds),
+        login_at=float(login_at),
+        checked_at=float(checked_at),
+        nomi=nomi,
+    )
 
 
 def destinazione_sicura(valore: Any) -> str:
@@ -370,14 +507,40 @@ async def completa_callback(
         logger.warning("Verifica del permesso non riuscita: %s", type(exc).__name__)
         raise nega(Caso.VERIFICA_FALLITA) from exc
 
-    if not autorizzate:
+    if not autorizzate.guilds:
         raise nega(Caso.NESSUN_SERVER)
 
     dati.clear()
-    dati[_K_GUILDS] = sorted(autorizzate)
+    dati[_K_GUILDS] = sorted(autorizzate.guilds)
     dati[_K_LOGIN_AT] = login_at
     dati[_K_CHECKED_AT] = adesso()
+    # I nomi passano di qui a ogni login E a ogni ricontrollo silenzioso, cioe'
+    # almeno ogni 15 minuti: un server rinominato prende il nome nuovo da solo,
+    # e l'invalidazione della cache che qualcuno cerchera' altrove e' questa riga.
+    _scrivi_nomi(dati, autorizzate.nomi)
     return destinazione_sicura(flusso.get("dopo"))
+
+
+def _scrivi_nomi(dati: MutableMapping[str, Any], nomi: Mapping[int, str]) -> None:
+    """Scrive in sessione tutti i nomi, o nessuno.
+
+    Mai qualcuno: un elenco in cui tre server hanno il nome e due il numero
+    sembra un difetto, mentre un ripiego totale sugli ID e' leggibile e si spiega
+    da se'. Con un server osservato non scattera' mai — esiste perche' il giorno
+    in cui scattera' nessuno stara' guardando.
+    """
+    if not nomi:
+        return
+    candidata = dict(dati)
+    # Le chiavi di un oggetto JSON sono stringhe: gli id ci vanno come tali.
+    candidata[_K_NOMI] = {str(gid): nome for gid, nome in sorted(nomi.items())}
+    if len(json.dumps(candidata).encode("utf-8")) <= BUDGET_JSON_SESSIONE_BYTE:
+        dati[_K_NOMI] = candidata[_K_NOMI]
+    else:
+        logger.info(
+            "Sessione oltre il budget del cookie (%d guild): nessun nome in sessione",
+            len(nomi),
+        )
 
 
 def crea_discord_http(*, transport: Optional[httpx.AsyncBaseTransport] = None) -> httpx.AsyncClient:

@@ -203,6 +203,14 @@ def crea_app(
         sessione = getattr(request.state, "sessione", None)
         if sessione is not None:
             contesto.setdefault("server_autorizzati", len(sessione.guilds))
+            # Il nome del server viene dalla sessione, non dal database
+            # (stato-progetto.md 7-R). Quando non c'e' — cookie firmato prima del
+            # deploy, guild senza nome su Discord, ripiego per budget del cookie —
+            # qui non si imposta niente, e il setdefault di cornice() lascia
+            # l'ID. Il ripiego e' gia' scritto li': non serve una condizione nuova.
+            nome_server = sessione.nomi.get(contesto.get("guild_id"))
+            if nome_server:
+                contesto.setdefault("nome_server", nome_server)
         html = templates.get_template(nome).render(**cornice(**contesto))
         return HTMLResponse(html, status_code=status_code)
 
@@ -311,9 +319,11 @@ def crea_app(
     async def elenco_guild(request: Request):
         # Solo i server dell'insieme autorizzato: l'elenco completo di quelli
         # osservati non e' affare di chi ne amministra uno.
-        autorizzate = request.state.sessione.guilds
-        guilds = [g for g in await request.app.state.api.guilds() if g.guild_id in autorizzate]
-        return pagina(request, "guilds.html", guilds=guilds)
+        sessione = request.state.sessione
+        guilds = [g for g in await request.app.state.api.guilds() if g.guild_id in sessione.guilds]
+        # I nomi viaggiano con l'elenco come ci viaggiano le righe: la rotta ha
+        # la sessione, il template non ce l'ha.
+        return pagina(request, "guilds.html", guilds=guilds, nomi=sessione.nomi)
 
     @app.get("/guilds/{guild_id}", response_class=HTMLResponse, dependencies=protetta)
     async def stato(request: Request, guild_id: int):
