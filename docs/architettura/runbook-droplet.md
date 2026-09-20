@@ -297,7 +297,19 @@ colonna in più che nessuno seleziona ancora. La sequenza:
    vale lo stesso: non nominato, resta spento. Subito dopo,
    `docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile`:
    il Caddyfile sta in un bind mount, e se è cambiato solo lui `up -d` non
-   ricrea il container ed esce 0 con la configurazione vecchia. `ops/kindling-deploy.sh`
+   ricrea il container ed esce 0 con la configurazione vecchia.
+
+   **Le pagine pubbliche sono un caso a parte, e in un senso solo.** Il loro
+   mount è la directory `./public` su `/srv/public`, quindi modificare il
+   *contenuto* di quei file non richiede niente: `git pull` e basta, i file
+   nuovi compaiono da soli (è il motivo per cui è una directory e non un elenco
+   di file — stessa ragione del Caddyfile). Cambia invece il *percorso* del
+   mount nel compose — come il 20/09/2026, quando `legal/` è diventata
+   `public/` — e allora `git pull` da solo non basta e **non lo dice**: il
+   comando esce 0, ma il container continua a montare il percorso vecchio, che
+   `git` ha appena svuotato. Serve `docker compose up -d caddy` perché il nuovo
+   bind prenda effetto. Il passo 3 lo fa già; il rischio è solo per chi si
+   ferma al `git pull` perché «è solo una pagina statica». `ops/kindling-deploy.sh`
    fa entrambe le cose, e si ferma se il reload fallisce.
    **Il mount è la directory `ops/caddy` su `/etc/caddy`, non il file**
    (corretto il 19/09/2026). Con il file, montato per inode, un `git pull` che

@@ -118,7 +118,7 @@ nomina la causa, e si finisce a cercare il problema nel firewall.
 
    **Sull'apex, non sul sottodominio della dashboard**: sono le pagine che una
    persona legge per decidere se autorizzare, quindi devono stare dove non
-   serve essere già autorizzati. Sono i due file in `legal/`, che finora non
+   serve essere già autorizzati. Sono i due file in `public/`, che finora non
    erano serviti da nessuna parte.
 6. **Verifica che l'account proprietario abbia la 2FA attiva.** È la difesa
    vera: chi entra nel portale può aggiungere una redirect URI, ed è quello —
@@ -271,7 +271,7 @@ curl.exe -sI https://kindling.nexus/
 curl.exe -sI http://dashboard.kindling.nexus/
 ```
 
-Le prime due devono dare `200` (la seconda è `legal/index.html`), la terza un
+Le prime due devono dare `200` (la seconda è `public/index.html`), la terza un
 redirect verso HTTPS. Se `curl` non protesta sul certificato, la catena è a
 posto.
 

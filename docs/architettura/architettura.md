@@ -151,7 +151,7 @@ Quando succede, il resize è questione di pochi minuti di downtime dal pannello 
 ## Terminologia e modello dati
 
 - **`guild_id`** indica sempre e solo il server Discord, mai la gilda in-game di Guild Wars 2. Sono due entità diverse, con fonti dati diverse: `guild_id` viene dagli eventi Discord (già presente su `raw_events` e nello schema); la gilda in-game GW2 è una fonte dati separata, non ancora integrata — se in futuro verrà integrata, andrà chiamata esplicitamente `gw2_guild_id` per evitare ambiguità. Non usare mai "guild" da solo per riferirsi alla gilda GW2 nel codice o nello schema: nel contesto Discord/discord.py "guild" è già un termine riservato con un significato preciso (= server).
-- **`author_id`** è l'ID Discord grezzo (BIGINT), usato direttamente per collegare eventi e membri — non è né anonimizzato né pseudonimizzato in senso tecnico. L'informativa privacy (`legal/informativa-privacy.html`) riflette questo: è accurata nel dire che il contenuto testuale del messaggio non viene mai raccolto, ma non deve promettere l'anonimizzazione dell'ID, che il sistema non implementa. L'hosting è su server nell'Unione Europea (informativa punto 5), senza nominare il fornitore.
+- **`author_id`** è l'ID Discord grezzo (BIGINT), usato direttamente per collegare eventi e membri — non è né anonimizzato né pseudonimizzato in senso tecnico. L'informativa privacy (`public/informativa-privacy.html`) riflette questo: è accurata nel dire che il contenuto testuale del messaggio non viene mai raccolto, ma non deve promettere l'anonimizzazione dell'ID, che il sistema non implementa. L'hosting è su server nell'Unione Europea (informativa punto 5), senza nominare il fornitore.
 
 ## Perché non un graph database dedicato (per ora)
 

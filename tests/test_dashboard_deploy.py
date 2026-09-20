@@ -157,7 +157,7 @@ def test_caddy_ha_la_forma_di_dashboard_fase2_8_bis():
         "./ops/caddy:/etc/caddy:ro",
         "caddy_data:/data",
         "caddy_config:/config",
-        "./legal:/srv/legal:ro",
+        "./public:/srv/public:ro",
     }
     # caddy_data e' un volume NOMINATO del compose: senza, i certificati non
     # sopravvivono alla ricreazione del container e al sesto in una settimana
@@ -172,7 +172,7 @@ def test_caddy_ha_la_forma_di_dashboard_fase2_8_bis():
     # Ogni file montato esiste nel repo: un bind mount di un percorso assente
     # crea una directory vuota al suo posto, in silenzio.
     assert (REPO / "ops" / "caddy" / "Caddyfile").is_file()
-    assert (REPO / "legal" / "index.html").is_file()
+    assert (REPO / "public" / "index.html").is_file()
 
 
 # --- KINDLING_CODE_VERSION: ogni immagine costruita da qui ne ha una ----------
@@ -488,7 +488,7 @@ def test_caddyfile_due_hostname_e_nient_altro():
 
 def test_caddyfile_apex_pubblico_serve_solo_file_statici():
     apex = _blocchi_caddy()["kindling.nexus"]
-    assert "root * /srv/legal" in apex
+    assert "root * /srv/public" in apex
     assert "file_server" in apex
     assert "reverse_proxy" not in apex
 
@@ -519,8 +519,12 @@ def test_caddyfile_health_non_esposta_e_proxy_verso_la_dashboard():
     assert "reverse_proxy dashboard:8000" in dashboard
 
 
-def test_legal_index_linka_le_due_pagine_legali():
-    index = (REPO / "legal" / "index.html").read_text(encoding="utf-8")
+def test_home_linka_le_due_pagine_legali():
+    index = (REPO / "public" / "index.html").read_text(encoding="utf-8")
     assert 'href="informativa-privacy.html"' in index
     assert 'href="termini-di-servizio.html"' in index
-    assert 'href="style.css"' in index
+    # landing.css, non style.css: la home ha un foglio suo dal 20/09/2026, e
+    # style.css veste le due pagine legali. Questa riga asseriva ancora
+    # style.css e il test e' rimasto rosso su main finche' non l'ha visto
+    # qualcuno — il commit della landing non aveva fatto girare la suite.
+    assert 'href="landing.css"' in index

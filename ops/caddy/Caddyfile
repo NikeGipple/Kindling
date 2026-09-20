@@ -34,7 +34,7 @@
 kindling.nexus {
 	encode zstd gzip
 	header Strict-Transport-Security "max-age=86400"
-	root * /srv/legal
+	root * /srv/public
 	file_server
 }
 

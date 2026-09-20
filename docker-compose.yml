@@ -250,7 +250,7 @@ services:
       # verifica che /data sia montato su questo volume.
       - caddy_data:/data
       - caddy_config:/config
-      - ./legal:/srv/legal:ro
+      - ./public:/srv/public:ro
     # ~30 MB misurati (dashboard.md 2): il tetto e' margine, non stima.
     mem_limit: 96m
     # service_started e NON service_healthy: legare Caddy alla salute della

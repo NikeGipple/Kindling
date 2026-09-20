@@ -265,7 +265,7 @@ Come per `dashboard` in §8, scritta qui e non decisa a margine del codice.
 | Nome del servizio | `caddy` |
 | Immagine | `caddy:2-alpine` — ufficiale, non costruita da noi |
 | Porte | `80` e `443` **su tutte le interfacce**. È l'unica eccezione alla regola del progetto, ed è stretta: solo questo servizio, solo queste due porte |
-| `volumes` | `./ops/caddy:/etc/caddy:ro` (una directory: vedi sotto, «Il reload del Caddyfile»), `caddy_data:/data`, `caddy_config:/config`, `./legal:/srv/legal:ro` |
+| `volumes` | `./ops/caddy:/etc/caddy:ro` (una directory: vedi sotto, «Il reload del Caddyfile»), `caddy_data:/data`, `caddy_config:/config`, `./public:/srv/public:ro` |
 | `mem_limit` | `96m` (misurato ~30 MB in `dashboard.md` §2; il tetto è margine, non stima) |
 | `depends_on` | `dashboard`, con `condition: service_started` — **non** `service_healthy`, vedi sotto |
 | `restart` | `unless-stopped` |
@@ -375,7 +375,7 @@ container) con l'adattamento del Caddyfile corrente in un container nuovo
 
 ### I file statici stanno sull'apex, non sulla dashboard
 
-In `legal/` ci sono `informativa-privacy.html` e `termini-di-servizio.html`, e
+In `public/` (fino al 20/09/2026 `legal/`) ci sono `informativa-privacy.html` e `termini-di-servizio.html`, e
 oggi **non sono serviti da nessuna parte**. L'applicazione Discord chiede una
 Privacy Policy URL e una Terms of Service URL, e da oggi c'è un dominio dove
 metterle.
@@ -389,9 +389,9 @@ Li serve **Caddy sull'apex**, come file statici. Due ragioni distinte:
   definizione non ha un accesso. Una privacy policy raggiungibile solo da chi è
   già dentro è una privacy policy che non si può leggere quando serve.
 
-La cartella `legal/` diventa la radice web dell'apex, quindi gli URL sono
+La cartella `public/` diventa la radice web dell'apex, quindi gli URL sono
 `https://kindling.nexus/informativa-privacy.html` e
-`https://kindling.nexus/termini-di-servizio.html`. Serve un `legal/index.html`,
+`https://kindling.nexus/termini-di-servizio.html`. Serve un `public/index.html`,
 anche minimo: senza, l'apex risponde 404 sulla radice, che come porta
 d'ingresso di un dominio è peggio di una pagina di tre righe. **Se l'apex
 crescerà oltre le due pagine legali**, la cartella andrà rinominata o affiancata
