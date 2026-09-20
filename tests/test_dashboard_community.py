@@ -26,7 +26,7 @@ from pydantic import TypeAdapter
 from api.models import CommunityRow
 from dashboard import community, config
 from dashboard.client import ApiClient
-from dashboard.main import crea_app, crea_templates
+from dashboard.main import cornice, crea_app, crea_templates
 from tests.sessione_dashboard import OAUTH_DI_TEST, client_autenticato
 from dashboard.qualifica import NON_VALUTATO
 from tests.test_dashboard_robustezza import Nodo, _albero
@@ -77,7 +77,9 @@ def _righe(api, guild_id: int, limit: int = 12) -> list[CommunityRow]:
 
 def _rendi(righe: list[CommunityRow], guild_id: int = 1) -> str:
     return crea_templates().get_template("community.html").render(
-        guild_id=guild_id, vista=community.costruisci(righe), vista_corrente="community",
+        **cornice(
+            guild_id=guild_id, vista=community.costruisci(righe), vista_corrente="community",
+        )
     )
 
 
@@ -306,21 +308,23 @@ def test_voice_002_riappare_e_stabilita_non_disegnata(dashboard):
     assert stabilita.conta_html("voce-dequalificato") == 1
 
 
-@pytest.mark.parametrize("guild_id,svg,tabelle", [(GUILD_TODAY, 0, 8), (GUILD_MATURE, 8, 0)])
-def test_regola_4_su_entrambi_i_grafici(dashboard, guild_id, svg, tabelle):
+@pytest.mark.parametrize("guild_id,grafici,tabelle", [(GUILD_TODAY, 0, 8), (GUILD_MATURE, 8, 0)])
+def test_regola_4_su_entrambi_i_grafici(dashboard, guild_id, grafici, tabelle):
     html = dashboard.get(f"/guilds/{guild_id}/community").text
     albero = _albero(html).radice
-    assert html.count("<svg") == svg
+    # Le <figure class="grafico">, non i "<svg": il marchio della testata e' un
+    # <svg> in linea, e un conteggio su "<svg" conterebbe anche lui.
+    assert html.count('<figure class="grafico"') == grafici
     assert len(list(albero.trova("table", classe="tabella-serie"))) == tabelle
     for campo in ("modularity_z", "stability_jaccard"):
-        grafici = len(list(albero.trova("figure", data_campo_grafico=campo)))
+        disegnati = len(list(albero.trova("figure", data_campo_grafico=campo)))
         serie = len(list(albero.trova("table", data_campo_serie=campo)))
-        assert grafici + serie == 4, (campo, grafici, serie)
+        assert disegnati + serie == 4, (campo, disegnati, serie)
 
 
 def test_un_solo_snapshot_nessuna_tabella_della_serie(api):
     html = _rendi(_righe(api, GUILD_EDGE), GUILD_EDGE)
-    assert "tabella-serie" not in html and "<svg" not in html
+    assert "tabella-serie" not in html and '<figure class="grafico"' not in html
 
 
 def test_riferimento_solo_sulla_modularita(dashboard):

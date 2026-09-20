@@ -24,7 +24,7 @@ from pydantic import TypeAdapter
 
 from api.models import RobustnessRow
 from dashboard import config, robustezza
-from dashboard.main import crea_app, crea_templates
+from dashboard.main import cornice, crea_app, crea_templates
 from tests.sessione_dashboard import OAUTH_DI_TEST, client_autenticato
 from dashboard.qualifica import NON_VALUTATO, cella
 from tools.fixture_api import GUILD_EDGE, GUILD_MATURE, GUILD_TODAY, SCENARIOS, _robustness_layer
@@ -64,7 +64,9 @@ def _righe(api, guild_id: int, limit: int = 12) -> list[RobustnessRow]:
 
 def _rendi(righe: list[RobustnessRow], guild_id: int = 1) -> str:
     return crea_templates().get_template("robustezza.html").render(
-        guild_id=guild_id, vista=robustezza.costruisci(righe), vista_corrente="robustezza",
+        **cornice(
+            guild_id=guild_id, vista=robustezza.costruisci(righe), vista_corrente="robustezza",
+        )
     )
 
 
@@ -219,13 +221,16 @@ def test_regola_6_intervallo_costante_diventa_valore_singolo():
 
 def test_regola_4_guild_di_oggi_mostra_tabelle_e_nessun_grafico(dashboard):
     html = dashboard.get(f"/guilds/{GUILD_TODAY}/robustezza").text
-    assert "<svg" not in html
+    # Si contano le <figure class="grafico">, non i "<svg": da quando la testata
+    # porta il marchio, un <svg> nella pagina non vuol piu' dire "c'e' un
+    # grafico", e il controllo passerebbe a contare un'altra cosa senza dirlo.
+    assert '<figure class="grafico"' not in html
     assert html.count('class="tabella-serie"') == 4
 
 
 def test_regola_4_guild_matura_mostra_i_grafici(dashboard):
     html = dashboard.get(f"/guilds/{GUILD_MATURE}/robustezza").text
-    assert html.count("<svg") == 4
+    assert html.count('<figure class="grafico"') == 4
 
 
 @pytest.mark.parametrize("limit,grafici", [(1, 0), (2, 0), (3, 3)])
@@ -234,10 +239,10 @@ def test_regola_4_soglia_con_limit(api, limit, grafici):
     # snapshot assente): il suo blocco mostra la tabella, e una serie corta non
     # cancella il grafico degli altri layer.
     html = _rendi(_righe(api, GUILD_MATURE, limit), GUILD_MATURE)
-    assert html.count("<svg") == grafici
+    assert html.count('<figure class="grafico"') == grafici
     if limit == 3:
         voice = next(_albero(html).radice.trova("section", data_layer="voice"))
-        assert "<svg" not in voice.html()
+        assert '<figure class="grafico"' not in voice.html()
         assert voice.conta_html('class="tabella-serie"') == 1
 
 
@@ -379,7 +384,7 @@ def test_layer_assente_ovunque_nessuna_cornice_di_grafico():
     ]
     html = _rendi(righe)
     voice = next(_albero(html).radice.trova("section", data_layer="voice"))
-    assert "<svg" not in voice.html()
+    assert '<figure class="grafico"' not in voice.html()
     assert "tabella-serie" not in voice.html()
     assert "Nessuna interazione di questo tipo" in voice.testo()
 
@@ -393,7 +398,11 @@ def test_guild_osservata_senza_snapshot_il_calcolo_non_e_ancora_girato():
     assert r.status_code == 200
     assert "Il calcolo non è ancora girato" in r.text
     assert 'class="errore"' not in r.text
-    assert "soppresso" not in r.text.split("<body>", 1)[1]
+    # La parola da sola non basta piu': il piede di questa vista porta la
+    # legenda delle qualificazioni, dove "soppresso" compare per spiegarsi.
+    # Quello che il test vuole dire e' "nessuna CELLA soppressa", e nel markup
+    # di _cella.html quella e' data-esito.
+    assert 'data-esito="soppresso"' not in r.text
     assert 'class="blocco"' not in r.text
 
 

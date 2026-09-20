@@ -34,7 +34,7 @@ from pydantic import TypeAdapter
 from api.models import CohortGroup
 from dashboard import config, coorti
 from dashboard.client import DEFAULT_COHORTS_LIMIT, ApiClient
-from dashboard.main import crea_app, crea_templates
+from dashboard.main import cornice, crea_app, crea_templates
 from tests.sessione_dashboard import OAUTH_DI_TEST, client_autenticato
 from dashboard.qualifica import NON_VALUTATO
 from tests.test_dashboard_robustezza import Nodo, _albero
@@ -87,7 +87,7 @@ def _gruppi(api, guild_id: int, limit: int = DEFAULT_COHORTS_LIMIT) -> list[Coho
 
 def _rendi(gruppi: list[CohortGroup], guild_id: int = 1) -> str:
     return crea_templates().get_template("coorti.html").render(
-        guild_id=guild_id, vista=coorti.costruisci(gruppi), vista_corrente="coorti",
+        **cornice(guild_id=guild_id, vista=coorti.costruisci(gruppi), vista_corrente="coorti")
     )
 
 
@@ -653,7 +653,7 @@ def test_le_tre_assenze_hanno_tre_pagine_diverse(dashboard):
     assert dashboard.get("/guilds/123456789/coorti").status_code == 404
 
     vuota = crea_templates().get_template("coorti.html").render(
-        guild_id=1, vista=coorti.costruisci([]), vista_corrente="coorti")
+        **cornice(guild_id=1, vista=coorti.costruisci([]), vista_corrente="coorti"))
     assert list(_albero(vuota).radice.trova("p", classe="frase-vuota"))
     assert not list(_albero(vuota).radice.trova("table"))
 

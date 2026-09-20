@@ -51,6 +51,33 @@ _MESI = (
     "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
 )
 
+# Le viste dove i simboli di qualificazione POSSONO comparire, e quindi dove il
+# piede porta la legenda. La regola guarda la vista, non i dati del giorno: una
+# legenda che va e viene con quello che c'e' oggi in tabella diventerebbe essa
+# stessa un segnale, e non l'ha progettata nessuno. Stato non c'e' perche' mostra
+# il contesto, non metriche: nessuna sua cella passa da cella().
+_VISTE_CON_SIMBOLI = frozenset({"robustezza", "community", "coorti"})
+
+
+def cornice(**contesto) -> dict:
+    """Le variabili che ``base.html`` si aspetta, aggiunte se chi rende non le passa.
+
+    Sta fuori da ``pagina()``, che in produzione e' l'unico chiamante, perche'
+    base.html si rende anche senza una Request: i test delle viste chiedono il
+    template direttamente per guardare cosa produce il modulo di vista. Con
+    ``StrictUndefined`` una variabile di cornice che vivesse dentro ``pagina()``
+    li farebbe fallire, e la riparazione ovvia — ricopiarla nel test — sarebbe una
+    copia destinata a divergere (CLAUDE.md 7) proprio al commit successivo, quando
+    ``nome_server`` smettera' di essere l'ID.
+    """
+    # La riga di contesto in testata mostra l'ID finche' il nome non arriva dalla
+    # sessione (stato-progetto.md 7-R, commit successivo). La variabile esiste da
+    # subito perche' quel commit non debba riaprire base.html.
+    if "guild_id" in contesto:
+        contesto.setdefault("nome_server", str(contesto["guild_id"]))
+    contesto.setdefault("mostra_legenda", contesto.get("vista_corrente") in _VISTE_CON_SIMBOLI)
+    return contesto
+
 
 def data_ora(valore: Optional[datetime]) -> str:
     """Data leggibile, sempre in UTC e sempre dichiarata tale.
@@ -176,7 +203,7 @@ def crea_app(
         sessione = getattr(request.state, "sessione", None)
         if sessione is not None:
             contesto.setdefault("server_autorizzati", len(sessione.guilds))
-        html = templates.get_template(nome).render(**contesto)
+        html = templates.get_template(nome).render(**cornice(**contesto))
         return HTMLResponse(html, status_code=status_code)
 
     async def richiede_accesso(request: Request) -> auth.Sessione:
