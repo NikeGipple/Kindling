@@ -235,9 +235,20 @@
 
 <footer class="piede">
   <div class="contenitore">
-    <!-- L'anno e' scritto a mano: la pagina non ha JavaScript, e non vale la pena
-         introdurlo per una riga di piede. Va cambiato a gennaio, ed e' l'unico
-         punto di questa pagina che invecchia da solo senza dirlo. -->
+    <!-- L'anno e' scritto a mano, e va cambiato a gennaio: e' l'unico punto di
+         questa pagina che invecchia da solo senza dirlo.
+         NON perche' "qui non si usa JavaScript" — nessuna regola di questo
+         progetto lo vieta, e architettura.md 5 prevede Next.js per il grafo.
+         Due righe in linea che riscrivono l'anno funzionerebbero benissimo. Il
+         motivo e' che non risolverebbero: il valore di riserva nell'HTML
+         resterebbe comunque da aggiornare — semplicemente non lo vedrebbe piu'
+         nessuno, noi compresi — e `new Date()` legge l'orologio di chi guarda,
+         non il nostro. Si scambia un valore vecchio e visibile con uno vecchio
+         e nascosto.
+         La regola che vale su questa pagina non e' sul linguaggio ma sul modo
+         di fallire: uno script che COSTRUISCE contenuto, se non gira, lascia
+         una pagina vuota; uno che MIGLIORA contenuto gia' nell'HTML, se non
+         gira, non toglie niente. Il secondo e' sempre ammesso. -->
     <span>Kindling © 2026</span>
     <nav aria-label="Documenti">
       <a href="informativa-privacy.html">Informativa sulla Privacy</a>
