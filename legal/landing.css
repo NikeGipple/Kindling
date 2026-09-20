@@ -122,10 +122,8 @@ body {
   text-align: center;
   display: flex;
   align-items: center;
-  /* 76% e non 86%: senza il bottone d'invito l'apertura ha quattro righe di
-     contenuto, e l'altezza di prima le lasciava in mezzo a un vuoto. */
-  min-height: min(76vh, 40rem);
-  min-height: min(76svh, 40rem);
+  min-height: min(86vh, 46rem);
+  min-height: min(86svh, 46rem);
   padding: 3rem 0;
   position: relative;
   overflow: hidden;
@@ -224,7 +222,7 @@ h1 .accesa { color: var(--brace); }
   font-size: 1.02rem;
 }
 
-.sommario:last-of-type { margin-bottom: 0; }
+.sommario:last-of-type { margin-bottom: 2.8rem; }
 .sommario strong { color: var(--testo); font-weight: 600; }
 
 /* I link dentro al testo. Senza questa regola prendono il blu (o il viola da
@@ -237,13 +235,7 @@ main a:not(.invito) {
 }
 main a:not(.invito):hover { color: var(--testo); }
 
-/* --- l'invito ------------------------------------------------------------
-   NON USATE OGGI: il bottone d'invito non e' sulla pagina (vedi il commento al
-   suo posto in index.html). Le regole restano perche' rimetterlo sia il
-   ripristino di un blocco di markup e non un rifacimento — e perche' una regola
-   orfana con scritto sopra che e' orfana non inganna nessuno, mentre una regola
-   orfana e muta fra sei mesi sembra viva. Se il bottone non torna, si cancellano
-   queste e il markup di riserva insieme. */
+/* --- l'invito ------------------------------------------------------------ */
 
 .invito {
   display: inline-flex;
@@ -475,7 +467,7 @@ a:focus-visible, .invito:focus-visible {
 @media (max-width: 34rem) {
   /* Su un telefono l'apertura puo' prendersi tutto lo schermo: non c'e'
      abbastanza larghezza perche' "quasi tutto" si veda come tale. */
-  .apertura { min-height: min(82vh, 40rem); min-height: min(82svh, 40rem);
+  .apertura { min-height: min(92vh, 44rem); min-height: min(92svh, 44rem);
               padding: 2rem 0; }
   .marchio-grande { width: 100px; margin-bottom: 1.5rem; }
   .testata nav { gap: .9rem; font-size: .85rem; }

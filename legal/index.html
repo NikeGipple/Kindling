@@ -84,20 +84,33 @@
         dipende ancora da <strong>poche persone</strong>.
       </p>
 
-      <!-- QUI VA IL BOTTONE D'INVITO, e oggi non c'e' di proposito (20/09/2026).
-           Il link di autorizzazione e' il consenso informato su cui poggerebbe la
-           raccolta per chi non conosce il progetto, e informativa-privacy.html non
-           dice ancora che dagli eventi si deriva una rete di chi interagisce con
-           chi. Finche' quella pagina non lo dice, la landing presenta Kindling ma
-           non chiede a nessuno di autorizzarlo.
-           Il markup era: <a class="invito" href="..."> con dentro un'icona "+" e
-           il testo "Aggiungi Kindling al tuo server", seguito da una <p
-           class="nota-invito">. Le regole CSS di entrambi sono ancora in
-           landing.css, marcate come non usate.
-           Quando si rimette, l'URL va scritto esplicito
-           (...&scope=bot&permissions=66560) e non nudo col solo client_id: col
-           link nudo il comportamento dipende dalle Default Install Settings del
-           portale Discord, che nessuno qui puo' leggere. -->
+      <!-- BOTTONE SENZA DESTINAZIONE. `href=""` risolve contro l'URL del documento
+           corrente: un clic ricarica questa stessa pagina. Il bottone e' a
+           schermo, e' raggiungibile da tastiera ed e' annunciato come link, ma
+           non porta da nessuna parte. Scelta esplicita di chi mantiene il
+           progetto, presa il 20/09/2026 dopo che la pagina era gia' uscita senza.
+
+           Quando si mette l'indirizzo vero, due cose non sono opzionali:
+           1. L'URL va scritto ESPLICITO —
+              https://discord.com/oauth2/authorize?client_id=<id>&scope=bot&permissions=66560
+              (66560 = VIEW_CHANNEL 1<<10 + READ_MESSAGE_HISTORY 1<<16, gli unici
+              due permessi che il bot usa: non manda messaggi, non tocca i ruoli,
+              non entra in voce). Col link nudo, col solo client_id, il
+              comportamento dipende dalle Default Install Settings del portale
+              Discord, che da qui nessuno puo' leggere: se "Guild Install" e'
+              spento, o manca lo scope bot, o "Public Bot" e' off, il bottone
+              porta le persone su una schermata sbagliata.
+           2. informativa-privacy.html deve prima dire che dagli eventi si deriva
+              una rete di chi interagisce con chi. Da quel momento il link e' il
+              consenso informato su cui poggia la raccolta per chi non conosce il
+              progetto, e oggi quel documento non lo nomina. -->
+      <a class="invito" href="">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none"
+             stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <path d="M12 5.5v13M5.5 12h13"/>
+        </svg>
+        Aggiungi Kindling al tuo server
+      </a>
 
     </div>
   </section>
