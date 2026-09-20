@@ -3,37 +3,237 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kindling</title>
-<link rel="stylesheet" href="style.css">
+<title>Kindling — cosa tiene davvero insieme la tua community</title>
+<meta name="description" content="Kindling aiuta gli amministratori di community Discord a capire se le relazioni tra i membri nascono spontaneamente o se la vitalità della community dipende ancora da poche persone. Senza leggere i messaggi, senza ascoltare la voce, senza dare un voto alla community.">
+<!-- Nessuna risorsa da terzi: nessun CDN, nessun font remoto, nessuno script,
+     nessun analytics. Tutto quello che questa pagina carica lo serve
+     kindling.nexus. -->
+<link rel="stylesheet" href="landing.css">
 </head>
 <body>
-<div class="page">
 
-  <header class="page-header">
-    <h1>Kindling</h1>
-  </header>
+<header class="testata">
+  <div class="contenitore">
+    <a class="marchio" href="/">
+      <!-- Lo stesso marchio della dashboard (dashboard/templates/base.html):
+           due bastoncini incrociati con una scintilla sopra, la legna da
+           accendere. Le due superfici devono essere la stessa cosa. -->
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M6.5 19.5 L17.5 7.5 M17.5 19.5 L6.5 7.5" stroke="currentColor"
+              stroke-width="2.1" stroke-linecap="round" fill="none"/>
+        <circle cx="12" cy="4.6" r="2.3" fill="currentColor"/>
+      </svg>
+      <span>Kindling</span>
+    </a>
+    <nav aria-label="Collegamenti di servizio">
+      <a href="https://github.com/NikeGipple/Kindling">Codice</a>
+      <a href="informativa-privacy.html">Privacy</a>
+      <a href="termini-di-servizio.html">Termini</a>
+    </nav>
+  </div>
+</header>
 
-  <p>
-    Kindling è un bot per server Discord, in sviluppo, che raccoglie eventi di interazione all'interno
-    del server in cui viene aggiunto e ne calcola metriche aggregate, a disposizione degli amministratori
-    di quel server.
-  </p>
+<main>
 
-  <p>
-    Agli amministratori dei server Kindling mostra solo metriche aggregate: nessun dato riferito a una
-    singola persona compare nella dashboard, e ogni metrica si pubblica solo sopra una soglia minima di
-    persone coinvolte. Sotto quella soglia il dato non viene mostrato né approssimato.
-  </p>
+  <section class="apertura">
+    <div class="contenitore">
 
-  <p>
-    Il codice di Kindling è pubblico: <a href="https://github.com/NikeGipple/Kindling">github.com/NikeGipple/Kindling</a>.
-  </p>
+      <!-- Il marchio in grande, animato. viewBox allargato in alto per dare
+           spazio alle faville: i bastoncini e la scintilla restano alle stesse
+           coordinate della versione piccola. -->
+      <!-- viewBox alto fino a -13: le faville salgono fino a 15 unita' sopra la
+           scintilla, e con il box di prima (-9) quelle piu' alte venivano
+           tagliate a meta' della salita. -->
+      <svg class="marchio-grande" viewBox="0 -13 24 37" role="img"
+           aria-label="Il marchio di Kindling: due bastoncini incrociati con una scintilla sopra">
 
-  <ul>
-    <li><a href="informativa-privacy.html">Informativa sulla Privacy</a></li>
-    <li><a href="termini-di-servizio.html">Termini di Servizio</a></li>
-  </ul>
+        <!-- Le faville, dietro a tutto. Otto, con ritardo, deriva, altezza e
+             durata tutti diversi: un particellare in cui due faville fanno la
+             stessa cosa si legge subito come un ciclo che si ripete. I ritardi
+             sono sparsi sull'intero giro perche' non partano a ondate. -->
+        <circle class="favilla" style="--ritardo:  .4s; --deriva: 1.5px;  --salita: -12px; --durata: 4.8s" cx="11.3" cy="2.2" r=".60"/>
+        <circle class="favilla" style="--ritardo: 1.1s; --deriva: -1.8px; --salita:  -9px; --durata: 4.2s" cx="12.8" cy="2.6" r=".46"/>
+        <circle class="favilla" style="--ritardo: 1.9s; --deriva:  .6px;  --salita: -15px; --durata: 5.6s" cx="12.1" cy="1.7" r=".38"/>
+        <circle class="favilla" style="--ritardo: 2.6s; --deriva: 2.3px;  --salita: -10px; --durata: 4.5s" cx="10.8" cy="2.8" r=".34"/>
+        <circle class="favilla" style="--ritardo: 3.3s; --deriva: -1.1px; --salita: -13px; --durata: 5.1s" cx="13.3" cy="2.0" r=".52"/>
+        <circle class="favilla" style="--ritardo: 4.0s; --deriva: 1.0px;  --salita:  -8px; --durata: 3.9s" cx="11.8" cy="3.0" r=".30"/>
+        <circle class="favilla" style="--ritardo: 4.8s; --deriva: -2.4px; --salita: -14px; --durata: 5.4s" cx="12.5" cy="2.4" r=".42"/>
+        <circle class="favilla" style="--ritardo: 5.6s; --deriva:  .2px;  --salita: -11px; --durata: 4.6s" cx="11.0" cy="1.9" r=".36"/>
 
-</div>
+        <!-- l'alone caldo attorno alla scintilla -->
+        <circle class="alone-scintilla" cx="12" cy="4.6" r="5.2"/>
+
+        <!-- i due bastoncini. pathLength="1" perche' il tratto si disegni
+             nello stesso tempo a prescindere dalla lunghezza reale. -->
+        <path class="stecco stecco--1" pathLength="1" d="M6.5 19.5 L17.5 7.5"/>
+        <path class="stecco stecco--2" pathLength="1" d="M17.5 19.5 L6.5 7.5"/>
+
+        <!-- la scintilla -->
+        <circle class="scintilla" cx="12" cy="4.6" r="2.3"/>
+      </svg>
+
+      <!-- Il punto della "i" e' gia' una scintilla: colorarlo lega il nome al
+           marchio senza aggiungere niente da scaricare. -->
+      <h1>K<span class="accesa">i</span>ndling</h1>
+
+      <p class="slogan">Cosa tiene davvero insieme la tua community.</p>
+
+      <p class="sommario">
+        Kindling aiuta gli amministratori di community Discord a capire se le relazioni tra i
+        membri <strong>nascono spontaneamente</strong> o se la vitalità della community
+        dipende ancora da <strong>poche persone</strong>.
+      </p>
+
+      <!-- QUI VA IL BOTTONE D'INVITO, e oggi non c'e' di proposito (20/09/2026).
+           Il link di autorizzazione e' il consenso informato su cui poggerebbe la
+           raccolta per chi non conosce il progetto, e informativa-privacy.html non
+           dice ancora che dagli eventi si deriva una rete di chi interagisce con
+           chi. Finche' quella pagina non lo dice, la landing presenta Kindling ma
+           non chiede a nessuno di autorizzarlo.
+           Il markup era: <a class="invito" href="..."> con dentro un'icona "+" e
+           il testo "Aggiungi Kindling al tuo server", seguito da una <p
+           class="nota-invito">. Le regole CSS di entrambi sono ancora in
+           landing.css, marcate come non usate.
+           Quando si rimette, l'URL va scritto esplicito
+           (...&scope=bot&permissions=66560) e non nudo col solo client_id: col
+           link nudo il comportamento dipende dalle Default Install Settings del
+           portale Discord, che nessuno qui puo' leggere. -->
+
+    </div>
+  </section>
+
+  <section class="domande">
+    <div class="contenitore">
+      <p class="occhiello">Tre domande, tre misure</p>
+      <ul class="griglia">
+
+        <li class="scheda">
+          <span class="etichetta">Robustezza</span>
+          <h3>La community dipende da poche persone?</h3>
+          <p>
+            Si toglie chi fa più da ponte fra gli altri e si guarda quanto resta insieme il
+            resto — confrontato con quello che succederebbe togliendo persone a caso.
+          </p>
+        </li>
+
+        <li class="scheda">
+          <span class="etichetta">Gruppi</span>
+          <h3>Quanti gruppi ci sono, e reggono nel tempo?</h3>
+          <p>
+            Settimana dopo settimana: quali gruppi si formano, quali si sciolgono, quali si
+            fondono fra loro e quali si dividono.
+          </p>
+        </li>
+
+        <li class="scheda">
+          <span class="etichetta">Coorti</span>
+          <h3>Chi entra oggi, resta?</h3>
+          <p>
+            Per ogni settimana di nuovi iscritti: quante persone diverse hanno conosciuto nei
+            primi giorni, e quanti di loro ci sono ancora dopo.
+          </p>
+        </li>
+
+      </ul>
+    </div>
+  </section>
+
+  <section class="patto">
+    <div class="contenitore">
+      <p class="occhiello">Quello che Kindling non fa</p>
+      <div class="griglia">
+
+        <div class="impegno">
+          <h3>Nessun punteggio di salute</h3>
+          <!-- "non prova a INVENTARTELO", non "non prova a darti valori fittizi":
+               il complemento deve restare IL numero, cioe' il punteggio di salute
+               che l'invariante 3 vieta. "Valori fittizi" e' un'altra promessa, e
+               molto piu' debole — nessuno strumento dovrebbe inventare numeri.
+               E "quanto ci si puo' fidare" non diventa "credibili": dashboard.md
+               dice che oggi quasi nessuna di queste misure e' ancora affidabile,
+               e la dashboard lo scrive accanto a ognuna. Una landing che le
+               promette credibili verrebbe smentita dalla prima schermata. -->
+          <p>
+            Non esiste un numero che dica se una community sta bene, e Kindling non prova a
+            inventartelo. Quello che trovi sono misure separate, ognuna con scritto accanto
+            quanto ci si può fidare di quel numero oggi.
+          </p>
+        </div>
+
+        <div class="impegno">
+          <!-- La voce e' finita qui il 20/09/2026. Togliendo il secondo paragrafo
+               dell'apertura E la coda della nota sotto al bottone, la pagina
+               perdeva OGNI riferimento ai canali vocali — e "non ascoltiamo" e'
+               la frase piu' rassicurante che questa pagina possa dire a chi usa
+               Discord. Assorbita qui costa una riga invece di un paragrafo.
+               Verificato: zero codice di connessione vocale in bot/. -->
+          <h3>Nessun contenuto, né scritto né parlato</h3>
+          <p>
+            Kindling registra che un messaggio c'è stato, quanto era lungo, in quale canale e
+            chi è stato menzionato. Mai cosa dice, mai i messaggi privati. Dei canali vocali
+            vede chi entra e chi esce: non ascolta e non registra niente.
+          </p>
+        </div>
+
+        <div class="impegno">
+          <h3>Nessuna profilazione per chi amministra il server</h3>
+          <!-- Il destinatario ("agli amministratori") sta nel titolo E il
+               soggetto della frase e' "la dashboard": presi da soli, sia il
+               titolo sia la frase restano veri. La versione piu' corta —
+               "nessun dato riferito a una singola persona viene mostrato a
+               nessuno" — e' falsa, e' gia' stata pubblicata una volta, ed e'
+               falsa per via di `python -m job.main export`. -->
+          <!-- La soglia NON si scrive col numero, per quanto "cinque" sarebbe piu'
+               credibile. `min_cardinality` (job/config.py) vale 5 oggi, ma
+               modello-metriche.md 6.1 lo dichiara "alzabile senza migrazione, e
+               tra le cose da ritarare per prime": il giorno in cui cambia, questa
+               pagina resterebbe sbagliata su internet senza che niente lo segnali
+               — nessun test lo verifica (il default dei test e' 3), e il trigger
+               di migrations/0006 garantisce la FORMA di una riga soppressa, non
+               la soglia. Deciso il 20/09/2026. Se un giorno si vuole il numero,
+               prima serve un test che leghi i due file. -->
+          <p>
+            La dashboard non mostra nessun dato riferito a una singola persona: ogni metrica
+            compare solo sopra una soglia minima di persone coinvolte, e sotto quella soglia
+            non viene mostrata né approssimata.
+          </p>
+        </div>
+
+        <div class="impegno">
+          <h3>Nessun giudizio sui singoli membri</h3>
+          <!-- Questa e' la versione forte di "non crea profili individuali", e la
+               differenza e' che questa si puo' verificare: modello-metriche.md 8
+               dice esattamente questo, e lo impone al codice invece di dichiararlo
+               a posteriori. La frase corta sarebbe piu' efficace e meno vera: il
+               calcolo ATTRAVERSA le singole persone, e negarlo sarebbe la stessa
+               scorciatoia gia' pubblicata una volta. -->
+          <p>
+            Il calcolo passa per forza dalle singole persone, ma i valori per persona
+            muoiono dentro la funzione che li produce: non esiste nessuna tabella di
+            punteggi per membro, e nessun log ne contiene uno — nemmeno a livello di debug.
+          </p>
+        </div>
+
+      </div>
+
+    </div>
+  </section>
+
+</main>
+
+<footer class="piede">
+  <div class="contenitore">
+    <!-- L'anno e' scritto a mano: la pagina non ha JavaScript, e non vale la pena
+         introdurlo per una riga di piede. Va cambiato a gennaio, ed e' l'unico
+         punto di questa pagina che invecchia da solo senza dirlo. -->
+    <span>Kindling © 2026</span>
+    <nav aria-label="Documenti">
+      <a href="informativa-privacy.html">Informativa sulla Privacy</a>
+      <a href="termini-di-servizio.html">Termini di Servizio</a>
+      <a href="https://github.com/NikeGipple/Kindling">Codice sorgente</a>
+    </nav>
+  </div>
+</footer>
+
 </body>
 </html>

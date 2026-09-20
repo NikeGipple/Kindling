@@ -1,0 +1,483 @@
+/* Foglio della sola landing (legal/index.html).
+   NON tocca style.css, che veste le due pagine legali: quelle sono documenti,
+   questa e' una pagina di presentazione, e le due esigenze non coincidono.
+   Armonizzare anche le pagine legali e' un lavoro separato, non questo.
+
+   Nessuna risorsa da terzi: font di sistema, nessun CDN, nessuno script.
+   Un <link> verso un font remoto consegnerebbe a quel fornitore l'IP di ogni
+   persona che apre la pagina, su un sistema che raccoglie dati di community.
+
+   Palette: le stesse variabili della dashboard (dashboard/templates/base.html),
+   piu' due colori caldi che sulla dashboard hanno significato semantico
+   (avviso) e qui non ce l'hanno: qui la landing non ha avvisi da dare. */
+
+:root {
+  --fondo: #fafaf8;
+  --fondo-alt: #f3f2ed;
+  --testo: #1d1d1f;
+  --tenue: #6b6b70;
+  --riga: #e3e3de;
+  /* #a85b1e, il primo candidato, dava 4,48:1 sul fondo delle schede: sotto
+     4,5:1, e l'etichetta ("ROBUSTEZZA") e' testo piccolo in maiuscoletto,
+     quindi la soglia e' quella. 4,79:1 misurati, non stimati. */
+  --brace: #a25718;
+  --scintilla: #e0a93a;
+  --alone: rgba(224, 169, 58, .16);
+  /* Le faville. Questa variabile prima non esisteva e `.favilla` non aveva
+     nessuna regola `fill`: ereditava il nero di default dell'SVG, quindi in
+     tema scuro erano nere su #141413 — invisibili — e in tema chiaro erano
+     fuliggine invece che scintille (20/09/2026).
+     Sul fondo chiaro NON l'ambra della scintilla (#e0a93a): un pallino di 3 px
+     di quel colore sul crema si perde, e proprio dove passa sopra l'alone
+     sparisce del tutto. Serve il tono piu' scuro della brace. */
+  --favilla: #a25718;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fondo: #141413;
+    --fondo-alt: #1c1b19;
+    --testo: #eceae4;
+    --tenue: #9a968c;
+    --riga: #2e2d29;
+    --brace: #e08a3c;
+    --scintilla: #f2c95e;
+    --alone: rgba(242, 201, 94, .13);
+    /* Sul fondo scuro le faville sono bianche: l'ambra su nero si confonde con
+       l'alone della scintilla, il bianco no. */
+    --favilla: #ffffff;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--fondo);
+  color: var(--testo);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Nessuna legatura tipografica esotica: si legge com'e' su ogni sistema. */
+  text-rendering: optimizeLegibility;
+}
+
+.contenitore {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: 0 1.25rem;
+}
+
+/* --- testata ------------------------------------------------------------- */
+
+.testata {
+  border-bottom: 1px solid var(--riga);
+}
+
+.testata .contenitore {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding-top: .9rem;
+  padding-bottom: .9rem;
+}
+
+.marchio {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  color: var(--testo);
+  text-decoration: none;
+  font-weight: 650;
+  letter-spacing: -.015em;
+}
+
+.marchio svg { width: 20px; height: 20px; flex: none; display: block; }
+
+.testata nav {
+  margin-left: auto;
+  display: flex;
+  gap: 1.25rem;
+  font-size: .9rem;
+}
+
+.testata nav a { color: var(--tenue); text-decoration: none; }
+.testata nav a:hover { color: var(--testo); text-decoration: underline; }
+
+/* --- apertura ------------------------------------------------------------ */
+
+/* L'apertura occupa quasi tutto lo schermo, non tutto.
+   NON 100svh di proposito: un'apertura che riempie lo schermo esatto nasconde
+   che sotto ci sia dell'altro, e sotto ci sono le tre schede — cioe' la parte
+   che convince davvero chi sta decidendo se fidarsi. A 86svh il filo della
+   sezione successiva resta visibile in fondo e dice "continua", senza bisogno
+   di una freccia che rimbalza.
+   Il tetto a 46rem serve agli schermi molto alti: senza, su un monitor da 1400px
+   l'apertura diventerebbe 1200px di aria attorno a quattro righe di testo.
+   `svh` e non `vh`: su mobile `vh` conta la barra del browser come se non ci
+   fosse, e l'apertura salta mentre si scorre. La riga `vh` sopra resta come
+   ripiego per i browser che non conoscono `svh` — la dichiarazione valida piu'
+   in basso vince. */
+.apertura {
+  text-align: center;
+  display: flex;
+  align-items: center;
+  /* 76% e non 86%: senza il bottone d'invito l'apertura ha quattro righe di
+     contenuto, e l'altezza di prima le lasciava in mezzo a un vuoto. */
+  min-height: min(76vh, 40rem);
+  min-height: min(76svh, 40rem);
+  padding: 3rem 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.apertura > .contenitore { width: 100%; position: relative; }
+
+/* L'alone caldo dietro al marchio. Un radial-gradient, non un'immagine:
+   niente da scaricare e scala con qualunque densita' di schermo.
+   Sta sul CONTENITORE e non sulla sezione: con l'apertura alta quanto lo
+   schermo il blocco di testo e' centrato verticalmente, e un alone ancorato
+   al bordo alto della sezione finirebbe staccato dal marchio. */
+.apertura .contenitore::before {
+  content: "";
+  position: absolute;
+  top: -9rem;
+  left: 50%;
+  width: 38rem;
+  height: 30rem;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse at 50% 55%, var(--alone), transparent 62%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.apertura .contenitore > * { position: relative; z-index: 1; }
+
+.marchio-grande {
+  width: 132px;
+  height: auto;
+  display: block;
+  margin: 0 auto 2rem;
+  color: var(--testo);
+}
+
+.marchio-grande .alone-scintilla { fill: var(--scintilla); opacity: .2; }
+.marchio-grande .scintilla { fill: var(--scintilla); }
+.marchio-grande .stecco {
+  stroke: currentColor;
+  stroke-width: 2.1;
+  stroke-linecap: round;
+  fill: none;
+}
+.marchio-grande .brace { fill: var(--brace); }
+/* `opacity: 0` sta QUI e non dentro il blocco `no-preference`, ed e' l'unica
+   eccezione alla regola scritta piu' sotto ("il movimento si aggiunge, non si
+   toglie"). Motivo: con il movimento spento le otto faville non si animano, e
+   se partissero visibili resterebbero ferme tutte ammucchiate sopra la
+   scintilla — una macchia, non un disegno.
+   Perche' non e' il difetto che quella regola serve a evitare: quella regola
+   protegge il CONTENUTO, e una favilla non e' contenuto. Non dice niente, non
+   e' nell'aria-label dell'SVG, e chi non la vede non perde nulla di leggibile.
+   Sparisce solo l'ornamento, e sparisce tutto insieme invece che a meta'. */
+.marchio-grande .favilla { fill: var(--favilla); opacity: 0; }
+
+/* Il nome. Font di sistema, come tutto il resto della pagina: quello che lo
+   rende riconoscibile non e' un carattere diverso ma la "i" accesa — il suo
+   punto e' gia' la scintilla del marchio, e colorarlo lega il nome al simbolo.
+   E' anche l'unica scelta tipografica che resta IDENTICA su ogni sistema: un
+   font diverso cambierebbe forma fra Windows, macOS, Android e Linux, questa no.
+   Lettere identiche ovunque E un carattere proprio vorrebbero dire un file di
+   font servito da kindling.nexus — possibile, non vietato (non sarebbe una
+   risorsa da terzi), ma una decisione a se' che oggi non e' stata presa. */
+h1 {
+  font-size: clamp(2.4rem, 7vw, 3.6rem);
+  line-height: 1.05;
+  letter-spacing: -.035em;
+  margin: 0 0 .7rem;
+  font-weight: 680;
+}
+
+/* La "i" accesa. Contrasto misurato: 5,14:1 in chiaro (#a25718 su #fafaf8),
+   6,91:1 in scuro (#e08a3c su #141413). */
+h1 .accesa { color: var(--brace); }
+
+.slogan {
+  font-size: clamp(1.2rem, 3.4vw, 1.55rem);
+  line-height: 1.3;
+  color: var(--testo);
+  margin: .5rem auto 2.3rem;
+  /* 46ch: lo slogan sta su una riga sola sul desktop. A 32ch andava a capo
+     dopo "davvero", spezzando proprio la parola che l'hai aggiunta per dire. */
+  max-width: 46ch;
+  font-weight: 500;
+  letter-spacing: -.01em;
+  /* Righe di lunghezza simile invece dell'ultima parola orfana. Dove non e'
+     supportato si torna all'a capo normale: nessuna riga sparisce. */
+  text-wrap: balance;
+}
+
+.sommario {
+  max-width: 54ch;
+  margin: 0 auto 1rem;
+  text-wrap: pretty;
+  color: var(--tenue);
+  font-size: 1.02rem;
+}
+
+.sommario:last-of-type { margin-bottom: 0; }
+.sommario strong { color: var(--testo); font-weight: 600; }
+
+/* I link dentro al testo. Senza questa regola prendono il blu (o il viola da
+   visitato) del browser, che su questa palette e' illeggibile: sul fondo scuro
+   il link al repository spariva. */
+main a:not(.invito) {
+  color: var(--brace);
+  text-underline-offset: .15em;
+  text-decoration-thickness: from-font;
+}
+main a:not(.invito):hover { color: var(--testo); }
+
+/* --- l'invito ------------------------------------------------------------
+   NON USATE OGGI: il bottone d'invito non e' sulla pagina (vedi il commento al
+   suo posto in index.html). Le regole restano perche' rimetterlo sia il
+   ripristino di un blocco di markup e non un rifacimento — e perche' una regola
+   orfana con scritto sopra che e' orfana non inganna nessuno, mentre una regola
+   orfana e muta fra sei mesi sembra viva. Se il bottone non torna, si cancellano
+   queste e il markup di riserva insieme. */
+
+.invito {
+  display: inline-flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .85rem 1.6rem;
+  font-size: 1.02rem;
+  font-weight: 620;
+  color: var(--fondo);
+  background: var(--testo);
+  border: 1px solid var(--testo);
+  border-radius: .55rem;
+  text-decoration: none;
+}
+
+.invito:hover { background: var(--brace); border-color: var(--brace); }
+
+.invito svg { width: 18px; height: 18px; flex: none; }
+
+.nota-invito {
+  margin: 1.2rem auto 0;
+  max-width: 42ch;
+  font-size: .88rem;
+  color: var(--tenue);
+}
+
+/* --- le tre domande ------------------------------------------------------ */
+
+.domande {
+  border-top: 1px solid var(--riga);
+  padding: 3rem 0 .5rem;
+}
+
+.occhiello {
+  font-size: .78rem;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--tenue);
+  margin: 0 0 1.5rem;
+  font-weight: 600;
+}
+
+.griglia {
+  display: grid;
+  gap: 1.1rem;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.scheda {
+  background: var(--fondo-alt);
+  border: 1px solid var(--riga);
+  border-radius: .7rem;
+  padding: 1.25rem 1.35rem 1.4rem;
+}
+
+.scheda h3 {
+  margin: 0 0 .45rem;
+  font-size: 1.05rem;
+  line-height: 1.3;
+  letter-spacing: -.01em;
+}
+
+.scheda p { margin: 0; color: var(--tenue); font-size: .94rem; }
+
+.scheda .etichetta {
+  display: inline-block;
+  font-size: .72rem;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  font-weight: 650;
+  color: var(--brace);
+  margin-bottom: .55rem;
+}
+
+/* --- il patto ------------------------------------------------------------ */
+
+.patto { padding: 3rem 0 .5rem; }
+
+/* Quattro voci: due colonne, non tre. Con `auto-fit, minmax(16rem, ...)` la
+   quarta restava sola su una riga sua, come se fosse un ripensamento. */
+.patto .griglia {
+  gap: 1.8rem 3rem;
+  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+}
+
+.impegno h3 {
+  margin: 0 0 .4rem;
+  font-size: 1rem;
+  display: flex;
+  align-items: baseline;
+  gap: .5rem;
+}
+
+.impegno h3::before {
+  content: "";
+  flex: none;
+  width: .55rem;
+  height: .55rem;
+  border-radius: 50%;
+  background: var(--brace);
+}
+
+.impegno p { margin: 0; color: var(--tenue); font-size: .94rem; }
+
+/* --- piede --------------------------------------------------------------- */
+
+.piede {
+  margin-top: 3.5rem;
+  border-top: 1px solid var(--riga);
+  padding: 1.5rem 0 3rem;
+  font-size: .88rem;
+  color: var(--tenue);
+}
+
+.piede .contenitore {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1.5rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.piede nav { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; }
+.piede a { color: var(--tenue); }
+.piede a:hover { color: var(--testo); }
+
+a:focus-visible, .invito:focus-visible {
+  outline: 2px solid var(--brace);
+  outline-offset: 3px;
+  border-radius: .2rem;
+}
+
+/* --- movimento ----------------------------------------------------------
+   Regola strutturale: il movimento si AGGIUNGE sotto
+   `prefers-reduced-motion: no-preference`, non si toglie sotto `reduce`.
+   Cosi' lo stato predefinito della pagina e' quello finale — tutto visibile,
+   fermo — e ogni modo in cui l'animazione puo' non partire (preferenza di
+   sistema, browser che non conosce la media feature, CSS che non arriva)
+   atterra su "visibile e immobile", mai su "invisibile per sempre".
+   E' la ragione per cui qui non c'e' nessuna rivelazione allo scroll: quella
+   si scrive per forza al contrario, partendo da opacity: 0. */
+
+@media (prefers-reduced-motion: no-preference) {
+
+  /* I due bastoncini si disegnano. pathLength="1" nell'SVG rende
+     dasharray/dashoffset indipendenti dalla lunghezza reale del tratto. */
+  .marchio-grande .stecco {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: traccia .75s cubic-bezier(.65, 0, .35, 1) forwards;
+  }
+  .marchio-grande .stecco--2 { animation-delay: .14s; }
+
+  /* La scintilla si accende dopo che la legna c'e'. */
+  .marchio-grande .scintilla {
+    transform-box: fill-box;
+    transform-origin: center;
+    transform: scale(0);
+    animation:
+      accendi .45s .8s cubic-bezier(.34, 1.56, .64, 1) forwards,
+      respiro 3.8s 1.3s ease-in-out infinite;
+  }
+
+  .marchio-grande .alone-scintilla {
+    transform-box: fill-box;
+    transform-origin: center;
+    opacity: 0;
+    animation:
+      alone-accendi .6s .85s ease-out forwards,
+      alone-respiro 3.8s 1.3s ease-in-out infinite;
+  }
+
+  /* Otto faville che salgono. Ognuna ha ritardo, deriva, altezza e durata
+     propri (dichiarati sull'elemento nell'HTML): e' quello che distingue un
+     particellare da tre pallini che fanno la stessa cosa a turno. */
+  .marchio-grande .favilla {
+    transform-box: fill-box;
+    transform-origin: center;
+    opacity: 0;
+    animation: salita var(--durata, 4.6s) var(--ritardo, 1.6s) ease-out infinite;
+  }
+
+  /* L'entrata del testo: si aggiunge, non si sottrae. */
+  .apertura h1,
+  .apertura .slogan,
+  .apertura .sommario,
+  .apertura .invito,
+  .apertura .nota-invito {
+    animation: emergi .6s var(--ritardo, 0s) cubic-bezier(.22, .8, .3, 1) backwards;
+  }
+  .apertura .slogan     { --ritardo: .08s; }
+  .apertura .sommario   { --ritardo: .16s; }
+  .apertura .invito     { --ritardo: .24s; }
+  .apertura .nota-invito { --ritardo: .32s; }
+
+  .invito, .testata nav a, .piede a, .scheda {
+    transition: background-color .18s ease, border-color .18s ease, color .18s ease;
+  }
+}
+
+@keyframes traccia { to { stroke-dashoffset: 0; } }
+@keyframes accendi { to { transform: scale(1); } }
+@keyframes respiro {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.09); }
+}
+@keyframes alone-accendi { to { opacity: .2; } }
+@keyframes alone-respiro {
+  0%, 100% { opacity: .18; transform: scale(1); }
+  50%      { opacity: .32; transform: scale(1.22); }
+}
+@keyframes salita {
+  0%   { opacity: 0;   transform: translate(0, 0) scale(.45); }
+  10%  { opacity: .9;  }
+  45%  { opacity: .65; }
+  75%  { opacity: .28; }
+  100% { opacity: 0;   transform: translate(var(--deriva, 1px), var(--salita, -11px)) scale(.2); }
+}
+@keyframes emergi {
+  from { opacity: 0; transform: translateY(.6rem); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* --- schermi stretti ------------------------------------------------------ */
+
+@media (max-width: 34rem) {
+  /* Su un telefono l'apertura puo' prendersi tutto lo schermo: non c'e'
+     abbastanza larghezza perche' "quasi tutto" si veda come tale. */
+  .apertura { min-height: min(82vh, 40rem); min-height: min(82svh, 40rem);
+              padding: 2rem 0; }
+  .marchio-grande { width: 100px; margin-bottom: 1.5rem; }
+  .testata nav { gap: .9rem; font-size: .85rem; }
+  .invito { width: 100%; justify-content: center; }
+}
