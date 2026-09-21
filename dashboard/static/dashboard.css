@@ -10,6 +10,14 @@
    tunnel SSH, senza internet, e la CSP delle sue risposte (default-src 'none')
    rifiuterebbe comunque qualunque origine che non sia la sua. */
 :root {
+  /* Il tema segue il sistema, come la landing, e non c'e' nessun interruttore:
+     un interruttore vuole un posto dove ricordare la scelta, e gli unici posti
+     sono un cookie in piu' o uno script — la dashboard non ha ne' l'uno ne'
+     l'altro (dashboard.md 3, e la CSP senza 'unsafe-inline').
+     `color-scheme` non e' decorazione: senza, le barre di scorrimento, il
+     riquadro di <details> e i controlli nativi restano chiari dentro una pagina
+     scura, e la differenza si vede solo su una pagina che scorre. */
+  color-scheme: light dark;
   --testo: #1d1d1f; --tenue: #6b6b70; --fondo: #fafaf8; --riga: #e3e3de;
   --grigio: #8a8a8f; --grigio-fondo: #efefeb;
   --avviso: #7a4b00; --avviso-fondo: #fff4dc; --avviso-bordo: #e7b84d;
@@ -22,9 +30,91 @@
      :root e non una caccia nel foglio. I valori non cambiano. */
   --serie-0: #2f5d8a; --serie-1: #b0601f; --serie-2: #4d7a3a;
   --coorti-fondo-alt: #f4f4f0; --coorti-hover: #eceae2;
+  /* L'accento caldo della landing (public/landing.css), qui per i link dentro
+     al testo e per il passaggio del bottone d'accesso. 5,14:1 su --fondo. */
+  --brace: #a25718;
 }
+
+/* --- il tema scuro -------------------------------------------------------
+   I quattro colori di base sono LETTERALMENTE quelli di public/landing.css:
+   chi passa dalla home alla dashboard non deve vedere due neri diversi. Gli
+   altri sono colori con un significato — un avviso deve continuare a leggersi
+   come un avviso — e non si ricavano schiarendo il valore chiaro: ognuno e'
+   stato scelto misurando il contrasto sul fondo su cui compare davvero.
+
+   I rapporti nei commenti sono misurati, non stimati (stessa regola di
+   landing.css). Soglie: 4,5:1 per il testo, 3:1 per linee e bordi.
+
+   Quello che NON si ottiene qui: `--grigio` resta piu' vicino a `--tenue` di
+   quanto non lo sia in chiaro (5,49 contro 6,25 su --fondo, dove in chiaro sono
+   3,29 contro 5,07). Fra 4,5:1 — la soglia di leggibilita' di un testo — e il
+   6,25:1 di --tenue non c'e' spazio per di piu'. Il segnale "dequalificato"
+   pero' non lo porta il confronto con --tenue: lo porta il confronto con il
+   testo normale della stessa cella (--testo, 15,32:1), e li' il salto resta. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --testo: #eceae4;        /* 15,32:1 su --fondo */
+    --tenue: #9a968c;        /*  6,25:1 su --fondo */
+    --fondo: #141413;
+    --riga: #2e2d29;         /*  1,34:1 — un filo, come l'1,23:1 in chiaro */
+    /* Il grigio del dequalificato: 5,49:1 su --fondo, 5,12 su
+       --coorti-fondo-alt, 4,61 su --coorti-hover, 4,68 su --grigio-fondo.
+       Sopra 4,5:1 su TUTTI e quattro i fondi su cui compare, non solo sul
+       primo: nella tabella delle coorti le celle soppresse cadono anche sulle
+       righe alternate e sotto il passaggio del mouse. */
+    --grigio: #908c80;
+    --grigio-fondo: #24231f; /* pannello: 1,17:1 su --fondo; --testo 13,07:1 */
+    /* Avviso. 7,06:1, vicino al 6,78:1 del chiaro: la stessa forza, non di piu'.
+       Il pannello sta a 1,28:1 dal fondo (in chiaro 1,05): su nero una velatura
+       calda cosi' tenue non si vede affatto, e senza il pannello l'avviso
+       smette di leggersi come avviso. */
+    --avviso: #e0ad55;
+    --avviso-fondo: #332816;
+    /* Il filo di 4px a sinistra: 5,69:1 sul fondo della pagina, 4,45 sul
+       pannello. E' lo scostamento piu' grande dal chiaro, dove lo stesso filo
+       sta a 1,77:1 — la' e' un bordo caldo appena accennato su carta, qui
+       dovrebbe essere un marrone scurissimo per avere lo stesso rapporto, cioe'
+       indistinguibile dal nero. Su fondo scuro "ambra" si ottiene solo con piu'
+       luce. */
+    --avviso-bordo: #b8862a;
+    /* Errore. 7,86:1 sul suo pannello (in chiaro 7,57), pannello a 1,08:1 dal
+       fondo (1,12), bordo a 4,65:1 (4,19): i tre rapporti del chiaro, tenuti. */
+    --errore: #eb9b9b;
+    --errore-fondo: #2c1616;
+    --errore-bordo: #d05a5a;
+    /* Le tre serie dei grafici: 8,29:1, 5,14:1 e 14,05:1 su --fondo — tutte
+       sopra il 3:1 che una linea richiede.
+       Fra loro sono separate in LUMINANZA e non solo in tinta, ed e' la
+       differenza che conta qui: le due serie che un occhio deuteranope
+       confonde sono l'ambra e il verde, e in quella simulazione restano a
+       2,50:1 (3,16:1 in protanopia). Le tre serie del tema chiaro, alle stesse
+       simulazioni, stanno a 1,24:1 — cioe' indistinguibili: e' un difetto che
+       il tema chiaro ha gia' e che questo passo non tocca.
+       Il blu resta a 1,43:1 dall'ambra in deuteranopia, ma il blu non fa parte
+       della coppia che si confonde: li' a distinguere e' la tinta. */
+    --serie-0: #7ab3e8;
+    --serie-1: #b87a2c;
+    --serie-2: #c3ecb8;
+    /* Le righe alternate e il passaggio del mouse nella tabella delle coorti:
+       1,07:1 e 1,19:1 dal fondo, come l'1,06 e l'1,15 del chiaro. Il primo e'
+       il --fondo-alt della landing. */
+    --coorti-fondo-alt: #1c1b19;
+    --coorti-hover: #26241f;
+    --brace: #e08a3c;        /* 6,91:1 su --fondo, come sulla landing */
+  }
+}
+
 body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
        color: var(--testo); background: var(--fondo); }
+/* I link dentro al contenuto. Senza questa regola prendono il blu (e il viola
+   da visitato) del browser: in chiaro e' solo fuori palette, su --fondo scuro
+   e' 2,3:1 — illeggibile. Il selettore e' nudo di proposito, cosi' vale anche
+   per un link aggiunto domani in una vista; le quattro parti della cornice che
+   hanno un colore proprio (marchio, schede, contesto, piede) vincono per
+   specificita'. */
+a { color: var(--brace); text-underline-offset: .15em;
+    text-decoration-thickness: from-font; }
+a:hover { color: var(--testo); }
 .pagina { max-width: 60rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
 /* --- la cornice del sito ------------------------------------------------ */
 /* Marchio, menu a schede, contesto del server, piede. */

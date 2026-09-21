@@ -25,10 +25,12 @@ ragione per cui questo file esiste invece di un "si e' visto che funziona".
    domani per comodita' non si vedrebbe qui ma in produzione, come un elemento
    senza stile.
 
-Piu' una sesta che guarda il foglio invece delle risposte: **ogni colore
-letterale sta dentro ``:root``**. E' cio' che rendera' il tema scuro un secondo
+Piu' due che guardano il foglio invece delle risposte. **Ogni colore letterale
+sta dentro ``:root``**: e' cio' che ha reso il tema scuro (21/09/2026) un secondo
 blocco di variabili invece di una caccia nel foglio, e un ``#rrggbb`` scritto a
-meta' strada lo vanificherebbe in silenzio.
+meta' strada lo vanificherebbe in silenzio. E **i due blocchi definiscono le
+stesse variabili**: da quando i temi sono due, un colore puo' stare dentro
+``:root`` e stare in uno solo dei due.
 """
 
 from __future__ import annotations
@@ -277,22 +279,55 @@ def _codice_del_foglio() -> str:
                   flags=re.S)
 
 
+def _blocchi_root() -> list[str]:
+    """Il corpo di ogni blocco ``:root`` del foglio: il tema chiaro e lo scuro.
+
+    Dal 21/09/2026 sono due, e i due test sotto contano su questo: il secondo
+    vive dentro ``@media (prefers-color-scheme: dark)``, ma fra ``:root {`` e la
+    prima ``}`` non ci sono graffe annidate — i commenti li toglie gia'
+    ``_codice_del_foglio()``.
+    """
+    css = _codice_del_foglio()
+    return [css[m.end() : css.index("}", m.end())] for m in re.finditer(r":root\s*\{", css)]
+
+
 def test_ogni_colore_letterale_sta_dentro_root():
-    """Il tema scuro sara' un secondo blocco :root, non una caccia nel foglio.
+    """Il tema scuro e' un secondo blocco :root, non una caccia nel foglio.
 
     Un ``#rrggbb`` lasciato in una regola in fondo al foglio non darebbe nessun
     errore: darebbe un tema scuro con dentro tre colori chiari, ed e' esattamente
     com'erano scritte le serie dei grafici fino al 21/09/2026.
     """
     css = _codice_del_foglio()
-    inizio = css.index(":root {")
-    fine = css.index("}", inizio)
-
-    fuori = [m.group(0) for m in re.finditer(r"#[0-9a-fA-F]{3,8}\b", css)
-             if not (inizio < m.start() < fine)]
+    dentro = [
+        range(m.end(), css.index("}", m.end())) for m in re.finditer(r":root\s*\{", css)
+    ]
+    fuori = [
+        m.group(0)
+        for m in re.finditer(r"#[0-9a-fA-F]{3,8}\b", css)
+        if not any(m.start() in r for r in dentro)
+    ]
     assert fuori == [], f"colori fuori da :root: {fuori}"
     # Il controllo non passa perche' non trova colori: dentro ce ne sono.
-    assert re.findall(r"#[0-9a-fA-F]{3,8}\b", css[inizio:fine])
+    for corpo in _blocchi_root():
+        assert re.findall(r"#[0-9a-fA-F]{3,8}\b", corpo)
+
+
+def test_i_due_temi_definiscono_esattamente_le_stesse_variabili():
+    """La meta' mancante del test sopra, dal giorno del tema scuro.
+
+    Un colore puo' stare dentro ``:root`` e stare in UN solo tema: la variabile
+    nuova aggiunta al blocco chiaro e dimenticata in quello scuro non da' nessun
+    errore — ricade sul valore chiaro, cioe' un colore da carta dentro una pagina
+    nera, e lo si scopre solo aprendo quella pagina con quel tema di sistema.
+    E' la forma di CLAUDE.md 7 applicata a una palette: il meccanismo sembra
+    coprire tutto (c'e' un blocco per tema) ed esclude un caso in silenzio.
+    """
+    blocchi = _blocchi_root()
+    assert len(blocchi) == 2, "un tema chiaro e un tema scuro, non di piu' e non di meno"
+    chiaro, scuro = (set(re.findall(r"(--[\w-]+)\s*:", corpo)) for corpo in blocchi)
+    assert chiaro == scuro, f"solo in chiaro: {chiaro - scuro} | solo in scuro: {scuro - chiaro}"
+    assert len(chiaro) > 10, "il confronto non deve passare su due insiemi vuoti"
 
 
 def test_il_foglio_non_carica_niente_da_terzi():
