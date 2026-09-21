@@ -21,125 +21,46 @@ elencare simboli che il codice non rende. Un piede che documenta cose che la
 pagina non contiene e' il difetto di CLAUDE.md 7 nella forma peggiore — non tace,
 risponde di si'.
 
+E una quinta, dal 21/09/2026: **la coda del marchio non compare sulle pagine
+pubbliche**. "salute sociale della community" e' una frase che ha senso per chi
+amministra un server osservato, e le due pagine che si vedono senza essere
+entrati non la portano. Il template pubblico lo dichiara da se' svuotando
+``{% block coda %}``; questo test e' il modo di accorgersi di una terza pagina
+pubblica che se lo dimentica.
+
 Le nove pagine si raggiungono **dalle rotte**, non rendendo i template a mano: un
 contesto costruito qui sarebbe una copia di quello che passa la rotta, e la copia
-che diverge e' esattamente cio' che questi test devono poter vedere.
+che diverge e' esattamente cio' che questi test devono poter vedere. La raccolta
+vive in ``tests/sessione_dashboard.py`` perche' la guarda anche
+``test_dashboard_statici.py``.
 """
 
 from __future__ import annotations
 
 import re
-import time
 
-import httpx
 import pytest
-from fastapi.testclient import TestClient
 
-from dashboard import auth, config, qualifica
-from dashboard.main import TEMPLATES_DIR, crea_app
+from dashboard import qualifica
+from dashboard.main import TEMPLATES_DIR
 from tests.sessione_dashboard import (
-    GUILD_DI_TEST,
-    OAUTH_DI_TEST,
-    client_autenticato,
-    dati_di_sessione,
-    entra,
+    PAGINE_PUBBLICHE,
+    TEMPLATE_CON_CORNICE,
+    raccogli_pagine,
+    senza_variabili_di_database,
 )
-from tools.fixture_api import GUILD_TODAY
-from tools.fixture_api import app as fixture_app
-
-# Fuori dall'insieme autorizzato della sessione di test: la guardia nega prima
-# ancora di chiedere all'API se quel server esista.
-FUORI_DALL_INSIEME = 424242
-assert FUORI_DALL_INSIEME not in GUILD_DI_TEST
-
-# I nove template che estendono base.html. Scritti qui perche' il test possa
-# dire "nove", non "quelli che mi sono ricordato di raggiungere".
-TEMPLATE_CON_CORNICE = {
-    "accesso.html",
-    "accesso_negato.html",
-    "community.html",
-    "coorti.html",
-    "errore.html",
-    "guilds.html",
-    "non_osservata.html",
-    "robustezza.html",
-    "stato.html",
-}
 
 
 @pytest.fixture(autouse=True)
 def _nessuna_variabile_di_database(monkeypatch):
-    for nome in config.DATABASE_VARIABLES:
-        monkeypatch.delenv(nome, raising=False)
-
-
-def _app(transport: httpx.AsyncBaseTransport = None):
-    return crea_app(
-        api_http=httpx.AsyncClient(
-            transport=transport or httpx.ASGITransport(app=fixture_app),
-            base_url="http://api.test",
-        ),
-        oauth=OAUTH_DI_TEST,
-    )
-
-
-def _api_giu(request: httpx.Request) -> httpx.Response:
-    raise httpx.ConnectError("nessuna rete", request=request)
-
-
-def _api_fuori_contratto(request: httpx.Request) -> httpx.Response:
-    # I nomi del database invece di quelli del modello: RispostaNonConforme.
-    return httpx.Response(200, json={"guild_id": GUILD_TODAY, "is_suppressed": False})
+    senza_variabili_di_database(monkeypatch)
 
 
 @pytest.fixture
 def pagine() -> dict:
-    """Ogni pagina presa dalla rotta che la produce, con il contesto che le passa.
-
-    Se ``StrictUndefined`` alza dentro un template, il TestClient rialza qui: la
-    raccolta stessa fallisce, e si vede quale pagina.
-    """
-    raccolta: dict[str, tuple[str, httpx.Response]] = {}
-
-    with client_autenticato(_app(), follow_redirects=False) as c:
-        raccolta["elenco"] = ("guilds.html", c.get("/"))
-        raccolta["stato"] = ("stato.html", c.get(f"/guilds/{GUILD_TODAY}"))
-        raccolta["robustezza"] = ("robustezza.html", c.get(f"/guilds/{GUILD_TODAY}/robustezza"))
-        raccolta["community"] = ("community.html", c.get(f"/guilds/{GUILD_TODAY}/community"))
-        raccolta["coorti"] = ("coorti.html", c.get(f"/guilds/{GUILD_TODAY}/coorti"))
-        # 123 e' nell'insieme autorizzato ma il fixture non lo osserva: la
-        # guardia passa e l'API risponde 404. E' la pagina del difetto 1c.
-        raccolta["non_osservata"] = ("non_osservata.html", c.get("/guilds/123"))
-        raccolta["negato_server"] = (
-            "accesso_negato.html", c.get(f"/guilds/{FUORI_DALL_INSIEME}")
-        )
-        # verifica_fallita senza passare da Discord: uno ``state`` che non e'
-        # quello del flusso nega prima di qualunque chiamata.
-        raccolta["negato_verifica"] = (
-            "accesso_negato.html",
-            c.get("/oauth/callback", params={"code": "x", "state": "non-mio"}),
-        )
-
-    # Senza cookie: la pagina d'accesso, che per definizione non ha sessione.
-    with TestClient(_app(), follow_redirects=False) as c:
-        raccolta["accesso"] = ("accesso.html", c.get("/login"))
-
-    with TestClient(_app(), follow_redirects=False) as c:
-        entra(c, dati_di_sessione(login_at=time.time() - auth.DURATA_SESSIONE_SECONDI - 1))
-        raccolta["negato_scaduta"] = ("accesso_negato.html", c.get("/"))
-
-    with TestClient(_app(), follow_redirects=False) as c:
-        entra(c, dati_di_sessione(guilds=[]))
-        raccolta["negato_nessun_server"] = ("accesso_negato.html", c.get("/"))
-
-    with client_autenticato(_app(httpx.MockTransport(_api_giu)), follow_redirects=False) as c:
-        raccolta["errore_api_giu"] = ("errore.html", c.get(f"/guilds/{GUILD_TODAY}"))
-
-    transport = httpx.MockTransport(_api_fuori_contratto)
-    with client_autenticato(_app(transport), follow_redirects=False) as c:
-        raccolta["errore_contratto"] = ("errore.html", c.get(f"/guilds/{GUILD_TODAY}"))
-
-    return raccolta
+    # La raccolta sta in tests/sessione_dashboard.py: la guardano due file, e
+    # questo e' quello che ne conta le pagine.
+    return raccogli_pagine()
 
 
 # --- 1. la rete sotto StrictUndefined ----------------------------------------
@@ -226,3 +147,32 @@ def test_la_legenda_nomina_solo_quello_che_il_codice_rende():
     # I tipi che _etichette_di_riga() sa produrre, e nessun altro. NON_VALUTATO
     # non ha rendering (dashboard.md 5) e non deve comparire nemmeno qui.
     assert tipi_elencati == {qualifica.NON_SIGNIFICATIVO, qualifica.SOLO_SOPRAVVISSUTI}
+
+
+# --- 5. la coda del marchio non sta sulle pagine pubbliche -------------------
+
+CODA = "salute sociale della community"
+
+
+def test_la_coda_del_marchio_sta_solo_dove_si_e_entrati(pagine):
+    con_coda = {nome for nome, (_, r) in pagine.items() if CODA in r.text}
+    assert con_coda == set(pagine) - PAGINE_PUBBLICHE
+    # Il controllo non deve passare perche' non trova niente da controllare: le
+    # pagine pubbliche sono cinque (accesso piu' i quattro casi di accesso
+    # negato) e le altre otto la portano.
+    assert len(PAGINE_PUBBLICHE) == 5
+    assert len(con_coda) == 8
+
+
+def test_la_frase_non_sopravvive_dentro_il_nome_accessibile_del_marchio(pagine):
+    """La coda sta FUORI dall'ancora, e continua a starci.
+
+    Dentro, il nome accessibile del link diventerebbe "Kindling salute sociale
+    della community" — che e' il motivo per cui quel markup e' come e'. Un
+    blocco messo nel posto sbagliato non darebbe nessun errore.
+    """
+    for nome, (_, risposta) in pagine.items():
+        if CODA not in risposta.text:
+            continue
+        ancora = risposta.text[risposta.text.index('<a class="marchio"'):]
+        assert CODA not in ancora[: ancora.index("</a>")], nome

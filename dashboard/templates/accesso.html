@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 {% block titolo %}Accesso{% endblock %}
+{# Pagina pubblica: si vede senza essere entrati, e la coda del marchio
+   ("salute sociale della community") non ci compare. Il blocco vuoto e' il
+   modo in cui il template lo dichiara da se'; vedi base.html. #}
+{% block coda %}{% endblock %}
 {% block contenuto %}
 <h1>Accesso alla dashboard</h1>
 <p>La dashboard mostra le metriche aggregate dei server Discord osservati da

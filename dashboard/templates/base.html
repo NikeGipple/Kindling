@@ -4,213 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block titolo %}Kindling{% endblock %} — Kindling</title>
-<style>
-  /* Nessuna risorsa esterna: niente CDN, niente font remoti. La dashboard sta
-     dietro un tunnel SSH e non deve dipendere da internet per rendersi. */
-  :root {
-    --testo: #1d1d1f; --tenue: #6b6b70; --fondo: #fafaf8; --riga: #e3e3de;
-    --grigio: #8a8a8f; --grigio-fondo: #efefeb;
-    --avviso: #7a4b00; --avviso-fondo: #fff4dc; --avviso-bordo: #e7b84d;
-    --errore: #8f1d1d; --errore-fondo: #fde8e8; --errore-bordo: #d64545;
-  }
-  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
-         color: var(--testo); background: var(--fondo); }
-  .pagina { max-width: 60rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
-  /* --- la cornice del sito ------------------------------------------------ */
-  /* Marchio, menu a schede, contesto del server, piede. Tutto in linea come il
-     resto: _nessuna_cache mette "private, no-store" su OGNI risposta, quindi un
-     foglio esterno verrebbe riscaricato a ogni pagina lo stesso, e guadagnare
-     la cache vorrebbe dire intagliare un'eccezione nell'unica difesa scritta
-     per non averne. */
-  header.sito { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
-                padding: .85rem 0 .7rem; margin-bottom: 0;
-                border-bottom: 1px solid var(--riga); }
-  /* Le schede si appoggiano al filo della testata, quindi la testata non tiene
-     lo stacco: lo tiene il primo elemento che NON e' il menu, cioe' le pagine
-     senza menu (accesso, elenco, 404, errori), che altrimenti partirebbero
-     attaccate al filo. */
-  header.sito + :not(nav) { margin-top: 1.5rem; }
-  .marchio { display: inline-flex; align-items: center; gap: .5rem;
-             color: var(--testo); text-decoration: none; font-weight: 650; }
-  .marchio svg { width: 21px; height: 21px; flex: none; display: block; }
-  .marchio .nome { font-size: 1.05rem; letter-spacing: -.015em; }
-  .coda { font-size: .78rem; color: var(--tenue); letter-spacing: .02em; }
+{# Il foglio di stile sta in dashboard/static/dashboard.css e lo serve
+    questa stessa applicazione, non Caddy: CSS e template vivono nella stessa
+    immagine e cambiano con lo stesso deploy. Con Caddy che legge dalla copia
+    del repo sulla droplet, fra il `git pull` e il rebuild uscirebbe CSS nuovo
+    con template vecchi.
 
-  .contesto-guild { display: inline-flex; align-items: baseline; gap: .45rem;
-                    padding-left: .8rem; border-left: 1px solid var(--riga);
-                    font-size: .88rem; color: var(--tenue); }
-  .contesto-guild code { color: var(--testo); }
-  .contesto-guild a { font-size: .8rem; color: var(--tenue); }
-
-  form.sessione { margin-left: auto; display: inline-flex; align-items: baseline;
-                  gap: .5rem; font-size: .82rem; color: var(--tenue); }
-
-  nav.viste { display: flex; gap: .15rem; flex-wrap: wrap; margin: 0 0 1.5rem;
-              border-bottom: 1px solid var(--riga); }
-  nav.viste a { padding: .5rem .8rem; margin-bottom: -1px; color: var(--tenue);
-                text-decoration: none; border-bottom: 2px solid transparent; }
-  nav.viste a:hover { color: var(--testo); }
-  nav.viste a[aria-current="page"] { color: var(--testo); font-weight: 600;
-                                     border-bottom: 2px solid var(--testo); }
-
-  /* Due bottoni, due pesi: "Esci" e' un'azione di servizio, "Accedi con
-     Discord" e' l'unica cosa da fare sulla pagina d'accesso — ed e' la prima
-     pagina che un amministratore vede. Finora nessuno dei due aveva una regola. */
-  button { font: inherit; cursor: pointer; }
-  form.sessione button { padding: .15rem .55rem; font-size: .82rem;
-                         color: var(--tenue); background: none;
-                         border: 1px solid var(--riga); border-radius: .4rem; }
-  form.sessione button:hover { color: var(--testo); border-color: var(--grigio); }
-  button.accedi { padding: .55rem 1.1rem; font-weight: 600;
-                  color: var(--fondo); background: var(--testo);
-                  border: 1px solid var(--testo); border-radius: .45rem; }
-  button.accedi:hover { opacity: .85; }
-  /* Chi naviga da tastiera oggi non vede affatto dove si trova. */
-  a:focus-visible, button:focus-visible, summary:focus-visible {
-    outline: 2px solid var(--testo); outline-offset: 2px; border-radius: .2rem; }
-
-  .piede { margin-top: 2.5rem; padding-top: .9rem; border-top: 1px solid var(--riga);
-           font-size: .85rem; color: var(--tenue); }
-  .piede .riga-piede { display: flex; flex-wrap: wrap; gap: .4rem 1.5rem;
-                       justify-content: space-between; align-items: baseline; }
-  .legenda-simboli { margin-bottom: 1rem; }
-  .legenda-simboli > summary { cursor: pointer; font-weight: 600; color: var(--testo); }
-  /* Una riga per voce invece della griglia a due colonne: due voci su quattro
-     hanno per termine un'etichetta a pillola e non un glifo, e una prima
-     colonna larga quanto la pillola lascerebbe i due glifi in mezzo al vuoto —
-     a larghezza di telefono, quasi tutta la riga. */
-  .legenda-simboli dl { margin: .75rem 0 0; }
-  .legenda-simboli dl > div { display: flex; align-items: baseline; gap: .6rem;
-                              margin-bottom: .45rem; }
-  .legenda-simboli dt { flex: none; min-width: 1.6rem; text-align: center;
-                        color: var(--tenue); }
-  .legenda-simboli dd { margin: 0; }
-
-  /* A larghezza di telefono la testata va a capo, e due cose pensate per stare
-     in fila finiscono ognuna su una riga sua: il filo verticale che separa il
-     contesto dal marchio non separa piu' niente, e una voce di legenda con
-     l'etichetta a pillola lascia al testo una colonna troppo stretta. */
-  @media (max-width: 34rem) {
-    .contesto-guild { padding-left: 0; border-left: none; }
-    .legenda-simboli dl > div { display: block; }
-    .legenda-simboli dt { text-align: left; margin-bottom: .1rem; }
-  }
-  h3 { font-size: 1rem; margin: 1.25rem 0 .25rem; }
-  h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
-  h2 { font-size: 1.1rem; margin: 2rem 0 .5rem; }
-  .sottotitolo { color: var(--tenue); margin: 0 0 1rem; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { text-align: left; padding: .35rem .6rem; border-bottom: 1px solid var(--riga); vertical-align: top; }
-  th { font-weight: 600; color: var(--tenue); font-size: .85rem; }
-  .scorri { overflow-x: auto; }
-  code, pre { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: .85rem; }
-  pre { background: var(--grigio-fondo); padding: .75rem; overflow-x: auto; margin: .25rem 0; }
-  .nota { color: var(--tenue); font-size: .9rem; }
-
-  /* Avviso: un fatto che cambia la lettura dei dati. NON un errore. */
-  .avviso { background: var(--avviso-fondo); border-left: 4px solid var(--avviso-bordo);
-            color: var(--avviso); padding: .75rem 1rem; margin: 1rem 0; }
-  .avviso strong { display: block; margin-bottom: .25rem; }
-
-  /* Errore: l'API non risponde. Deve somigliare a NIENT'ALTRO della pagina
-     (dashboard.md 5, regola 1). */
-  .errore { background: var(--errore-fondo); border: 2px solid var(--errore-bordo);
-            color: var(--errore); padding: 1rem 1.25rem; }
-
-  /* --- celle di qualificazione (dashboard.md 5) --------------------------- */
-  .cella { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: .35rem; }
-  .cella__testo { font-variant-numeric: tabular-nums; }
-  .cella__spiegazione { color: var(--tenue); font-size: .85rem; }
-  .cella--soppresso .cella__testo { color: var(--grigio); font-style: italic; }
-  .cella--soppresso .cella__simbolo { color: var(--grigio); }
-  .cella--non_calcolabile .cella__testo { color: var(--grigio); }
-  .cella--mediana_non_raggiunta .cella__testo { font-style: italic; }
-  .cella--assente .cella__testo { color: var(--grigio); }
-  /* Un numero non significativo si mostra, ma dequalificato. */
-  .cella--valore.cella--dequalificata .cella__testo { color: var(--grigio); }
-  .etichetta { font-size: .75rem; padding: 0 .4rem; border-radius: .6rem; white-space: nowrap; }
-  .etichetta--non_significativo { background: var(--grigio-fondo); color: var(--tenue); }
-  .etichetta--solo_sopravvissuti { background: var(--avviso-fondo); color: var(--avviso);
-                                   white-space: normal; }
-  .qualificazione { display: inline-flex; flex-wrap: wrap; gap: .25rem; }
-
-  /* --- vista Robustezza ---------------------------------------------------- */
-  .blocco { border-top: 1px solid var(--riga); margin-top: 2rem; }
-  .blocco h2 code { color: var(--tenue); font-weight: normal; }
-  .colonna-risposta { font-weight: 600; }
-  .frase-assente, .frase-vuota { color: var(--tenue); font-style: italic; }
-  .grafico { margin: 1rem 0 0; }
-  .grafico svg { width: 100%; height: auto; max-width: 40rem; display: block; }
-  .asse-zero { stroke: var(--grigio); stroke-width: 1; }
-  .tick-x, .tick-y { font-size: 11px; fill: var(--tenue); }
-  .etichetta-grafico { font-size: 12px; fill: var(--tenue); }
-  .serie--0 { --colore: #2f5d8a; }
-  .serie--1 { --colore: #b0601f; }
-  .serie--2 { --colore: #4d7a3a; }
-  .segmento { stroke: var(--colore); stroke-width: 2; }
-  .punto { fill: var(--colore); stroke: var(--colore); stroke-width: 1.5; }
-  /* Non significativo: si disegna, ma dequalificato — punto vuoto, tratto
-     spezzato e chiaro. Un segmento eredita lo stile peggiore dei suoi estremi. */
-  .punto--dequalificato { fill: var(--fondo); opacity: .75; }
-  .segmento--dequalificato { stroke-dasharray: 4 3; opacity: .55; }
-  .legenda { list-style: none; padding: 0; margin: .5rem 0 0; display: flex; flex-wrap: wrap; gap: .25rem 1.25rem; font-size: .85rem; }
-  .campione { display: inline-block; width: 1.25rem; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: .35rem; }
-  .campione--0 { border-color: #2f5d8a; }
-  .campione--1 { border-color: #b0601f; }
-  .campione--2 { border-color: #4d7a3a; }
-  .campione--dequalificato { border-top: 2px dashed var(--grigio); }
-
-  /* --- vista Community ----------------------------------------------------- */
-  /* Due meta' della stessa riga: vicine, ma distinguibili. */
-  .intestazione-gruppi th { color: var(--testo); border-bottom: none; padding-bottom: 0; }
-  .inizio-stabilita { border-left: 2px solid var(--riga); }
-  .senza-confronto { color: var(--tenue); font-style: italic; }
-  .riferimento { stroke: var(--grigio); stroke-width: 1; stroke-dasharray: 2 3; }
-  .campione--riferimento { border-top: 1px dashed var(--grigio); }
-  .titolo-grafico { font-weight: 600; font-size: .95rem; margin-bottom: .25rem; }
-
-  /* --- vista Coorti -------------------------------------------------------- */
-  /* Venticinque righe di gruppo e ventisei colonne: la tabella scorre in
-     orizzontale (.scorri) e non si stringe. Le righe restano distinguibili una
-     dall'altra anche quando dicono tutte la stessa cosa — e' il muro grigio che
-     dashboard.md 4 chiede di non produrre. */
-  /* Larghezza naturale, non il 100% del contenitore: con ventisei colonne una
-     tabella che si stringe manda a capo ogni cella invece di far scorrere il
-     riquadro, e righe alte cinque linee rendono illeggibile proprio la scala che
-     questa vista deve reggere. */
-  .tabella-coorti { white-space: nowrap; width: max-content; min-width: 100%; }
-  .tabella-coorti th, .tabella-coorti td { vertical-align: baseline; }
-  /* Il fondo e' esplicito su OGNI cella, non solo sulle righe pari: la colonna
-     della settimana resta ferma mentre la tabella scorre, e una cella ferma e
-     trasparente lascia passare sotto di se' il testo delle altre. */
-  .tabella-coorti tbody td { background: var(--fondo); }
-  .tabella-coorti tbody tr:nth-child(even) td { background: #f4f4f0; }
-  .tabella-coorti tbody tr:hover td { background: #eceae2; }
-  .tabella-coorti thead th { background: var(--fondo); }
-  .colonna-coorte { font-variant-numeric: tabular-nums; font-weight: 600;
-                    position: sticky; left: 0; z-index: 1;
-                    border-right: 1px solid var(--riga); }
-  .tabella-coorti thead th:first-child { position: sticky; left: 0; z-index: 2; }
-  /* L'etichetta "solo sopravvissuti" e' una frase, e in tredici righe di fila
-     allargherebbe la colonna piu' di ogni altra: va a capo dentro una larghezza
-     sua, come la frase della mediana non raggiunta. */
-  .tabella-coorti .etichetta--solo_sopravvissuti { display: inline-block;
-     max-width: 13rem; }
-  /* Il confine fra i gruppi di colonne: due ambiti di integrazione e la
-     retention sono letture diverse, non un continuo da sommare. */
-  .inizio-gruppo { border-left: 2px solid var(--riga); }
-  .intestazione-gruppi th[colspan] { color: var(--testo); }
-  .cella__nota { color: var(--tenue); font-size: .85rem; margin-left: .35rem; }
-  /* La frase della mediana non raggiunta e' una frase, non un numero: e' l'unica
-     cella che va a capo, con una larghezza sua, invece di allargare la colonna
-     per tutte e venticinque le righe. */
-  .cella--mediana_non_raggiunta .cella__testo { white-space: normal;
-     display: inline-block; max-width: 17rem; font-size: .85rem; }
-  .stato { color: var(--tenue); font-size: .85rem; }
-  .stato--valore { color: var(--testo); }
-  .riepilogo { margin: .25rem 0 1rem; }
-  .riga-divergenza td { white-space: normal; }
-</style>
+    La versione nella query e' l'impronta del CONTENUTO del file (main.py,
+    versione_css): il prefisso /static/ ha "max-age=31536000, immutable", e con
+    una cache di un anno un URL che non cambia quando cambia il foglio darebbe
+    a chi ha gia' visitato la dashboard le pagine nuove con lo stile vecchio,
+    senza nessun errore. Impronta e non KINDLING_CODE_VERSION: in sviluppo
+    quella e' vuota, e una versione fissa e' una cache che non si invalida mai
+    proprio dove il foglio cambia ogni minuto. -#}
+<link rel="stylesheet" href="/static/dashboard.css?v={{ versione_css }}">
 </head>
 <body>
 <div class="pagina">
@@ -227,8 +34,17 @@
       <span class="nome">Kindling</span>
     </a>
     {#- La coda sta FUORI dall'ancora: dentro, il nome accessibile del link
-        diventerebbe "Kindling salute sociale della community". -#}
-    <span class="coda">salute sociale della community</span>
+        diventerebbe "Kindling salute sociale della community".
+
+        In un blocco, e non dietro una variabile passata dalla rotta: le due
+        pagine che la tolgono — accesso e accesso negato — sono le due che si
+        vedono SENZA essere entrati, e "questa pagina e' pubblica" e' un fatto
+        del template, non della chiamata che lo rende. Con un flag da pagina(),
+        accesso_negato.html lo riceverebbe da un gestore di eccezioni e
+        accesso.html da una rotta, cioe' lo stesso fatto scritto in due posti
+        lontani dal template che lo riguarda; una terza pagina pubblica
+        domani lo dimenticherebbe senza nessun errore. -#}
+    {% block coda %}<span class="coda">salute sociale della community</span>{% endblock %}
     {#- vista_corrente, non guild_id. La riga di contesto e il menu dicono "sei
         dentro una vista di un server", e le quattro rotte di vista sono le
         uniche a passare vista_corrente. Con guild_id, la pagina di guild non

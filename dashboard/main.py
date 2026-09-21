@@ -6,9 +6,11 @@ nessuna variabile di database nell'ambiente — il processo rifiuta di partire s
 ne trova una.
 
 Fase 2 (dashboard.md 8, dashboard-fase2.md): davanti c'e' Caddy, e ogni vista
-sta dietro il login Discord di ``auth.py``. Fuori dalla guardia restano solo
-``/health`` (lo chiama l'healthcheck del container, dall'interno) e le rotte del
-login stesso. Il binding sul loopback per il tunnel SSH resta.
+sta dietro il login Discord di ``auth.py``. Fuori dalla guardia restano
+``/health`` (lo chiama l'healthcheck del container, dall'interno), le rotte del
+login stesso e ``/static/`` — il foglio di stile, che serve alla pagina
+d'accesso e non dice niente di nessun server. Il binding sul loopback per il
+tunnel SSH resta.
 
 Uso (``--factory``: la configurazione OAuth si legge all'avvio, e importare il
 modulo — i test lo fanno — non deve pretenderla):
@@ -18,15 +20,18 @@ modulo — i test lo fanno — non deve pretenderla):
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
 import httpx
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -44,6 +49,69 @@ from .qualifica import cella
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+STATIC_DIR = Path(__file__).parent / "static"
+
+# Il prefisso che l'applicazione serve da STATIC_DIR, e l'unico che sfugge al
+# "private, no-store". Scritto una volta sola: il mount e il middleware devono
+# parlare dello stesso insieme di URL, e due stringhe uguali per caso sono due
+# stringhe che un giorno divergono senza nessun errore (CLAUDE.md 7).
+PREFISSO_STATICI = "/static/"
+
+# Le pagine: mai in cache, da nessuna parte. Un computer condiviso non deve
+# conservare la pagina di un amministratore (dashboard-fase2.md 3-bis).
+CACHE_PAGINE = "private, no-store"
+# I file statici: un anno, e "immutable" perche' il browser non li rivalidi
+# nemmeno con un ricarica. E' sicuro SOLO perche' l'URL porta l'impronta del
+# contenuto (versione_css): un foglio nuovo e' un URL nuovo, e quello vecchio
+# non viene piu' chiesto da nessuno. Senza quella impronta, questa riga
+# congelerebbe per un anno lo stile di chi ha gia' visitato la dashboard.
+CACHE_STATICI = "public, max-age=31536000, immutable"
+
+# La CSP delle risposte della dashboard (dashboard.md 3). "default-src 'none'"
+# e poi solo cio' che serve davvero, verificato sul codice e non copiato da un
+# esempio:
+#
+# - style-src 'self': il solo /static/dashboard.css. NIENTE 'unsafe-inline',
+#   che e' ottenibile oggi perche' nessun template ha un <style> o uno
+#   style="..." e nessuna stringa generata in Python ne produce — i grafici
+#   sono SVG con attributi di presentazione, che la CSP non guarda. Il test
+#   che lo tiene vero sulle tredici pagine sta in tests/test_dashboard_statici.py:
+#   senza, il primo style="" aggiunto per comodita' non si vedrebbe qui ma
+#   nella console di chi legge, con l'elemento senza stile.
+# - script-src 'self': oggi non c'e' nessuno script, e la direttiva dice che
+#   se un giorno ce ne sara' uno dovra' essere un file di questa origine, non
+#   una riga dentro la pagina.
+# - img-src 'self': nessuna immagine oggi (il marchio e' un <svg> in linea, non
+#   un <img>). "data:" stava nella bozza ed e' stato tolto perche' niente lo
+#   usa; rimetterlo e' una riga, e la sua mancanza si vede subito — immagine
+#   rotta e violazione in console — non in silenzio.
+# - form-action 'self' https://discord.com: i due form della dashboard postano
+#   su /login e /logout, ma POST /login risponde 303 verso
+#   discord.com/oauth2/authorize, e form-action vale anche sulla DESTINAZIONE
+#   del redirect, non solo sull'action del form. Provato su Chromium il
+#   21/09/2026 con la CSP accesa: con il solo 'self' la POST parte, torna il
+#   303 e la navigazione viene abortita (net::ERR_ABORTED), e il messaggio in
+#   console e' fuorviante — nomina l'action del form ("Sending form data to
+#   'http://localhost:8001/login' violates ... form-action 'self'"), cioe'
+#   proprio l'URL che 'self' consente, e non dice mai discord.com. Con
+#   discord.com elencato, lo stesso giro arriva alla pagina di Discord.
+#   Sbagliare questa riga vuol dire un bottone "Accedi con Discord" che non
+#   porta da nessuna parte, senza nessun errore fuori dalla console, sulla
+#   prima pagina che un amministratore vede: il difetto di CLAUDE.md 7.
+# - base-uri 'none' e frame-ancestors 'none': un <base> iniettato
+#   riscriverebbe ogni URL relativo della pagina, e nessuno deve poter
+#   incorniciare la dashboard.
+CSP = "; ".join(
+    (
+        "default-src 'none'",
+        "style-src 'self'",
+        "script-src 'self'",
+        "img-src 'self'",
+        "base-uri 'none'",
+        "frame-ancestors 'none'",
+        "form-action 'self' https://discord.com",
+    )
+)
 
 _GIORNI = ("lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica")
 _MESI = (
@@ -57,6 +125,34 @@ _MESI = (
 # stessa un segnale, e non l'ha progettata nessuno. Stato non c'e' perche' mostra
 # il contesto, non metriche: nessuna sua cella passa da cella().
 _VISTE_CON_SIMBOLI = frozenset({"robustezza", "community", "coorti"})
+
+
+def _impronta(dati: bytes) -> str:
+    """Le prime dodici cifre esadecimali dello sha256. Valore opaco: serve solo
+    che sia lo stesso per lo stesso contenuto e diverso per un contenuto diverso."""
+    return hashlib.sha256(dati).hexdigest()[:12]
+
+
+@lru_cache(maxsize=1)
+def versione_css() -> str:
+    """L'impronta del contenuto di dashboard.css, per la query dell'URL del foglio.
+
+    L'impronta del file e non ``KINDLING_CODE_VERSION``, che pure e' incisa
+    nell'immagine e cambia a ogni deploy. Due ragioni, e la seconda e' quella
+    che decide:
+
+    1. cambia ESATTAMENTE quando cambia il foglio: un deploy che non tocca il
+       CSS non butta via la copia in cache di nessuno;
+    2. in sviluppo ``KINDLING_CODE_VERSION`` e' vuota — nel Dockerfile e' un
+       ARG con default vuoto, e in locale non la esporta nessuno. Sarebbe una
+       versione COSTANTE accanto a "immutable, un anno", cioe' un foglio che
+       non si aggiorna mai proprio dove cambia ogni minuto, e per accorgersene
+       bisogna sospettare della cache invece che del proprio CSS.
+
+    Letta una volta per processo (``lru_cache``): il file sta nell'immagine e
+    non cambia sotto un processo vivo. ``cache_clear()`` esiste per i test.
+    """
+    return _impronta((STATIC_DIR / "dashboard.css").read_bytes())
 
 
 def cornice(**contesto) -> dict:
@@ -76,6 +172,11 @@ def cornice(**contesto) -> dict:
     if "guild_id" in contesto:
         contesto.setdefault("nome_server", str(contesto["guild_id"]))
     contesto.setdefault("mostra_legenda", contesto.get("vista_corrente") in _VISTE_CON_SIMBOLI)
+    # base.html la usa nell'URL del foglio di stile, quindi la vogliono tutte e
+    # nove le pagine, comprese quelle senza sessione: con StrictUndefined, una
+    # variabile di cornice impostata dalla rotta invece che da qui farebbe
+    # fallire il rendering proprio della pagina d'accesso.
+    contesto.setdefault("versione_css", versione_css())
     return contesto
 
 
@@ -171,14 +272,42 @@ def crea_app(
         lifespan=lifespan,
     )
 
+    # Il foglio di stile lo serve QUESTA applicazione, non Caddy, e non e' una
+    # svista di configurazione: CSS e template stanno nella stessa immagine e
+    # cambiano con lo stesso `docker compose build`. Caddy legge invece dalla
+    # copia del repo sulla droplet, quindi fra il `git pull` e il rebuild
+    # servirebbe il CSS nuovo alle pagine vecchie — una finestra breve, e muta.
+    #
+    # Fuori dalla guardia, come /login: senza foglio di stile la pagina d'accesso
+    # sarebbe illeggibile proprio a chi non e' ancora entrato. Un file di stile
+    # non dice niente di nessun server.
+    app.mount(PREFISSO_STATICI.rstrip("/"), StaticFiles(directory=STATIC_DIR), name="statici")
+
     # Ogni risposta, non solo quelle autenticate: e' il sovrainsieme che non si
     # sbaglia. Senza, una cache intermedia o il disco del browser su un computer
     # condiviso conservano la pagina di un amministratore (dashboard-fase2.md
     # 3-bis) — e la difesa sta qui, non in una configurazione fatta altrove.
+    #
+    # L'unica eccezione e' /static/, ed e' scritta STRETTA: il prefisso E lo stato
+    # 200/304. Una 404 sotto /static/ (un file rinominato, un URL sbagliato)
+    # ricade nel ramo delle pagine e resta no-store, invece di farsi ricordare
+    # come "assente" per un anno da ogni browser che l'ha chiesta.
+    #
+    # La CSP sta qui e non in un decoratore per rotta per la stessa ragione della
+    # cache: una rotta nuova non puo' dimenticarsela. Sulle risposte statiche non
+    # si mette, perche' un foglio di stile non ha sottorisorse da governare.
     @app.middleware("http")
-    async def _nessuna_cache(request: Request, call_next):
+    async def _intestazioni(request: Request, call_next):
         risposta = await call_next(request)
-        risposta.headers["Cache-Control"] = "private, no-store"
+        statica = (
+            request.url.path.startswith(PREFISSO_STATICI)
+            and risposta.status_code in (200, 304)
+        )
+        if statica:
+            risposta.headers["Cache-Control"] = CACHE_STATICI
+        else:
+            risposta.headers["Cache-Control"] = CACHE_PAGINE
+            risposta.headers["Content-Security-Policy"] = CSP
         return risposta
 
     # max_age e' la SECONDA difesa: Starlette rifirma il cookie a ogni risposta,

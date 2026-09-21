@@ -358,10 +358,18 @@ la seconda volta senza aggiungere niente. La tabella della serie compare da due
 snapshot in su.
 
 **Il grafico è SVG generato dal template, server-side.** Nessun JavaScript,
-nessuna libreria, nessuna risorsa esterna: `base.html` non ne carica, la
-dashboard sta dietro un tunnel SSH e non deve dipendere da internet per
-rendersi. Un grafico che ha bisogno di una CDN è un grafico che un giorno non si
-disegna.
+nessuna libreria, nessuna risorsa **da terzi**: la dashboard sta dietro un
+tunnel SSH e non deve dipendere da internet per rendersi. Un grafico che ha
+bisogno di una CDN è un grafico che un giorno non si disegna.
+
+Dal 21/09/2026 «nessuna risorsa esterna» non vuol più dire «`base.html` non
+carica niente»: il foglio di stile è uscito dal `<style>` in linea e sta in
+`/static/dashboard.css`, servito **dalla stessa applicazione** — non da Caddy,
+che legge dalla copia del repo sulla droplet e fra il `git pull` e il rebuild
+servirebbe CSS nuovo con template vecchi. Il divieto che resta intero riguarda
+le **origini altrui**: niente CDN, font remoti, analytics o widget, e la CSP
+delle risposte (`default-src 'none'`, senza `'unsafe-inline'`) lo impone invece
+di raccomandarlo.
 
 **Regola 6 sulla legenda.** Una serie è fatta di righe con `nodes_removed`
 diversi, quindi la coppia "stessa riga" non è applicabile alla legenda. La voce
