@@ -2028,3 +2028,72 @@ che legge l'errore n. 5 la aggiunge per coerenza.
 - **Nessun alerting e nessuna soglia di attenzione** (metrica 7 del catalogo):
   richiede una serie storica che non esiste ancora.
 - **Nessun punteggio sintetico**, in nessuna forma, mai. Vedi §5, regola 3.
+
+## 12. Voci aperte del tema chiaro (misurate, non risolte)
+
+Trovate il 21/09/2026 misurando i contrasti per scrivere il tema scuro
+(`dashboard/static/dashboard.css`, blocco `prefers-color-scheme: dark`). Sono
+difetti del tema **chiaro** — quello che è in produzione da sempre — e il tema
+scuro li ha già evitati per costruzione. Non sono stati corretti insieme a
+quello perché il fix cambia i colori di pagine che oggi si vedono: una tavolozza
+in chiaro si decide guardandola, non si innesta a margine di un commit che
+parlava d'altro. Stessa regola dei follow-up aperti di `CLAUDE.md`.
+
+I rapporti sono misurati, non stimati: luminanza relativa WCAG 2.x per il
+contrasto, matrici di Machado et al. a severità 1,0 per le simulazioni di
+visione dei colori. Sono riproducibili dai valori scritti sotto, che sono quelli
+letterali di `:root`.
+
+### 12.1 Le tre serie dei grafici non si distinguono in deuteranopia né in protanopia
+
+`--serie-0: #2f5d8a` (blu), `--serie-1: #b0601f` (ambra), `--serie-2: #4d7a3a`
+(verde). Contro il fondo stanno bene — 6,58:1, 4,43:1 e 4,83:1, tutte sopra il
+3:1 che una linea richiede. **Fra loro no**:
+
+| coppia | visione tipica | deuteranopia | protanopia |
+|---|---|---|---|
+| ambra / verde | 1,09:1 | **1,24:1** | **1,11:1** |
+| blu / ambra | 1,49:1 | 1,73:1 | 1,17:1 |
+| blu / verde | 1,36:1 | 1,40:1 | 1,30:1 |
+
+Le tre sono separate in **tinta** e quasi per niente in luminanza, e la tinta è
+esattamente ciò che un occhio deuteranope o protanope non usa: ambra e verde,
+simulate, diventano due olive alla stessa luce. Chi guarda vede tre linee e non
+può dire quale sia quale.
+
+Dove morde: la serie di Robustezza (§4), che porta tre soglie di rimozione nello
+stesso grafico più i tre campioni di legenda che le nominano. Community disegna
+una serie sola per grafico e non è toccata.
+
+Il tema scuro lo evita separando le tre anche in luminanza — 8,29:1, 5,14:1 e
+14,05:1 sul fondo — e la coppia che conta, ambra/verde, resta a 2,50:1 in
+deuteranopia e 3,16:1 in protanopia.
+
+**Fix non fatto qui**: rifare i tre colori chiari sullo stesso criterio, cioè
+una scala di luminanza invece di tre tinte alla stessa forza. Cambia l'aspetto
+di ogni grafico in chiaro, ed è la ragione per cui è una voce e non una riga.
+Distinguere le serie anche per tratto sembra la via facile e **non lo è**: il
+tratteggio è già preso, qualifica il "non significativo" (§5), e usarlo per due
+cose diverse nello stesso grafico è peggio del difetto che risolverebbe.
+
+### 12.2 `--grigio` è a 3,29:1, sotto la soglia del testo
+
+`--grigio: #8a8a8f` sul fondo della pagina dà 3,29:1. Sugli altri fondi su cui
+cade davvero scende: 3,12:1 sulle righe alternate delle coorti, 2,98:1 dentro
+`--grigio-fondo`, **2,85:1** sotto il passaggio del mouse. La soglia per un
+testo è 4,5:1, e questo è testo: lo portano il valore soppresso, il non
+calcolabile, l'assente e il numero dequalificato (§5). È il colore con cui si
+legge proprio ciò di cui bisogna accorgersi.
+
+Il tema scuro sta sopra 4,5:1 su tutti e quattro quei fondi (5,49 / 5,12 / 4,68
+/ 4,61), e gli è costato qualcosa: lì `--grigio` finisce vicino a `--tenue`
+(6,25:1) e la distanza fra i due quasi sparisce. In chiaro quella distanza c'è
+(3,29 contro 5,07) ma è comprata sotto soglia — cioè il dequalificato si
+distingue dal testo secondario perché è meno leggibile del dovuto.
+
+**Fix non fatto qui**: portare il grigio ad almeno 4,5:1 sul fondo **più
+scuro** su cui cade — `--coorti-hover`, dove oggi sta a 2,85:1 — e non sul solo
+`--fondo`, che è il più chiaro dei quattro e quindi quello che dà il numero
+migliore. Misurare sul fondo sbagliato è come i 3,29:1 di oggi sono stati
+accettati. Va deciso insieme a §12.1, perché tocca la stessa tavolozza e gli
+stessi grafici.
