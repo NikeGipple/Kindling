@@ -77,6 +77,11 @@ body {
 .testata .contenitore {
   display: flex;
   align-items: center;
+  /* Quattro voci invece di tre: a 375 px ci stanno, ma il margine misurato e'
+     0 px. Senza questo, la prima larghezza piu' stretta (o un carattere piu'
+     grande impostato dall'utente) manda la testata fuori pagina invece che a
+     capo. Stessa scelta di header.sito nella dashboard. */
+  flex-wrap: wrap;
   gap: 1rem;
   padding-top: .9rem;
   padding-bottom: .9rem;
@@ -97,12 +102,46 @@ body {
 .testata nav {
   margin-left: auto;
   display: flex;
+  /* `center`, non il default `normal` (che si comporta da `stretch`). Con tre
+     link di solo testo non si notava, perche' erano tutti alti uguale. Da
+     quando c'e' `.accedi`, che ha bordo e padding, e' lui il piu' alto: gli
+     altri tre venivano stirati fino a 33,3 px e il loro testo restava in cima
+     alla scatola, 5,8 px piu' su del suo. A occhio sembrava allineato — si vede
+     solo misurando dove cade il testo, non la scatola. */
+  align-items: center;
+  /* NIENTE `flex-wrap` qui, e non e' una svista: provato, e peggiora. Con wrap
+     il nav puo' restringersi sotto la sua larghezza naturale, quindi
+     l'algoritmo flex del contenitore lo comprime e le quattro voci vanno su due
+     righe anche quando su una ci starebbero. Il wrap sta sul CONTENITORE (come
+     nella testata della dashboard): quando non c'e' spazio scende il menu
+     intero sotto il marchio, invece di spezzarsi a meta'. */
   gap: 1.25rem;
   font-size: .9rem;
 }
 
 .testata nav a { color: var(--tenue); text-decoration: none; }
 .testata nav a:hover { color: var(--testo); text-decoration: underline; }
+
+/* La variante "azione". Finche' il bottone d'invito resta muto, questo e'
+   l'unico link della pagina che porta dove si puo' fare qualcosa: non deve
+   pesare come "Termini". Contorno leggero e colore pieno — un'azione
+   secondaria, non un bottone primario: il peso primario appartiene al posto
+   del bottone d'invito, e due pesi forti su una pagina sola si annullano.
+   L'allineamento verticale NON si corregge qui con `align-self`: la causa e'
+   che `.testata nav` stirava i suoi figli, e la cura sta li' (`align-items:
+   center`). Curarla su questo solo elemento avrebbe lasciato gli altri tre
+   stirati, cioe' il difetto intatto e invisibile.
+   La transizione la eredita: la regola in fondo al foglio elenca
+   `.testata nav a`, che comprende questa, e copre gia' `border-color`. */
+.testata nav a.accedi {
+  color: var(--testo);
+  padding: .3rem .75rem;
+  border: 1px solid var(--riga);
+  border-radius: .4rem;
+}
+/* Niente sottolineatura, a differenza degli altri tre: dentro un contorno
+   sembrerebbe un errore di stile. Si muove il bordo. */
+.testata nav a.accedi:hover { text-decoration: none; border-color: var(--tenue); }
 
 /* --- apertura ------------------------------------------------------------ */
 
@@ -281,7 +320,12 @@ main a:not(.invito):hover { color: var(--testo); }
 .griglia {
   display: grid;
   gap: 1.1rem;
-  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  /* `min(16rem, 100%)` e non `16rem` secco: con un minimo fisso, quando il
+     contenitore e' piu' stretto del minimo la traccia NON si restringe — resta
+     larga quanto il minimo e la scheda esce dal contenitore. Col `min()` il
+     minimo diventa il piu' piccolo fra i due e la colonna non supera mai lo
+     spazio disponibile. */
+  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
   margin: 0;
   padding: 0;
   list-style: none;
@@ -321,7 +365,14 @@ main a:not(.invito):hover { color: var(--testo); }
    quarta restava sola su una riga sua, come se fosse un ripensamento. */
 .patto .griglia {
   gap: 1.8rem 3rem;
-  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+  /* 22rem = 352 px. Senza il `min()`, a 375 px di schermo la scheda restava
+     larga 352 dentro un contenitore da 335: nessuna barra di scorrimento —
+     l'eccedenza stava dentro il padding — ma il margine destro della pagina
+     passava da 20 px a 3, e la scheda finiva fuori asse. A 320 px diventava
+     scroll orizzontale vero. Difetto entrato il 20/09/2026 col passaggio a due
+     colonne, trovato il 21/09 misurando la testata per un'altra ragione: la
+     verifica "c'e' scroll orizzontale?" da sola non lo vedeva. */
+  grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
 }
 
 .impegno h3 {
@@ -470,6 +521,6 @@ a:focus-visible, .invito:focus-visible {
   .apertura { min-height: min(92vh, 44rem); min-height: min(92svh, 44rem);
               padding: 2rem 0; }
   .marchio-grande { width: 100px; margin-bottom: 1.5rem; }
-  .testata nav { gap: .9rem; font-size: .85rem; }
+  .testata nav { gap: .7rem; font-size: .85rem; }
   .invito { width: 100%; justify-content: center; }
 }

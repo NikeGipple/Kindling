@@ -29,6 +29,16 @@
       <a href="https://github.com/NikeGipple/Kindling">Codice</a>
       <a href="informativa-privacy.html">Privacy</a>
       <a href="termini-di-servizio.html">Termini</a>
+      <!-- La radice, non /login. `/` sta dietro `protetta` (dashboard/main.py),
+           e `richiede_accesso` alza AccessoRichiesto("/login") che l'handler
+           trasforma in un 303: chi non ha sessione finisce alla schermata di
+           accesso da solo, chi ce l'ha atterra sull'elenco dei suoi server.
+           Puntare a /login farebbe passare dall'accesso anche chi e' gia'
+           dentro, per niente. `ricorda_destinazione` salva "/" come meta
+           post-login, quindi anche chi si autentica arriva all'elenco.
+           Chi non amministra nessun server osservato arriva a
+           accesso_negato.html nel caso `nessun_server`, che glielo spiega. -->
+      <a class="accedi" href="https://dashboard.kindling.nexus/">Accedi</a>
     </nav>
   </div>
 </header>
