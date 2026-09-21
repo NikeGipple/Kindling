@@ -247,9 +247,6 @@ a:focus-visible, button:focus-visible, summary:focus-visible {
 .piede nav { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; }
 .piede a { color: var(--tenue); }
 .piede a:hover { color: var(--testo); }
-/* La promessa sotto la riga dei documenti, non dentro: li' prenderebbe il posto
-   dell'anno, e la riga smetterebbe di essere quella della home. */
-.piede .promessa { margin: .75rem 0 0; }
 .legenda-simboli { margin-bottom: 1rem; }
 .legenda-simboli > summary { cursor: pointer; font-weight: 600; color: var(--testo); }
 /* Una riga per voce invece della griglia a due colonne: due voci su quattro

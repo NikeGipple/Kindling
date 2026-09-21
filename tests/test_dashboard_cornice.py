@@ -79,9 +79,13 @@ def test_tutte_e_nove_le_pagine_si_rendono_fino_in_fondo(pagine):
         assert "text/html" in risposta.headers["content-type"], nome
         # Fino in fondo vuol dire fino al piede, che sta in base.html DOPO il
         # blocco del contenuto: una pagina troncata a meta' non arriva qui.
+        # La terza riga guarda il CONTENUTO del piede e non solo il suo tag
+        # d'apertura: un <footer> vuoto passerebbe le prime due. Faceva questo
+        # lavoro la frase "nessun dato per singola persona esce da qui", tolta
+        # dal piede il 21/09/2026; l'anno la sostituisce nello stesso ruolo.
         assert risposta.text.rstrip().endswith("</html>"), nome
         assert 'class="piede"' in risposta.text, nome
-        assert "nessun dato per singola persona esce da qui" in risposta.text, nome
+        assert "Kindling © 2026" in risposta.text, nome
 
 
 def test_le_nove_pagine_hanno_gli_stati_che_dichiarano(pagine):
