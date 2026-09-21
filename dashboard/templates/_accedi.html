@@ -1,3 +1,10 @@
+{#- Il bottone d'accesso. Compare in quattro punti (accesso.html e tre dei
+    quattro casi di accesso_negato.html), ed e' un include proprio perche' un
+    quinto punto non debba ricopiarne lo stile.
+
+    POST e non un link: la rotta scrive lo `state` del flusso OAuth in sessione
+    (dashboard/main.py). Solo testo, nessun logo di Discord: un marchio altrui
+    in un bottone dice "questo e' un bottone di Discord", e questo non lo e'. -#}
 <form method="post" action="/login">
   <button type="submit" class="accedi">Accedi con Discord</button>
 </form>

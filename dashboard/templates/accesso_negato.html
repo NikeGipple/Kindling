@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block titolo %}Accesso negato{% endblock %}
-{# Pagina pubblica: si vede senza essere entrati, e la coda del marchio
-   ("salute sociale della community") non ci compare. Il blocco vuoto e' il
-   modo in cui il template lo dichiara da se'; vedi base.html. #}
-{% block coda %}{% endblock %}
+{# Pagina pubblica: si vede senza essere entrati. Il blocco sostituito toglie la
+   coda del marchio ("salute sociale della community") e mette al suo posto i
+   collegamenti ai documenti, come sulla landing; vedi base.html. #}
+{% block dopo_marchio %}{% include "_testata_pubblica.html" %}{% endblock %}
 {% block contenuto %}
 {#- Quattro casi, quattro frasi: sono cose diverse, e dirle uguali nasconderebbe
     a chi legge cosa fare dopo (stessa ragione di dashboard.md 6). -#}

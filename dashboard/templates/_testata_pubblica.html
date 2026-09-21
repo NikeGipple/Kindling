@@ -1,0 +1,18 @@
+{#- I collegamenti di servizio della testata, sulle sole pagine che si vedono
+    senza essere entrati (accesso, accesso negato). Sono gli stessi tre della
+    landing, nello stesso ordine: chi arriva qui dalla home non deve vedere una
+    testata diversa, solo perche' l'host e' un altro.
+
+    "Accedi" non c'e', e non e' una dimenticanza: la landing lo porta perche' da
+    li' si va a fare l'accesso, e queste sono le pagine dove l'accesso si fa.
+    Un link che riporta dove si e' gia' e' l'unico modo di rendere una testata
+    piu' confusa aggiungendoci qualcosa.
+
+    URL assoluti verso kindling.nexus (dashboard/main.py, SITO_PUBBLICO): i
+    documenti non li serve questo host, e un percorso relativo cadrebbe su
+    dashboard.kindling.nexus con una 404. -#}
+<nav class="servizio" aria-label="Collegamenti di servizio">
+  <a href="{{ sito.codice }}">Codice</a>
+  <a href="{{ sito.privacy }}">Privacy</a>
+  <a href="{{ sito.termini }}">Termini</a>
+</nav>

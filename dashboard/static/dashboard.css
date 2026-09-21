@@ -104,33 +104,99 @@
   }
 }
 
-body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+/* Come su public/landing.css: una larghezza dichiarata comprende il padding e
+   il bordo. Senza, .contenitore a 62rem sarebbe 62rem PIU' i suoi 2,5rem di
+   respiro, e la colonna della dashboard risulterebbe piu' larga di quella della
+   home proprio di quei 40px. */
+* { box-sizing: border-box; }
+
+/* Il posto della barra di scorrimento e' riservato sempre, anche dove la pagina
+   ci sta tutta. Senza, la colonna si sposta di mezza barra — 7,5px misurati a
+   1280 su Chromium — fra una pagina corta (accesso) e una lunga (coorti), e fra
+   la dashboard e la home, che invece scorre sempre. E' l'unico scarto che
+   restava fra le due testate dopo aver messo in fila tutte le altre misure.
+   Dove la proprieta' non e' supportata si torna al comportamento di oggi:
+   niente si rompe, il marchio balla come prima. */
+html { scrollbar-gutter: stable; }
+
+body { margin: 0; font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
        color: var(--testo); background: var(--fondo); }
 /* I link dentro al contenuto. Senza questa regola prendono il blu (e il viola
    da visitato) del browser: in chiaro e' solo fuori palette, su --fondo scuro
    e' 2,3:1 — illeggibile. Il selettore e' nudo di proposito, cosi' vale anche
-   per un link aggiunto domani in una vista; le quattro parti della cornice che
-   hanno un colore proprio (marchio, schede, contesto, piede) vincono per
+   per un link aggiunto domani in una vista; le parti della cornice che hanno un
+   colore proprio (marchio, schede, contesto, menu pubblico, piede) vincono per
    specificita'. */
 a { color: var(--brace); text-underline-offset: .15em;
     text-decoration-thickness: from-font; }
 a:hover { color: var(--testo); }
-.pagina { max-width: 60rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+/* La colonna, identica a quella della landing: 62rem e 1.25rem di respiro
+   (public/landing.css, .contenitore). La usano la testata, il contenuto e il
+   piede — e' il motivo per cui il bordo sinistro del testo cade esattamente
+   sotto il marchio, a ogni larghezza.
+   Sostituisce .pagina, che era 60rem con 1rem di respiro e conteneva anche la
+   testata e il piede: con un contenitore solo i due fili non potevano andare
+   da bordo a bordo, perche' erano dentro alla colonna invece che dietro. */
+.contenitore { max-width: 62rem; margin: 0 auto; padding: 0 1.25rem; }
+
+/* Le quattro viste restano a 15px/1.5. Le tabelle (ventisei colonne nelle
+   coorti) e i grafici hanno larghezze e soglie di a-capo tarate su quel corpo:
+   portarle a 16 e' un lavoro a se', che si misura sulle viste e non qui.
+   Tutto il resto della dashboard — testata, piede, pagine d'accesso, elenco,
+   errori — sta a 16px/1.6 come la home. */
+main.vista { font-size: 15px; line-height: 1.5; }
+
 /* --- la cornice del sito ------------------------------------------------ */
-/* Marchio, menu a schede, contesto del server, piede. */
-header.sito { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
-              padding: .85rem 0 .7rem; margin-bottom: 0;
-              border-bottom: 1px solid var(--riga); }
-/* Le schede si appoggiano al filo della testata, quindi la testata non tiene
-   lo stacco: lo tiene il primo elemento che NON e' il menu, cioe' le pagine
-   senza menu (accesso, elenco, 404, errori), che altrimenti partirebbero
-   attaccate al filo. */
-header.sito + :not(nav) { margin-top: 1.5rem; }
+/* Marchio, menu a schede, contesto del server, piede. Geometria della landing:
+   il filo a tutta larghezza sull'elemento, le misure dentro al contenitore. */
+header.sito { border-bottom: 1px solid var(--riga); }
+header.sito .contenitore {
+  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  padding-top: .9rem; padding-bottom: .9rem;
+  /* L'altezza della riga e' la stessa della home, ed e' scritta invece di
+     risultare. Sulla home la detta il link "Accedi", che ha un contorno:
+     .9rem di corpo per 1.6 di interlinea (1,44rem), piu' .3rem di padding
+     sopra e sotto, piu' 1px di bordo per parte — 2,04rem + 2px = 34,64px.
+     Qui dentro non c'e' niente di alto cosi': il marchio sta a 25,6px e il
+     bottone "Esci" a 27,8. Senza questa riga la testata della dashboard
+     sarebbe 9px piu' bassa di quella della home, e cambierebbe anche fra la
+     pagina d'accesso e le viste — che e' la differenza che si nota davvero,
+     perche' la si attraversa.
+     Il numero e' ricopiato da public/landing.css e qui non si aggiorna da
+     solo: se lassu' cambia il padding di .accedi, questa misura va rifatta a
+     mano (CLAUDE.md 7, il caso delle costanti battute a mano).
+     I 1.8rem in piu' sono il padding di questa stessa riga: con
+     `box-sizing: border-box` una min-height comprende il padding, e senza
+     sommarlo la misura sarebbe gia' soddisfatta dal padding da solo — cioe'
+     non farebbe niente, in silenzio. */
+  min-height: calc(3.84rem + 2px);
+}
+/* Lo stacco sotto il filo della testata. Le schede NON lo prendono: si
+   appoggiano al filo, e fra i due non ci va niente. E' la stessa regola di
+   prima (`header.sito + :not(nav)`), riscritta perche' testata e contenuto non
+   sono piu' fratelli — il filo adesso e' a tutta larghezza e la testata sta
+   fuori dal contenuto. La seconda riga vince sulla prima per specificita', non
+   per ordine: il menu e' sempre il primo figlio quando c'e'. */
+main > :first-child { margin-top: 1.5rem; }
+main > nav.viste { margin-top: 0; }
 .marchio { display: inline-flex; align-items: center; gap: .5rem;
-           color: var(--testo); text-decoration: none; font-weight: 650; }
-.marchio svg { width: 21px; height: 21px; flex: none; display: block; }
-.marchio .nome { font-size: 1.05rem; letter-spacing: -.015em; }
+           color: var(--testo); text-decoration: none; font-weight: 650;
+           letter-spacing: -.015em; }
+/* 20px e non 21, e il nome senza font-size proprio (era 1.05rem): entrambe le
+   misure della landing. Il marchio delle due superfici e' lo stesso disegno —
+   deve essere anche la stessa dimensione, o il passaggio si vede. */
+.marchio svg { width: 20px; height: 20px; flex: none; display: block; }
 .coda { font-size: .78rem; color: var(--tenue); letter-spacing: .02em; }
+
+/* I collegamenti ai documenti nella testata delle due pagine pubbliche: le
+   stesse misure di `.testata nav` sulla landing. NIENTE flex-wrap qui, come
+   li': col wrap il menu puo' comprimersi sotto la sua larghezza naturale e
+   spezzarsi in due righe anche dove su una ci starebbe. A mandarlo a capo
+   intero e' il wrap del contenitore. */
+header.sito nav.servizio { margin-left: auto; display: flex; align-items: center;
+                           gap: 1.25rem; font-size: .9rem; }
+header.sito nav.servizio a { color: var(--tenue); text-decoration: none; }
+header.sito nav.servizio a:hover { color: var(--testo); text-decoration: underline; }
 
 .contesto-guild { display: inline-flex; align-items: baseline; gap: .45rem;
                   padding-left: .8rem; border-left: 1px solid var(--riga);
@@ -157,18 +223,33 @@ form.sessione button { padding: .15rem .55rem; font-size: .82rem;
                        color: var(--tenue); background: none;
                        border: 1px solid var(--riga); border-radius: .4rem; }
 form.sessione button:hover { color: var(--testo); border-color: var(--grigio); }
-button.accedi { padding: .55rem 1.1rem; font-weight: 600;
+/* Le misure di `.invito` della landing, quelle esatte: e' lo stesso gesto —
+   l'unica cosa da fare sulla pagina — e deve avere lo stesso peso. Al passaggio
+   il fondo diventa --brace invece di schiarirsi con opacity: un'opacita' fa
+   sbiadire anche il testo, e un bottone che sbiadisce al passaggio del mouse
+   sembra disabilitarsi. Niente logo di Discord dentro: vedi _accedi.html. */
+button.accedi { padding: .85rem 1.6rem; font-size: 1.02rem; font-weight: 620;
                 color: var(--fondo); background: var(--testo);
-                border: 1px solid var(--testo); border-radius: .45rem; }
-button.accedi:hover { opacity: .85; }
+                border: 1px solid var(--testo); border-radius: .55rem; }
+button.accedi:hover { background: var(--brace); border-color: var(--brace); }
 /* Chi naviga da tastiera oggi non vede affatto dove si trova. */
 a:focus-visible, button:focus-visible, summary:focus-visible {
   outline: 2px solid var(--testo); outline-offset: 2px; border-radius: .2rem; }
 
-.piede { margin-top: 2.5rem; padding-top: .9rem; border-top: 1px solid var(--riga);
-         font-size: .85rem; color: var(--tenue); }
-.piede .riga-piede { display: flex; flex-wrap: wrap; gap: .4rem 1.5rem;
+/* Il piede della landing, misura per misura: filo a tutta larghezza, 3.5rem di
+   stacco dal contenuto, 1.5rem sopra e 3rem sotto, corpo .88rem. Lo stacco
+   inferiore della pagina lo tiene questo padding, come li': per questo .pagina
+   non ha lasciato in eredita' a nessuno il suo `3rem` in fondo. */
+.piede { margin-top: 3.5rem; border-top: 1px solid var(--riga);
+         padding: 1.5rem 0 3rem; font-size: .88rem; color: var(--tenue); }
+.piede .riga-piede { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem;
                      justify-content: space-between; align-items: baseline; }
+.piede nav { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; }
+.piede a { color: var(--tenue); }
+.piede a:hover { color: var(--testo); }
+/* La promessa sotto la riga dei documenti, non dentro: li' prenderebbe il posto
+   dell'anno, e la riga smetterebbe di essere quella della home. */
+.piede .promessa { margin: .75rem 0 0; }
 .legenda-simboli { margin-bottom: 1rem; }
 .legenda-simboli > summary { cursor: pointer; font-weight: 600; color: var(--testo); }
 /* Una riga per voce invece della griglia a due colonne: due voci su quattro
@@ -190,7 +271,32 @@ a:focus-visible, button:focus-visible, summary:focus-visible {
   .contesto-guild { padding-left: 0; border-left: none; }
   .legenda-simboli dl > div { display: block; }
   .legenda-simboli dt { text-align: left; margin-bottom: .1rem; }
+  /* Le tre misure che la landing cambia alla stessa soglia, nello stesso modo:
+     il menu si stringe, il bottone prende tutta la riga. Con il menu a .85rem
+     il link "Accedi" della home e' alto 1,96rem + 2px invece di 2,04rem + 2px,
+     e la testata con lui: senza questa riga la nostra resterebbe 1,3px piu'
+     alta della sua proprio dove si guardano su uno schermo stretto. */
+  header.sito nav.servizio { gap: .7rem; font-size: .85rem; }
+  header.sito .contenitore { min-height: calc(3.76rem + 2px); }
+  button.accedi { width: 100%; }
 }
+
+/* --- il contenuto delle pagine fuori dalle viste ------------------------- */
+/* Una misura di riga leggibile. Dentro una colonna da 62rem, a 16px, un
+   paragrafo senza limite arriva a centoventi caratteri per riga: la landing
+   non ha un solo blocco di testo senza un tetto in `ch`, e questa e' la stessa
+   ragione. Le viste no: li' il testo sta in celle e colonne, che una larghezza
+   massima romperebbe. */
+main:not(.vista) p, main:not(.vista) li { max-width: 62ch; }
+
+/* I fatti della pagina d'accesso: un termine e una frase per voce, al posto del
+   paragrafo unico che stava in fondo alla pagina in grigio. Sono il consenso
+   informato di questa pagina — chi li salta non ha letto cosa autorizza — e in
+   elenco si trovano. */
+.fatti { list-style: none; padding: 0; margin: 1.25rem 0 2rem; }
+.fatti li { margin-bottom: .7rem; color: var(--tenue); }
+.fatti strong { color: var(--testo); font-weight: 600; }
+
 h3 { font-size: 1rem; margin: 1.25rem 0 .25rem; }
 h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
 h2 { font-size: 1.1rem; margin: 2rem 0 .5rem; }

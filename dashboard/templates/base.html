@@ -11,17 +11,34 @@
     con template vecchi.
 
     La versione nella query e' l'impronta del CONTENUTO del file (main.py,
-    versione_css): il prefisso /static/ ha "max-age=31536000, immutable", e con
+    impronta_statico): il prefisso /static/ ha "max-age=31536000, immutable", e con
     una cache di un anno un URL che non cambia quando cambia il foglio darebbe
     a chi ha gia' visitato la dashboard le pagine nuove con lo stile vecchio,
     senza nessun errore. Impronta e non KINDLING_CODE_VERSION: in sviluppo
     quella e' vuota, e una versione fissa e' una cache che non si invalida mai
     proprio dove il foglio cambia ogni minuto. -#}
-<link rel="stylesheet" href="/static/dashboard.css?v={{ versione_css }}">
+<link rel="stylesheet" href="/static/dashboard.css?v={{ impronta_statico('dashboard.css') }}">
+{#- La favicon: lo stesso marchio del sito, in SVG, servita da /static/ come il
+    foglio. Prima non c'era, e /favicon.ico — che il browser chiede da se', su
+    ogni pagina — rispondeva 404.
+
+    L'impronta nella query e' quella di QUESTO file, non del foglio. Sotto
+    "immutable, un anno" una favicon nuova appesa alla versione del CSS non
+    arriverebbe a nessuno finche' il CSS non cambia, e viceversa: due file, due
+    impronte, ed e' la ragione per cui impronta_statico() prende un nome invece
+    di essere una variabile sola (CLAUDE.md 7). -#}
+<link rel="icon" type="image/svg+xml" href="/static/marchio.svg?v={{ impronta_statico('marchio.svg') }}">
 </head>
 <body>
-<div class="pagina">
-  <header class="sito">
+{#- La cornice ha la geometria della landing (public/index.html): il filo della
+    testata e quello del piede vanno da bordo a bordo, e dentro sta un
+    .contenitore largo 62rem con 1.25rem di respiro — lo stesso che tiene il
+    contenuto, cosi' il bordo sinistro del testo cade dove cade il marchio.
+    Per questo testata, contenuto e piede sono tre fratelli e non tre figli di
+    un .pagina: un contenitore solo non puo' insieme limitare la larghezza del
+    testo e lasciare che un filo la superi. -#}
+<header class="sito">
+  <div class="contenitore">
     <a class="marchio" href="/">
       {#- Due bastoncini incrociati con una scintilla sopra: la legna da
           accendere, che e' quello che "kindling" vuol dire. In linea, come ogni
@@ -37,14 +54,19 @@
         diventerebbe "Kindling salute sociale della community".
 
         In un blocco, e non dietro una variabile passata dalla rotta: le due
-        pagine che la tolgono — accesso e accesso negato — sono le due che si
-        vedono SENZA essere entrati, e "questa pagina e' pubblica" e' un fatto
+        pagine che lo sostituiscono — accesso e accesso negato — sono le due che
+        si vedono SENZA essere entrati, e "questa pagina e' pubblica" e' un fatto
         del template, non della chiamata che lo rende. Con un flag da pagina(),
         accesso_negato.html lo riceverebbe da un gestore di eccezioni e
         accesso.html da una rotta, cioe' lo stesso fatto scritto in due posti
         lontani dal template che lo riguarda; una terza pagina pubblica
-        domani lo dimenticherebbe senza nessun errore. -#}
-    {% block coda %}<span class="coda">salute sociale della community</span>{% endblock %}
+        domani lo dimenticherebbe senza nessun errore.
+
+        UN blocco solo per due cose — la coda sparisce E compaiono i link ai
+        documenti — e non due blocchi affiancati: sono la stessa decisione
+        ("questa pagina si vede da fuori"), e due blocchi vorrebbero dire che
+        una pagina pubblica puo' prenderne uno e dimenticare l'altro. -#}
+    {% block dopo_marchio %}<span class="coda">salute sociale della community</span>{% endblock %}
     {#- vista_corrente, non guild_id. La riga di contesto e il menu dicono "sei
         dentro una vista di un server", e le quattro rotte di vista sono le
         uniche a passare vista_corrente. Con guild_id, la pagina di guild non
@@ -56,7 +78,14 @@
     {% if server_autorizzati is defined %}
     <form class="sessione" method="post" action="/logout">Connesso · amministratore di {{ server_autorizzati }} server <button type="submit">Esci</button></form>
     {% endif %}
-  </header>
+  </div>
+</header>
+{#- La classe "vista" tiene le quattro viste a 15px/1.5 dentro una pagina che
+    per tutto il resto sta a 16px/1.6 come la home. Non e' una scelta di gusto
+    rimandata: le tabelle e i grafici hanno larghezze e colonne tarate su quel
+    corpo, e allargarlo e' un passo suo. La condizione e' la stessa del menu
+    ("vista_corrente is defined"), non una seconda scritta qui accanto. -#}
+<main class="contenitore{% if vista_corrente is defined %} vista{% endif %}">
   {#- Solo le viste che ESISTONO: una voce disabilitata sarebbe una promessa, e
       di cio' che non c'e' non si accenna (dashboard.md 4). Da oggi sono tutte e
       quattro, nell'ordine in cui si leggono: Stato spiega le altre tre. -#}
@@ -69,7 +98,9 @@
   </nav>
   {% endif %}
   {% block contenuto %}{% endblock %}
-  <footer class="piede">
+</main>
+<footer class="piede">
+  <div class="contenitore">
     {#- La legenda compare dove i simboli POSSONO comparire, non dove compaiono
         oggi: una legenda che va e viene con i dati del giorno sarebbe essa
         stessa un segnale, e nessuno l'ha progettata. Le voci sono quelle che
@@ -106,10 +137,26 @@
       </dl>
     </details>
     {% endif %}
+    {#- La riga del piede e' quella della landing: a sinistra l'anno, a destra i
+        tre documenti. L'anno e' scritto a mano e va cambiato a gennaio, per le
+        stesse ragioni scritte per esteso in public/index.html — non si ripetono
+        qui, si guarda li'.
+        Gli URL sono assoluti e vengono da dashboard/main.py: i documenti stanno
+        su kindling.nexus, non su questo host, e compaiono anche nella testata
+        delle pagine pubbliche — due posti, una definizione. -#}
     <div class="riga-piede">
-      <span>Kindling — nessun dato per singola persona esce da qui.</span>
+      <span>Kindling © 2026</span>
+      <nav aria-label="Documenti">
+        <a href="{{ sito.privacy }}">Informativa sulla Privacy</a>
+        <a href="{{ sito.termini }}">Termini di Servizio</a>
+        <a href="{{ sito.codice }}">Codice sorgente</a>
+      </nav>
     </div>
-  </footer>
-</div>
+    {#- La promessa resta, e resta sotto gli occhi: e' l'unica riga del piede che
+        parla di questa dashboard invece che del sito. Sotto la riga dei
+        documenti e non dentro, perche' li' prenderebbe il posto dell'anno. -#}
+    <p class="promessa">Kindling mostra aggregati: nessun dato per singola persona esce da qui.</p>
+  </div>
+</footer>
 </body>
 </html>

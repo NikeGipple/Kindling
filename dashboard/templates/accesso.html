@@ -1,21 +1,33 @@
 {% extends "base.html" %}
 {% block titolo %}Accesso{% endblock %}
-{# Pagina pubblica: si vede senza essere entrati, e la coda del marchio
-   ("salute sociale della community") non ci compare. Il blocco vuoto e' il
-   modo in cui il template lo dichiara da se'; vedi base.html. #}
-{% block coda %}{% endblock %}
+{# Pagina pubblica: si vede senza essere entrati. Il blocco sostituito toglie la
+   coda del marchio ("salute sociale della community") e mette al suo posto i
+   collegamenti ai documenti, come sulla landing; vedi base.html. #}
+{% block dopo_marchio %}{% include "_testata_pubblica.html" %}{% endblock %}
 {% block contenuto %}
 <h1>Accesso alla dashboard</h1>
-<p>La dashboard mostra le metriche aggregate dei server Discord osservati da
-Kindling, ed è riservata a chi ne è <strong>amministratore</strong>.</p>
-<p>Il bottone qui sotto ti porta su Discord, che ti chiede di autorizzare Kindling
-a leggere il tuo profilo e l'elenco dei tuoi server. Dall'elenco si vede su quali
-server osservati hai il permesso <strong>Amministratore</strong>: sono gli unici che
-vedrai qui.</p>
-<p class="nota">Perché proprio Amministratore: chi ha quel permesso può già leggere
-ogni canale del server, quindi gli aggregati non gli mostrano niente che non
-potesse ottenere da sé. Kindling non conserva nulla di chi accede: né un account,
-né il token di Discord, che si usa per quella lettura e si scarta. Il permesso si
-ricontrolla ogni 15 minuti, e dopo 8 ore bisogna accedere di nuovo.</p>
+<p>Le metriche aggregate dei server Discord osservati da Kindling sono riservate
+a chi ne è <strong>amministratore</strong>. Si entra con Discord, e prima di
+farlo vale la pena sapere cosa succede.</p>
+{#- Gli stessi fatti dei due paragrafi che stavano qui prima (il secondo era
+    grigio e in coda), uno per voce: letti come elenco si trovano, letti di
+    seguito si saltavano. Nessuno e' stato tolto — sono il consenso informato di
+    questa pagina, non contorno. Il sesto, "gli aggregati sono riservati agli
+    amministratori", sta nella frase d'apertura: e' la premessa, non una voce. -#}
+<ul class="fatti">
+  <li><strong>Cosa chiede Discord.</strong> Di autorizzare Kindling a leggere il
+  tuo profilo e l'elenco dei tuoi server.</li>
+  <li><strong>Cosa vedrai.</strong> Da quell'elenco si ricava su quali server
+  osservati hai il permesso <strong>Amministratore</strong>: sono gli unici che
+  compariranno qui.</li>
+  <li><strong>Perché proprio Amministratore.</strong> Chi ha quel permesso può
+  già leggere ogni canale del server, quindi gli aggregati non gli mostrano
+  niente che non potesse ottenere da sé.</li>
+  <li><strong>Cosa resta a Kindling.</strong> Niente di chi accede: né un
+  account, né il token di Discord, che serve per quella lettura e viene
+  scartato.</li>
+  <li><strong>Quanto dura.</strong> Il permesso si ricontrolla ogni 15 minuti, e
+  dopo 8 ore bisogna accedere di nuovo.</li>
+</ul>
 {% include "_accedi.html" %}
 {% endblock %}

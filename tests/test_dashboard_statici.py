@@ -12,10 +12,12 @@ ragione per cui questo file esiste invece di un "si e' visto che funziona".
    ``Cache-Control`` da se': se il ramo statico del middleware non scattasse, il
    foglio verrebbe riscaricato a ogni pagina e la dashboard continuerebbe a
    funzionare, solo piu' lenta.
-3. **L'URL porta l'impronta del CONTENUTO.** Con ``immutable`` e un anno, un URL
-   che non cambia quando cambia il foglio da' a chi ha gia' visitato la
-   dashboard le pagine nuove con lo stile vecchio. Il test non guarda che ci sia
-   "una versione": guarda che cambi quando cambia il file.
+3. **L'URL porta l'impronta del CONTENUTO, e ogni file la sua.** Con
+   ``immutable`` e un anno, un URL che non cambia quando cambia il foglio da' a
+   chi ha gia' visitato la dashboard le pagine nuove con lo stile vecchio. Il
+   test non guarda che ci sia "una versione": guarda che cambi quando cambia il
+   file. Dal 21/09/2026 i file statici sono due — il foglio e la favicon — e una
+   versione sola per entrambi si invaliderebbe solo quando cambia il primo.
 4. **La CSP c'e' su ogni pagina**, e ``form-action`` nomina l'host verso cui
    ``POST /login`` risponde davvero. Se un giorno l'URL di Discord cambiasse e la
    CSP no, il bottone "Accedi con Discord" non porterebbe da nessuna parte e
@@ -49,7 +51,7 @@ from dashboard.main import (
     PREFISSO_STATICI,
     STATIC_DIR,
     _impronta,
-    versione_css,
+    impronta_statico,
 )
 from tests.sessione_dashboard import (
     app_di_test,
@@ -60,6 +62,7 @@ from tests.sessione_dashboard import (
 from tools.fixture_api import GUILD_MATURE, GUILD_SCALE, GUILD_TODAY
 
 URL_FOGLIO = f"{PREFISSO_STATICI}dashboard.css"
+URL_MARCHIO = f"{PREFISSO_STATICI}marchio.svg"
 
 
 @pytest.fixture(autouse=True)
@@ -69,10 +72,10 @@ def _nessuna_variabile_di_database(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _impronta_non_memorizzata():
-    """``versione_css`` e' in cache per processo: qui si parte e si finisce puliti."""
-    versione_css.cache_clear()
+    """``impronta_statico`` e' in cache per processo: qui si parte e si finisce puliti."""
+    impronta_statico.cache_clear()
     yield
-    versione_css.cache_clear()
+    impronta_statico.cache_clear()
 
 
 @pytest.fixture
@@ -137,12 +140,14 @@ def test_l_impronta_distingue_contenuti_diversi():
 
 
 def test_ogni_pagina_punta_al_foglio_con_l_impronta_di_oggi(pagine):
-    atteso = f'href="{URL_FOGLIO}?v={versione_css()}"'
+    atteso = f'href="{URL_FOGLIO}?v={impronta_statico("dashboard.css")}"'
     for nome, (_, risposta) in pagine.items():
         assert atteso in risposta.text, nome
     # L'impronta e' quella del file che l'app serve davvero, non un numero
     # qualunque scritto nel template.
-    assert versione_css() == _impronta((STATIC_DIR / "dashboard.css").read_bytes())
+    assert impronta_statico("dashboard.css") == _impronta(
+        (STATIC_DIR / "dashboard.css").read_bytes()
+    )
 
 
 def test_la_versione_cambia_se_cambia_il_contenuto_del_foglio(monkeypatch, tmp_path):
@@ -153,12 +158,37 @@ def test_la_versione_cambia_se_cambia_il_contenuto_del_foglio(monkeypatch, tmp_p
     """
     (tmp_path / "dashboard.css").write_bytes(b"body { color: red; }")
     monkeypatch.setattr("dashboard.main.STATIC_DIR", tmp_path)
-    versione_css.cache_clear()
-    prima = versione_css()
+    impronta_statico.cache_clear()
+    prima = impronta_statico("dashboard.css")
 
     (tmp_path / "dashboard.css").write_bytes(b"body { color: blue; }")
-    versione_css.cache_clear()
-    assert versione_css() != prima
+    impronta_statico.cache_clear()
+    assert impronta_statico("dashboard.css") != prima
+
+
+def test_la_favicon_risponde_e_porta_la_propria_impronta(pagine):
+    """Due file statici, due impronte — non una versione sola per tutti.
+
+    E' il caso di CLAUDE.md 7 nella forma "un meccanismo che sembra coprire
+    tutto": con una ``versione_css`` sola appesa a entrambi gli URL, la cache si
+    invaliderebbe ancora — ma solo quando cambia il FOGLIO. Un marchio nuovo
+    servito con la versione di un CSS fermo resterebbe per un anno quello vecchio
+    su ogni browser che l'ha gia' chiesto, e nessun errore lo direbbe.
+    """
+    atteso = f'href="{URL_MARCHIO}?v={impronta_statico("marchio.svg")}"'
+    for nome, (_, risposta) in pagine.items():
+        assert atteso in risposta.text, nome
+    # Le due impronte sono davvero due: se lo fossero per caso, il test sopra
+    # passerebbe anche con una variabile sola.
+    assert impronta_statico("marchio.svg") != impronta_statico("dashboard.css")
+
+    with TestClient(app_di_test(), follow_redirects=False) as c:
+        risposta = c.get(URL_MARCHIO)
+    # Fuori dalla guardia come il foglio: il browser la chiede prima del login.
+    assert risposta.status_code == 200
+    assert risposta.headers["content-type"].startswith("image/svg+xml")
+    assert risposta.headers["cache-control"] == CACHE_STATICI
+    assert risposta.text.lstrip().startswith("<svg")
 
 
 def test_la_pagina_e_il_middleware_parlano_dello_stesso_prefisso(pagine):

@@ -22,11 +22,14 @@ pagina non contiene e' il difetto di CLAUDE.md 7 nella forma peggiore — non ta
 risponde di si'.
 
 E una quinta, dal 21/09/2026: **la coda del marchio non compare sulle pagine
-pubbliche**. "salute sociale della community" e' una frase che ha senso per chi
-amministra un server osservato, e le due pagine che si vedono senza essere
-entrati non la portano. Il template pubblico lo dichiara da se' svuotando
-``{% block coda %}``; questo test e' il modo di accorgersi di una terza pagina
-pubblica che se lo dimentica.
+pubbliche**, e al suo posto compaiono i collegamenti ai documenti. "salute
+sociale della community" e' una frase che ha senso per chi amministra un server
+osservato, e le pagine che si vedono senza essere entrati non la portano; quelle
+stesse pagine portano invece la testata della landing. Il template pubblico lo
+dichiara da se' sostituendo ``{% block dopo_marchio %}`` — UN blocco per le due
+cose, perche' sono la stessa decisione e una pagina nuova non possa prenderne
+meta'. Piu' una sesta che guarda gli URL dei documenti: sono assoluti, vengono
+da ``SITO_PUBBLICO`` e stanno nel piede di tutte e tredici le pagine.
 
 Le nove pagine si raggiungono **dalle rotte**, non rendendo i template a mano: un
 contesto costruito qui sarebbe una copia di quello che passa la rotta, e la copia
@@ -42,7 +45,7 @@ import re
 import pytest
 
 from dashboard import qualifica
-from dashboard.main import TEMPLATES_DIR
+from dashboard.main import SITO_PUBBLICO, TEMPLATES_DIR
 from tests.sessione_dashboard import (
     PAGINE_PUBBLICHE,
     TEMPLATE_CON_CORNICE,
@@ -162,6 +165,44 @@ def test_la_coda_del_marchio_sta_solo_dove_si_e_entrati(pagine):
     # negato) e le altre otto la portano.
     assert len(PAGINE_PUBBLICHE) == 5
     assert len(con_coda) == 8
+
+
+# --- 6. i documenti pubblici: nel piede sempre, in testata solo da fuori ------
+
+
+def test_il_piede_porta_i_tre_documenti_su_ogni_pagina(pagine):
+    """Gli URL sono quelli di ``SITO_PUBBLICO``, non tre stringhe scritte nel piede.
+
+    Sono ASSOLUTI perche' li serve kindling.nexus e non questo host: un percorso
+    relativo cadrebbe su dashboard.kindling.nexus con una 404, e una 404 al posto
+    dell'informativa sulla privacy non la nota nessuno finche' non ci clicca
+    qualcuno.
+    """
+    for nome, (_, risposta) in pagine.items():
+        piede = risposta.text[risposta.text.index('<footer class="piede"') :]
+        for chiave in ("privacy", "termini", "codice"):
+            assert f'href="{SITO_PUBBLICO[chiave]}"' in piede, f"{nome}: {chiave}"
+        assert "Kindling © 2026" in piede, nome
+
+
+def test_i_documenti_stanno_in_testata_solo_sulle_pagine_pubbliche(pagine):
+    """Il blocco che toglie la coda del marchio e' lo stesso che mette i link.
+
+    Una pagina pubblica non puo' prendere meta' della decisione: se domani ne
+    nasce una terza, o e' pubblica in tutto (niente coda, link ai documenti) o
+    non lo e' — non c'e' una via di mezzo da dimenticare.
+    """
+    con_servizio = {nome for nome, (_, r) in pagine.items() if 'nav class="servizio"' in r.text}
+    assert con_servizio == PAGINE_PUBBLICHE
+
+    for nome in con_servizio:
+        _, risposta = pagine[nome]
+        testata = risposta.text[: risposta.text.index("</header>")]
+        for chiave in ("codice", "privacy", "termini"):
+            assert f'href="{SITO_PUBBLICO[chiave]}"' in testata, f"{nome}: {chiave}"
+        # "Accedi" no: la landing lo porta perche' da li' si va a fare l'accesso,
+        # e queste sono le pagine dove l'accesso si fa.
+        assert "Accedi" not in testata, nome
 
 
 def test_la_frase_non_sopravvive_dentro_il_nome_accessibile_del_marchio(pagine):

@@ -8,9 +8,9 @@ ne trova una.
 Fase 2 (dashboard.md 8, dashboard-fase2.md): davanti c'e' Caddy, e ogni vista
 sta dietro il login Discord di ``auth.py``. Fuori dalla guardia restano
 ``/health`` (lo chiama l'healthcheck del container, dall'interno), le rotte del
-login stesso e ``/static/`` — il foglio di stile, che serve alla pagina
-d'accesso e non dice niente di nessun server. Il binding sul loopback per il
-tunnel SSH resta.
+login stesso e ``/static/`` — il foglio di stile e la favicon, che servono
+alla pagina d'accesso e non dicono niente di nessun server. Il binding sul
+loopback per il tunnel SSH resta.
 
 Uso (``--factory``: la configurazione OAuth si legge all'avvio, e importare il
 modulo — i test lo fanno — non deve pretenderla):
@@ -62,7 +62,7 @@ PREFISSO_STATICI = "/static/"
 CACHE_PAGINE = "private, no-store"
 # I file statici: un anno, e "immutable" perche' il browser non li rivalidi
 # nemmeno con un ricarica. E' sicuro SOLO perche' l'URL porta l'impronta del
-# contenuto (versione_css): un foglio nuovo e' un URL nuovo, e quello vecchio
+# contenuto (impronta_statico): un foglio nuovo e' un URL nuovo, e quello vecchio
 # non viene piu' chiesto da nessuno. Senza quella impronta, questa riga
 # congelerebbe per un anno lo stile di chi ha gia' visitato la dashboard.
 CACHE_STATICI = "public, max-age=31536000, immutable"
@@ -113,6 +113,26 @@ CSP = "; ".join(
     )
 )
 
+# I documenti pubblici di Kindling. URL ASSOLUTI, e non e' una scelta di stile:
+# li serve kindling.nexus, non questo host — un percorso relativo cadrebbe su
+# dashboard.kindling.nexus, dove non esiste, e darebbe una 404 al posto della
+# privacy policy.
+#
+# Qui e non nei template perche' compaiono in DUE posti: il piede di tutte e
+# nove le pagine e la testata delle due pubbliche. Due copie sono due copie che
+# divergono al primo indirizzo che cambia (CLAUDE.md 7), e la divergenza di un
+# URL non si vede finche' qualcuno non ci clicca sopra.
+#
+# Tre voci e non quattro: la radice del sito non c'e' perche' nessuna pagina la
+# nomina — il marchio in testata punta a "/", che qui e' l'elenco dei server di
+# chi guarda. Una voce che nessuno usa e' una voce di cui nessuno si accorge se
+# sbaglia.
+SITO_PUBBLICO = {
+    "privacy": "https://kindling.nexus/informativa-privacy.html",
+    "termini": "https://kindling.nexus/termini-di-servizio.html",
+    "codice": "https://github.com/NikeGipple/Kindling",
+}
+
 _GIORNI = ("lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica")
 _MESI = (
     "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
@@ -133,15 +153,15 @@ def _impronta(dati: bytes) -> str:
     return hashlib.sha256(dati).hexdigest()[:12]
 
 
-@lru_cache(maxsize=1)
-def versione_css() -> str:
-    """L'impronta del contenuto di dashboard.css, per la query dell'URL del foglio.
+@lru_cache(maxsize=None)
+def impronta_statico(nome: str) -> str:
+    """L'impronta del contenuto di un file di ``/static/``, per la query del suo URL.
 
     L'impronta del file e non ``KINDLING_CODE_VERSION``, che pure e' incisa
     nell'immagine e cambia a ogni deploy. Due ragioni, e la seconda e' quella
     che decide:
 
-    1. cambia ESATTAMENTE quando cambia il foglio: un deploy che non tocca il
+    1. cambia ESATTAMENTE quando cambia quel file: un deploy che non tocca il
        CSS non butta via la copia in cache di nessuno;
     2. in sviluppo ``KINDLING_CODE_VERSION`` e' vuota — nel Dockerfile e' un
        ARG con default vuoto, e in locale non la esporta nessuno. Sarebbe una
@@ -149,10 +169,16 @@ def versione_css() -> str:
        non si aggiorna mai proprio dove cambia ogni minuto, e per accorgersene
        bisogna sospettare della cache invece che del proprio CSS.
 
-    Letta una volta per processo (``lru_cache``): il file sta nell'immagine e
-    non cambia sotto un processo vivo. ``cache_clear()`` esiste per i test.
+    Prende un NOME e non e' una variabile sola (com'era ``versione_css`` fino al
+    21/09/2026, quando il foglio era l'unico file statico): con la favicon i file
+    sono due, e una sola impronta per tutti e due sarebbe il difetto di
+    CLAUDE.md 7 — sembra che la cache si invalidi, e per il file che non ha
+    mosso l'impronta non si invalida mai.
+
+    Letta una volta per nome (``lru_cache``): i file stanno nell'immagine e non
+    cambiano sotto un processo vivo. ``cache_clear()`` esiste per i test.
     """
-    return _impronta((STATIC_DIR / "dashboard.css").read_bytes())
+    return _impronta((STATIC_DIR / nome).read_bytes())
 
 
 def cornice(**contesto) -> dict:
@@ -172,11 +198,6 @@ def cornice(**contesto) -> dict:
     if "guild_id" in contesto:
         contesto.setdefault("nome_server", str(contesto["guild_id"]))
     contesto.setdefault("mostra_legenda", contesto.get("vista_corrente") in _VISTE_CON_SIMBOLI)
-    # base.html la usa nell'URL del foglio di stile, quindi la vogliono tutte e
-    # nove le pagine, comprese quelle senza sessione: con StrictUndefined, una
-    # variabile di cornice impostata dalla rotta invece che da qui farebbe
-    # fallire il rendering proprio della pagina d'accesso.
-    contesto.setdefault("versione_css", versione_css())
     return contesto
 
 
@@ -206,6 +227,12 @@ def crea_templates() -> Environment:
         undefined=StrictUndefined,
     )
     env.filters["data_ora"] = data_ora
+    # Globali della cornice, non variabili di contesto: le vogliono tutte e nove
+    # le pagine e nessuna rotta ha un'opinione diversa. Con StrictUndefined, una
+    # cornice passata dalla rotta sarebbe una riga da ricordarsi in ogni rotta
+    # nuova; una globale non si puo' dimenticare.
+    env.globals["impronta_statico"] = impronta_statico
+    env.globals["sito"] = SITO_PUBBLICO
     env.globals["cella"] = cella
     env.globals["percentuale"] = robustezza.percentuale
     env.globals["nodi_rimossi"] = robustezza.nodi_rimossi
@@ -279,8 +306,8 @@ def crea_app(
     # servirebbe il CSS nuovo alle pagine vecchie — una finestra breve, e muta.
     #
     # Fuori dalla guardia, come /login: senza foglio di stile la pagina d'accesso
-    # sarebbe illeggibile proprio a chi non e' ancora entrato. Un file di stile
-    # non dice niente di nessun server.
+    # sarebbe illeggibile proprio a chi non e' ancora entrato. Ne' il foglio ne'
+    # la favicon dicono niente di nessun server.
     app.mount(PREFISSO_STATICI.rstrip("/"), StaticFiles(directory=STATIC_DIR), name="statici")
 
     # Ogni risposta, non solo quelle autenticate: e' il sovrainsieme che non si

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <!-- Il marchio di Kindling come favicon: gli stessi due bastoncini incrociati
+       e la stessa scintilla del logo in linea di base.html, alle stesse
+       coordinate. Un SVG e non un .ico: un file solo, nitido a ogni densita',
+       e con dentro la regola per il tema scuro.
+
+       Il tratto e' 2.6 invece di 2.1. A 16x16 — la dimensione a cui questa
+       immagine si vede davvero — 2.1 unita' su 24 fanno 1,4 px, cioe' un filo
+       che l'antialiasing sbiadisce fino a far sparire la X: il disegno regge
+       alla dimensione a cui lo si guarda, non a quella a cui lo si e' scritto.
+
+       I colori sono quelli delle due palette di dashboard.css, scritti a mano
+       perche' questo file non vede le variabili CSS della pagina: una favicon e'
+       una risorsa a se', e `currentColor` qui vale il `color` di QUESTO
+       documento, non quello della pagina che la mostra. Se le palette cambiano,
+       questi tre valori non si aggiornano da soli.
+
+       La media query dentro un'immagine non la onorano tutti i browser: dove non
+       e' supportata resta il ramo chiaro, cioe' un marchio scuro — che sulla
+       linguetta di una finestra scura si vede meno bene, ma si vede. La
+       scintilla e' ambra in entrambi i temi ed e' l'unica parte a colori: e' il
+       pezzo che resta riconoscibile anche quando la X non si distingue piu'. -->
+  <style>
+    :root { color: #1d1d1f }
+    @media (prefers-color-scheme: dark) { :root { color: #eceae4 } }
+  </style>
+  <path d="M6.5 19.5 L17.5 7.5 M17.5 19.5 L6.5 7.5" stroke="currentColor"
+        stroke-width="2.6" stroke-linecap="round" fill="none"/>
+  <circle cx="12" cy="4.6" r="2.6" fill="#e0a93a"/>
+</svg>
