@@ -150,14 +150,59 @@ class Fatto:
 # --- il calendario ------------------------------------------------------------
 
 
+# --- il diradamento delle etichette del calendario ---------------------------
+#
+# Misure prese nel browser il 25/09/2026, non scelte a occhio (dashboard.md 4,
+# "Il calendario"). Stanno qui e non dentro la soglia perche' il test possa
+# rifare il conto invece di fidarsi del 15.
+#
+# ETICHETTA_PIU_LARGA_PX: "30 mag" a 12px/600/tabular-nums, la piu' larga che
+# questo formato di data possa produrre — provate tutte e dodici le abbreviazioni
+# di mese, le altre stanno fra 33,0 e 38,5.
+ETICHETTA_PIU_LARGA_PX = 40.8
+# Lo spazio fra due etichette vicine perche' si leggano come due. Non un margine
+# di sicurezza sulla misura: quello e' l'arrotondamento della soglia.
+SPAZIO_FRA_ETICHETTE_PX = 8.0
+# La larghezza dell'SVG a 34rem di viewport: 544 - 56, cioe' il respiro del
+# contenitore (1.25rem per lato) piu' il margine della figura (0.5rem per lato).
+#
+# E' l'ultima larghezza a cui le date dei calcoli sono ancora SPENTE — la media
+# query e' `max-width: 34rem`, che comprende i 544 — quindi quando compaiono
+# l'SVG e' largo almeno un pixel di piu'. Tarare la soglia su questa misura e'
+# dal lato prudente di un pixel, non sul filo.
+LARGHEZZA_SVG_AL_BREAKPOINT_PX = 488.0
+
+# Scarto minimo fra due date scritte, in percentuale dell'arco del calendario.
+#
+# Due etichette CENTRATE non si toccano a (40,8 + 8) / 488 = 10,0%. Una non tocca
+# un ESTREMO — che e' ancorato al bordo, quindi sporge di una larghezza intera
+# invece che di mezza — a (1,5 x 40,8 + 8) / 488 = 14,2%. Una soglia sola per
+# entrambi i casi, arrotondata per eccesso.
+#
+# Una media query da sola non basterebbe, ed e' il motivo per cui questo numero
+# sta qui e non nel foglio: la collisione dipende dalla larghezza E dalla
+# spaziatura dei pallini, e il CSS la spaziatura non la conosce.
+SCARTO_MINIMO_ETICHETTE = 15.0
+
+
 @dataclass(frozen=True)
 class Punto:
     """Un calcolo sulla linea del tempo. ``x`` e' una percentuale pronta da
     scrivere come ATTRIBUTO SVG (``cx="37,9%"`` no: il punto decimale, non la
-    virgola — e' una coordinata, non un numero da leggere)."""
+    virgola — e' una coordinata, non un numero da leggere).
+
+    ``etichettata`` dice se questo calcolo porta la propria data scritta, o solo
+    il pallino con il ``titolo`` (che il browser mostra al passaggio del mouse).
+    Fino al 25/09/2026 nessuno la portava mai, a nessuna larghezza: erano tre
+    punti muti su una pagina di produzione, cioe' l'informazione per cui il
+    calendario esiste.
+    """
 
     x: str
     titolo: str
+    data: str
+    ancoraggio: str
+    etichettata: bool
 
 
 @dataclass(frozen=True)
@@ -199,6 +244,37 @@ def _percento(quando: date, inizio: date, fine: date) -> str:
     return f"{max(0.0, min(1.0, quota)) * 100:.1f}%"
 
 
+def etichette_da_scrivere(
+    posizioni: Sequence[float], *, con_prossimo: bool
+) -> list[bool]:
+    """Quali calcoli portano la propria data, date le loro posizioni in percento.
+
+    Un calcolo la porta se dista almeno ``SCARTO_MINIMO_ETICHETTE``:
+
+    - dall'arrivo del bot, che e' sempre allo 0% e sempre etichettato;
+    - dalla data gia' scritta del calcolo precedente — non dal calcolo
+      precedente: saltarne uno non consuma lo scarto, altrimenti su una serie
+      fitta non si scriverebbe piu' niente dopo il primo;
+    - dal prossimo calcolo, che e' al 100%, quando c'e'.
+
+    **"Oggi" non entra nel conto**, e non e' una dimenticanza: sta sulla riga
+    sotto l'asse, dove non puo' toccare niente di questa riga. E' sotto proprio
+    perche' cade dove cade — in produzione a quattro giorni dall'ultimo calcolo —
+    e nessuna regola di diradamento potrebbe separarla, visto che non e' una
+    tappa che si possa togliere.
+    """
+    ultima = 0.0  # l'arrivo del bot
+    scritte: list[bool] = []
+    for p in posizioni:
+        abbastanza_dopo = p - ultima >= SCARTO_MINIMO_ETICHETTE
+        abbastanza_prima = not con_prossimo or 100.0 - p >= SCARTO_MINIMO_ETICHETTE
+        scrivi = abbastanza_dopo and abbastanza_prima
+        scritte.append(scrivi)
+        if scrivi:
+            ultima = p
+    return scritte
+
+
 def _ancoraggio(x: str) -> str:
     quota = float(x.rstrip("%"))
     if quota <= 15.0:
@@ -228,9 +304,20 @@ def _calendario(
     inizio = min([arrivo, *calcoli])
 
     x_oggi = _percento(oggi, inizio, fine)
+    ordinati = sorted(calcoli)
+    ascisse = [_percento(c, inizio, fine) for c in ordinati]
+    scritte = etichette_da_scrivere(
+        [float(x.rstrip("%")) for x in ascisse], con_prossimo=prossimo is not None
+    )
     punti = tuple(
-        Punto(_percento(c, inizio, fine), f"calcolo del {data_breve(c)}")
-        for c in sorted(calcoli)
+        Punto(
+            x,
+            f"calcolo del {data_breve(c)}",
+            data_breve(c),
+            _ancoraggio(x),
+            scrivi,
+        )
+        for c, x, scrivi in zip(ordinati, ascisse, scritte)
     )
     pietra_arrivo = Pietra(_percento(inizio, inizio, fine), "start", data_breve(arrivo),
                            "arrivo del bot")
@@ -269,7 +356,7 @@ ETICHETTE_STATO = {
 FRASI_STATO = {
     IN_RACCOLTA: "Il calcolo non c'è ancora: i numeri arrivano con la prima esecuzione settimanale.",
     SOTTO_SOGLIA: "I numeri esistono, ma riguardano troppe poche persone perché mostrarli sia prudente.",
-    CON_CAUTELA: "I numeri ci sono, e nessuno di loro è ancora distinguibile dal caso.",
+    CON_CAUTELA: "I numeri ci sono, e nessuno di essi è ancora distinguibile dal caso.",
     LEGGIBILE: "Almeno una misura è distinguibile dal caso: si può leggere.",
 }
 

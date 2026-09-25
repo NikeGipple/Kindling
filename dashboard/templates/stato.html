@@ -73,8 +73,17 @@ numeri arrivano con la prima esecuzione settimanale.</p>
     {% if cal.prossimo %}
     <line class="asse asse--futuro" x1="{{ cal.x_oggi }}" y1="52" x2="100%" y2="52"/>
     {% endif %}
+    {#- Ogni calcolo porta la propria data quando lo spazio c'e'. Quali, lo
+        decide stato.py sulla distanza (SCARTO_MINIMO_ETICHETTE); sotto 34rem le
+        spegne il foglio. Il <title> resta su tutti: sui pallini diradati e'
+        l'unico modo di sapere di che giorno sono, al passaggio del mouse.
+        Le date dei calcoli stanno SOPRA l'asse come arrivo e prossimo — "oggi"
+        e' l'unica sotto, e il perche' e' scritto piu' giu'. -#}
     {% for p in cal.punti %}
     <circle class="tappa tappa--calcolo" cx="{{ p.x }}" cy="52" r="4"><title>{{ p.titolo }}</title></circle>
+    {% if p.etichettata %}
+    <text class="cal-data cal-data--calcolo" x="{{ p.x }}" y="18" text-anchor="{{ p.ancoraggio }}">{{ p.data }}</text>
+    {% endif %}
     {% endfor %}
     <circle class="tappa tappa--arrivo" cx="{{ cal.arrivo.x }}" cy="52" r="5"/>
     <text class="cal-data" x="{{ cal.arrivo.x }}" y="18" text-anchor="{{ cal.arrivo.ancoraggio }}">{{ cal.arrivo.data }}</text>
@@ -84,6 +93,11 @@ numeri arrivano con la prima esecuzione settimanale.</p>
     <text class="cal-data" x="{{ cal.prossimo.x }}" y="18" text-anchor="{{ cal.prossimo.ancoraggio }}">{{ cal.prossimo.data }}</text>
     <text class="cal-nota" x="{{ cal.prossimo.x }}" y="32" text-anchor="{{ cal.prossimo.ancoraggio }}">{{ cal.prossimo.testo }}</text>
     {% endif %}
+    {#- "Oggi" e' l'unica tappa SOTTO l'asse, e non e' decorazione: e' l'unica
+        che cade dove cade — in produzione a quattro giorni dall'ultimo calcolo,
+        cioe' a un'inezia sull'asse — e sulla riga di sopra si sovrapporrebbe
+        all'etichetta di quel calcolo senza che nessun diradamento possa
+        impedirlo, perche' non e' una tappa che si possa togliere. -#}
     <circle class="tappa tappa--oggi" cx="{{ cal.oggi.x }}" cy="52" r="5"/>
     <text class="cal-data" x="{{ cal.oggi.x }}" y="72" text-anchor="{{ cal.oggi.ancoraggio }}">{{ cal.oggi.data }}</text>
     <text class="cal-nota" x="{{ cal.oggi.x }}" y="86" text-anchor="{{ cal.oggi.ancoraggio }}">{{ cal.oggi.testo }}</text>

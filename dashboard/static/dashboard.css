@@ -488,6 +488,21 @@ figure.linea-tempo svg { display: block; width: 100%; overflow: visible; }
 .linea-tempo .cal-data { font-size: 12px; font-weight: 600; fill: var(--testo);
                          font-variant-numeric: tabular-nums; }
 .linea-tempo .cal-nota { font-size: 11px; fill: var(--tenue); }
+/* Le date dei calcoli si spengono a 34rem, e la soglia non e' scelta a occhio.
+   A 34rem di viewport l'SVG e' largo 488px (544 meno i 40 del respiro del
+   contenitore e i 16 del margine della figura), ed e' la misura su cui e' tarato
+   SCARTO_MINIMO_ETICHETTE in dashboard/stato.py: il 15% di 488 fa 73px, piu' dei
+   40,8 dell'etichetta piu' larga piu' gli 8 di spazio. Questa regola comprende
+   i 544, quindi quando le date compaiono l'SVG e' gia' piu' largo: la taratura
+   sta dal lato prudente di un pixel. Sotto, quel 15% non basta piu' — a 320px di
+   viewport sono 26px — e restano le tre tappe che la pagina non puo' togliere:
+   arrivo, oggi, prossimo.
+   Stesso breakpoint della testata, in un blocco suo perche' sta accanto alle
+   regole che spegne invece che in fondo al foglio: e' il numero a dover essere
+   uno solo, non il blocco. */
+@media (max-width: 34rem) {
+  .linea-tempo .cal-data--calcolo { display: none; }
+}
 
 /* Cosa puoi leggere oggi: nome, pillola di stato, frase, rimando. */
 .letture { border-top: 1px solid var(--riga); margin-top: 1rem; }

@@ -363,9 +363,9 @@ di stile la spaziatura non la conosce.
   dista almeno `SCARTO_MINIMO` (15%) dell'arco del calendario dall'arrivo, dalla
   data già scritta del calcolo precedente e dal prossimo calcolo. «Oggi» non
   entra nel conto: sta sulla riga sotto.
-- **Il foglio spegne sotto una larghezza.** Da `34rem` in giù le date dei
-  calcoli non si mostrano, e restano arrivo, oggi e prossimo. È il breakpoint
-  che il foglio usa già per la testata.
+- **Il foglio spegne sotto una larghezza.** Da `34rem` in giù — inclusi — le
+  date dei calcoli non si mostrano, e restano arrivo, oggi e prossimo. È il
+  breakpoint che il foglio usa già per la testata.
 
 **Il 15% non è scelto a occhio.** Misurato nel browser il 25/09/2026: l'etichetta
 più larga che questo formato di data possa produrre è «30 mag» a **40,8 px**
@@ -378,10 +378,14 @@ casi, arrotondata per eccesso: **15%**. Gli 8 px sono lo spazio fra due etichett
 vicine, non un margine di sicurezza sulla misura.
 
 La catena si chiude e un test la verifica sui numeri, così non può marcire: il
-foglio garantisce che le date compaiano solo sopra i 488 px, Python garantisce
-che siano almeno al 15% l'una dall'altra, e il 15% di 488 px è 73 px — più dei
-40,8 + 8 che servono. Sulle tre run della produzione gli scarti sono del 25%, e
-le date compaiono tutte.
+foglio garantisce che le date compaiano solo **sopra** i 488 px (la media query
+comprende i 34rem, quindi la prima larghezza in cui compaiono ne ha 489), Python
+garantisce che siano almeno al 15% l'una dall'altra, e il 15% di 488 px è 73 px —
+più dei 40,8 + 8 che servono. Misurato il 25/09/2026 sul caso peggiore, dodici
+run alla larghezza più stretta in cui le date compaiono: quattro date scritte su
+dodici pallini, spazio minimo fra due etichette **29 px**, nessuna
+sovrapposizione. Sulle tre run della produzione gli scarti sono del 25%, e le
+date compaiono tutte già a 768 px.
 
 **Le etichette stanno tutte sopra l'asse tranne «oggi», e non è decorazione.**
 Arrivo, calcoli e prossimo sono un righello: posizioni note, distanze regolari,

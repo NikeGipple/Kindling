@@ -294,6 +294,107 @@ def test_il_calendario_ha_un_punto_per_ogni_run_e_il_futuro_tratteggiato(dashboa
     assert maturo[maturo.index('<figure class="linea-tempo"'):].count("tappa--calcolo") == 12
 
 
+# --- il calendario: le date dei calcoli, e il diradamento -------------------
+
+
+def test_ogni_calcolo_porta_la_sua_data_quando_c_e_spazio(dashboard):
+    """In produzione erano tre pallini muti: la data stava in un <title>, cioe'
+    un tooltip invisibile al tocco, a qualunque larghezza."""
+    html = dashboard.get(f"/guilds/{GUILD_TODAY}").text
+    linea = html[html.index('<figure class="linea-tempo"'):html.index("</figure>")]
+
+    # Due run, a 30 punti percentuali di distanza: entrambe etichettate.
+    etichette = re.findall(r'class="cal-data cal-data--calcolo"[^>]*>([^<]+)<', linea)
+    assert etichette == ["7 set", "14 set"]
+    # Il <title> resta su tutti i pallini: sui diradati e' l'unico modo di
+    # sapere di che giorno sono.
+    assert linea.count("<title>") == 2
+
+
+def test_la_soglia_di_diradamento_regge_il_conto_da_cui_viene():
+    """Il 15% non e' scelto a occhio, e questo test rifa' il conto.
+
+    Se domani qualcuno cambia il corpo dell'etichetta o il breakpoint del foglio
+    senza rifare la misura, la soglia smette di garantire quello che promette —
+    e senza questo test non fallirebbe niente: le etichette si sovrapporrebbero
+    e basta, su una pagina che nessuno riapre a quella larghezza.
+    """
+    disponibili = stato.SCARTO_MINIMO_ETICHETTE / 100 * stato.LARGHEZZA_SVG_AL_BREAKPOINT_PX
+
+    # Due etichette centrate: mezza larghezza ciascuna, piu' lo spazio.
+    assert disponibili >= stato.ETICHETTA_PIU_LARGA_PX + stato.SPAZIO_FRA_ETICHETTE_PX
+    # Contro un estremo, che e' ancorato al bordo e sporge di una larghezza
+    # intera invece che di mezza: e' il caso che fissa la soglia.
+    assert disponibili >= 1.5 * stato.ETICHETTA_PIU_LARGA_PX + stato.SPAZIO_FRA_ETICHETTE_PX
+
+
+def test_il_diradamento_misura_dall_ultima_data_scritta():
+    """Non dall'ultimo punto: saltarne uno non consuma lo scarto.
+
+    Misurando dall'ultimo punto, su una serie fitta non si scriverebbe piu'
+    niente dopo il primo — cioe' il difetto di prima, con una soglia davanti.
+    """
+    fitti = [20.0, 24.0, 28.0, 36.0, 40.0, 52.0]
+    assert stato.etichette_da_scrivere(fitti, con_prossimo=False) == [
+        True, False, False, True, False, True
+    ]
+
+    # Sotto soglia dall'arrivo (sempre allo 0%): niente data.
+    assert stato.etichette_da_scrivere([10.0], con_prossimo=False) == [False]
+    assert stato.etichette_da_scrivere([15.0], con_prossimo=False) == [True]
+
+    # Sotto soglia dal prossimo, che sta al 100% — ma solo quando c'e'.
+    assert stato.etichette_da_scrivere([90.0], con_prossimo=True) == [False]
+    assert stato.etichette_da_scrivere([90.0], con_prossimo=False) == [True]
+
+
+def test_su_una_serie_lunga_le_date_si_diradano_invece_di_accavallarsi(dashboard):
+    # GUILD_MATURE: dodici run a 3,5 punti percentuali l'una dall'altra, cioe'
+    # 34px a 992: e' il caso peggiore che aveva fatto scegliere "nessuna
+    # etichetta mai". Ora i pallini restano dodici e le date sono poche.
+    html = dashboard.get(f"/guilds/{GUILD_MATURE}").text
+    linea = html[html.index('<figure class="linea-tempo"'):html.index("</figure>")]
+
+    assert linea.count("tappa--calcolo") == 12
+    etichette = re.findall(r'class="cal-data cal-data--calcolo"', linea)
+    assert 0 < len(etichette) < 12
+
+
+def test_il_foglio_spegne_le_date_dei_calcoli_sotto_il_breakpoint():
+    """La meta' della regola che Python non puo' fare.
+
+    Il 15% e' tarato sui 488px dell'SVG a 34rem: sotto, quella percentuale non
+    separa piu' niente (a 320px di viewport sono 26px). Il legame fra il numero
+    del foglio e quello del modulo lo verifica questo test, non un commento.
+    """
+    from dashboard.main import STATIC_DIR
+
+    css = (STATIC_DIR / "dashboard.css").read_text(encoding="utf-8")
+    blocco = css[css.index("@media (max-width: 34rem)", css.index(".cal-nota")):]
+    assert ".linea-tempo .cal-data--calcolo { display: none; }" in blocco[:300]
+
+    # 544px di viewport meno 40 di respiro del contenitore e 16 di margine della
+    # figura: e' la larghezza su cui la soglia e' stata misurata.
+    assert 34 * 16 - (2 * 20 + 2 * 8) == stato.LARGHEZZA_SVG_AL_BREAKPOINT_PX
+
+
+def test_le_date_dei_calcoli_stanno_sopra_l_asse_e_oggi_sotto(dashboard):
+    """La posizione alternata evita una collisione che il diradamento non puo'.
+
+    "Oggi" cade dove cade — in produzione a quattro giorni dall'ultimo calcolo —
+    e non e' una tappa che si possa togliere: sulla riga di sopra si
+    sovrapporrebbe a quell'etichetta e basta.
+    """
+    html = dashboard.get(f"/guilds/{GUILD_TODAY}").text
+    linea = html[html.index('<figure class="linea-tempo"'):html.index("</figure>")]
+
+    for riga in re.findall(r'<text class="cal-data cal-data--calcolo"[^>]*y="(\d+)"', linea):
+        assert riga == "18", riga
+    # Arrivo e prossimo sulla stessa riga dei calcoli; oggi sotto l'asse (52).
+    assert linea.count('y="18"') == 4  # arrivo, due calcoli, prossimo
+    assert 'y="72"' in linea and 'y="86"' in linea
+
+
 def test_il_calendario_non_parla_di_ricalcoli(dashboard):
     html = dashboard.get(f"/guilds/{GUILD_MATURE}").text
     for parola in ("ricalcol", "rifatt", "rieseg"):
