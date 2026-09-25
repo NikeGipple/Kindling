@@ -579,8 +579,15 @@ def test_navigazione_solo_con_le_viste_che_esistono(dashboard):
         nav = next(_albero(html).radice.trova("nav", classe="viste"))
         # Quattro voci da quando la vista Coorti esiste (16/09/2026), e nessuna in
         # piu': una voce per una vista che non c'e' sarebbe una promessa.
-        assert [a.testo().strip() for a in nav.trova("a")] == [
-            "Stato", "Robustezza", "Community", "Coorti"]
+        # "Domande" (22/09/2026) e' la quinta ancora ma non la quinta vista: sta
+        # in fondo, con una classe sua, e il conto delle VISTE resta quattro.
+        voci = [a.testo().strip() for a in nav.trova("a")]
+        assert voci == ["Stato", "Robustezza", "Community", "Coorti", "Domande"]
+        (domande,) = [a for a in nav.trova("a") if a.testo().strip() == "Domande"]
+        assert domande.attrs.get("class") == "voce-domande"
+        # E i Dettagli tecnici non sono nel menu: ci si arriva dalla domanda che
+        # li nomina, non da una voce accanto alle viste.
+        assert "dettagli-tecnici" not in html[html.index('<nav class="viste"'):]
 
 
 def test_la_vista_non_legge_details():

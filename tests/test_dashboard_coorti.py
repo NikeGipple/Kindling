@@ -645,6 +645,9 @@ def test_la_rotta_risponde_e_la_navigazione_porta_a_coorti(dashboard):
         ("Robustezza", f"/guilds/{GUILD_SCALE}/robustezza", None),
         ("Community", f"/guilds/{GUILD_SCALE}/community", None),
         ("Coorti", f"/guilds/{GUILD_SCALE}/coorti", "page"),
+        # Domande e' nella stessa barra ma non e' una vista: non mostra nessun
+        # numero di nessun server, e il foglio la stacca dalle quattro.
+        ("Domande", f"/guilds/{GUILD_SCALE}/domande", None),
     ]
 
 

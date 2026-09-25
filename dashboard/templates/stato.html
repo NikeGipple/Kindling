@@ -1,109 +1,130 @@
-{#- Vista Stato (dashboard.md 4). La vista iniziale, non un pannello di servizio:
-    e' quella che spiega tutte le altre, perche' first_seen_at e' la ragione dei
-    caveat che compaiono altrove. Servire i caveat senza la ragione dei caveat e'
-    peggio che non servirli (api.md 2).
+{#- Vista Stato (dashboard.md 4, "La vista Stato, in dettaglio").
 
-    Legge solo campi tipizzati di GuildRow e RunRow. params e stats si mostrano
-    come testo letterale: stats e' diagnostica, non contratto (api.md 3), e le sue
-    chiavi non possono diventare etichette ne' condizioni. -#}
+    Parla all'AMMINISTRATORE del server, non a chi gestisce Kindling: risponde a
+    "cosa sta facendo Kindling sul mio server", e ogni numero che mostra e' un
+    numero che riguarda la community, mai una persona.
+
+    Tutto cio' che questa pagina decide sta in dashboard/stato.py e
+    dashboard/regole.py; qui c'e' solo l'aspetto. In particolare NON stanno qui:
+    le date (composte in Europe/Rome, forma breve), le percentuali della linea
+    del tempo (coordinate SVG calcolate in Python: la CSP vieta style="", quindi
+    il `left:...%` del mockup non e' praticabile) e le frasi delle regole, che si
+    compongono dal valore letto in ``params``.
+
+    Quello che PRIMA stava qui — versione del codice, numero di snapshot, tabella
+    dei parametri, storico in tabella, testo letterale di stats — sta nei
+    Dettagli tecnici. Un test di tests/test_dashboard_stato.py fallisce se
+    ricompare: code_version, stats e le chiavi grezze di params erano qui per una
+    ragione, e una ragione torna piu' facilmente di quanto si creda. -#}
 {% extends "base.html" %}
 {% block titolo %}Stato · {{ nome_server }}{% endblock %}
 {% block contenuto %}
-<h1>Stato</h1>
+<h1>Cosa sta facendo Kindling</h1>
+<p class="guida">Kindling osserva come nascono e durano le relazioni fra i membri di
+questo server. Questa pagina dice da quando osserva, quando ha calcolato l'ultima
+volta e cosa si può già leggere; le altre tre rispondono ognuna a una domanda diversa.</p>
 
-<section aria-labelledby="osservazione">
-  <h2 id="osservazione">Da quando osserviamo</h2>
-  <p>Il bot osserva questo server dal <strong>{{ guild.first_seen_at | data_ora }}</strong>.</p>
-  <p class="nota">È l'<em>ancora di osservabilità</em>: prima di questa data chi è
-  uscito dal server non ha lasciato traccia. Per questo le coorti entrate prima
-  contano solo chi era ancora presente (<em>solo sopravvissuti</em>), e la loro
-  retention non è calcolabile.</p>
-
-  {% if guild.backfilled_at %}
-  <p>Membri già presenti all'arrivo del bot registrati il {{ guild.backfilled_at | data_ora }}.</p>
-  {% else %}
-  <p>Registrazione dei membri già presenti all'arrivo del bot: non ancora eseguita.</p>
-  {% endif %}
-
-  {% if buco_di_osservazione %}
-  <div class="avviso" role="note">
-    <strong>C'è un buco di osservazione.</strong>
-    Il bot ha lasciato il server il {{ guild.left_at | data_ora }} ed è rientrato il
-    {{ guild.rejoined_at | data_ora }}. Le uscite avvenute in quell'intervallo sono
-    invisibili, esattamente come quelle precedenti all'ancora: l'osservazione di
-    questo server non parte da un istante solo, e questo cambia la lettura di ogni
-    metrica di coorte.
+<dl class="fatti-stato">
+  {% for f in vista.fatti %}
+  <div>
+    <dt>{{ f.etichetta }}</dt>
+    <dd>{{ f.valore }}<small>{{ f.dettaglio }}</small></dd>
   </div>
-  {% elif guild.left_at %}
-  <div class="avviso" role="note">
-    <strong>Il bot non è più sul server.</strong>
-    Ha lasciato il server il {{ guild.left_at | data_ora }} e non risulta rientrato:
-    da quella data non c'è osservazione.
-  </div>
-  {% elif guild.rejoined_at %}
-  <div class="avviso" role="note">
-    <strong>Rientro senza uscita registrata.</strong>
-    Risulta un rientro del bot il {{ guild.rejoined_at | data_ora }} ma nessuna data di
-    uscita: l'intervallo in cui il bot era assente non è noto.
-  </div>
-  {% endif %}
-</section>
-
-<section aria-labelledby="calcolo">
-  <h2 id="calcolo">Ultimo calcolo</h2>
-  {% if ultima %}
-  <p>Le metriche arrivano al <strong>{{ ultima.as_of | data_ora }}</strong>
-  (snapshot <code>{{ ultima.snapshot_id }}</code>), calcolate il
-  {{ ultima.created_at | data_ora }}.</p>
-  <table>
-    <tbody>
-      <tr>
-        <th scope="row">Versione del codice</th>
-        <td>{% if ultima.code_version %}<code>{{ ultima.code_version }}</code>{% else %}<em>non registrata</em> — non si può dire quale codice ha prodotto questi numeri{% endif %}</td>
-      </tr>
-      <tr>
-        <th scope="row">Parametri</th>
-        <td>{% if ultima.params %}{% for chiave, valore in ultima.params | dictsort %}<code>{{ chiave }}={{ valore }}</code>{% if not loop.last %}, {% endif %}{% endfor %}{% else %}<em>nessuno registrato</em>{% endif %}</td>
-      </tr>
-    </tbody>
-  </table>
-  {% else %}
-  <p>Nessun calcolo di metriche ancora eseguito per questo server. Il bot sta
-  osservando; i numeri arriveranno con la prima esecuzione settimanale.</p>
-  {% endif %}
-</section>
-
-{% if runs %}
-<section aria-labelledby="storico">
-  <h2 id="storico">Storico delle esecuzioni</h2>
-  <div class="scorri">
-  <table>
-    <thead><tr><th>Snapshot</th><th>Metriche al</th><th>Calcolate il</th><th>Versione del codice</th></tr></thead>
-    <tbody>
-    {% for r in runs %}
-      <tr>
-        <td><code>{{ r.snapshot_id }}</code></td>
-        <td>{{ r.as_of | data_ora }}</td>
-        <td>{{ r.created_at | data_ora }}</td>
-        <td>{% if r.code_version %}<code>{{ r.code_version }}</code>{% else %}<em>non registrata</em>{% endif %}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  {% set params_diversi = runs | map(attribute="params") | map("tojson") | unique | list %}
-  {% if params_diversi | length > 1 %}
-  <div class="avviso" role="note">
-    <strong>Parametri diversi tra le esecuzioni.</strong>
-    Due esecuzioni con parametri diversi non sono confrontabili tra loro.
-  </div>
-  {% endif %}
-
-  <h2 id="diagnostica">Diagnostica dell'ultima esecuzione</h2>
-  <p class="nota">Testo letterale di <code>stats</code>: è la scatola nera
-  dell'esecuzione, utile quando un numero sembra sbagliato. Le sue chiavi cambiano
-  con il codice del job.</p>
-  <pre>{{ ultima.stats | tojson(indent=2) }}</pre>
-</section>
+  {% endfor %}
+</dl>
+{% if vista.senza_run %}
+<p class="nota">Il primo calcolo non è ancora stato fatto: il bot sta osservando, e i
+numeri arrivano con la prima esecuzione settimanale.</p>
 {% endif %}
+
+<h2>Come funziona</h2>
+{#- I quattro layer con i nomi delle cose che succedono su Discord, e MAI
+    "messaggi": Kindling non misura i messaggi, misura chi interagisce con chi.
+    Chiamarli messaggi prometterebbe una lettura dei contenuti che non c'e'. -#}
+<ol class="passi">
+  <li>
+    <h3>Osserva</h3>
+    <p>Registra le interazioni mentre accadono: risposte, menzioni, reazioni e tempo
+    passato insieme in vocale. Di quello che è successo prima del suo arrivo non sa nulla.</p>
+  </li>
+  <li>
+    <h3>Collega</h3>
+    <p>Da quelle interazioni costruisce una rete: chi ha a che fare con chi, e quanto spesso.</p>
+  </li>
+  <li>
+    <h3>Misura, ogni settimana</h3>
+    <p>Dalla rete ricava misure sulla community nel suo insieme, mai su una persona sola.</p>
+  </li>
+</ol>
+
+{% if vista.calendario %}
+{% set cal = vista.calendario %}
+<h2>Il calendario</h2>
+<figure class="linea-tempo">
+  {#- SVG senza viewBox e con le ascisse in PERCENTUALE: senza viewBox le unita'
+      utente sono pixel CSS, quindi il testo resta della sua dimensione a
+      qualunque larghezza invece di rimpicciolirsi con il disegno — che e' cio'
+      che rende illeggibile un grafico scalato a 320px. Le percentuali si
+      risolvono sulla larghezza del riquadro, e le calcola stato.py.
+      overflow visibile (nel foglio) perche' i pallini agli estremi cadono
+      meta' dentro e meta' fuori dal riquadro. -#}
+  <svg width="100%" height="96" role="img" aria-label="{{ cal.descrizione }}">
+    <line class="asse" x1="0" y1="52" x2="{{ cal.x_oggi }}" y2="52"/>
+    {% if cal.prossimo %}
+    <line class="asse asse--futuro" x1="{{ cal.x_oggi }}" y1="52" x2="100%" y2="52"/>
+    {% endif %}
+    {% for p in cal.punti %}
+    <circle class="tappa tappa--calcolo" cx="{{ p.x }}" cy="52" r="4"><title>{{ p.titolo }}</title></circle>
+    {% endfor %}
+    <circle class="tappa tappa--arrivo" cx="{{ cal.arrivo.x }}" cy="52" r="5"/>
+    <text class="cal-data" x="{{ cal.arrivo.x }}" y="18" text-anchor="{{ cal.arrivo.ancoraggio }}">{{ cal.arrivo.data }}</text>
+    <text class="cal-nota" x="{{ cal.arrivo.x }}" y="32" text-anchor="{{ cal.arrivo.ancoraggio }}">{{ cal.arrivo.testo }}</text>
+    {% if cal.prossimo %}
+    <circle class="tappa tappa--futura" cx="{{ cal.prossimo.x }}" cy="52" r="5"/>
+    <text class="cal-data" x="{{ cal.prossimo.x }}" y="18" text-anchor="{{ cal.prossimo.ancoraggio }}">{{ cal.prossimo.data }}</text>
+    <text class="cal-nota" x="{{ cal.prossimo.x }}" y="32" text-anchor="{{ cal.prossimo.ancoraggio }}">{{ cal.prossimo.testo }}</text>
+    {% endif %}
+    <circle class="tappa tappa--oggi" cx="{{ cal.oggi.x }}" cy="52" r="5"/>
+    <text class="cal-data" x="{{ cal.oggi.x }}" y="72" text-anchor="{{ cal.oggi.ancoraggio }}">{{ cal.oggi.data }}</text>
+    <text class="cal-nota" x="{{ cal.oggi.x }}" y="86" text-anchor="{{ cal.oggi.ancoraggio }}">{{ cal.oggi.testo }}</text>
+  </svg>
+</figure>
+{% endif %}
+
+<h2>Cosa puoi leggere oggi</h2>
+<div class="letture">
+  {% for l in vista.letture %}
+  <div class="lettura">
+    <h3><a href="{{ l.percorso }}">{{ l.nome }}</a></h3>
+    <span class="pillola pillola--{{ l.stato }}">{{ l.etichetta }}</span>
+    <p>{{ l.domanda }} {{ l.frase }}</p>
+    <a class="approfondisci" href="{{ l.ancora }}">{{ l.rimando }}</a>
+  </div>
+  {% endfor %}
+</div>
+
+{% if vista.regole %}
+<h2>Le regole del calcolo</h2>
+<p class="nota">I valori con cui Kindling misura questo server, letti dall'ultimo calcolo.
+Passa sopra una regola, o toccala, per sapere cosa significa.</p>
+{#- tabindex="0" e non un <button>: la spiegazione compare su :hover E su :focus,
+    quindi si raggiunge da tastiera e al tocco senza una riga di JavaScript — che
+    la CSP consentirebbe solo come file servito da /static/, e che qui non
+    aggiungerebbe niente (dashboard.md 4, "Niente JavaScript"). -#}
+<ul class="regole">
+  {% for r in vista.regole %}
+  <li class="regola" tabindex="0">
+    <b>{{ r.valore }}</b>
+    <span class="regola__etichetta">{{ r.etichetta }}</span>
+    <span class="regola__popup" role="tooltip">{{ r.spiegazione }}</span>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% for a in vista.avvisi %}
+<p class="avviso" role="note">{{ a.testo }}</p>
+{% endfor %}
+
+<p class="nota nota-fuso">Le date di questa pagina sono nel fuso di Roma.</p>
 {% endblock %}

@@ -43,7 +43,7 @@ from .client import (
     RispostaNonConforme,
     crea_http,
 )
-from . import community, coorti, robustezza
+from . import community, coorti, domande, regole, robustezza, stato
 from .qualifica import cella
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ CACHE_STATICI = "public, max-age=31536000, immutable"
 #   che e' ottenibile oggi perche' nessun template ha un <style> o uno
 #   style="..." e nessuna stringa generata in Python ne produce — i grafici
 #   sono SVG con attributi di presentazione, che la CSP non guarda. Il test
-#   che lo tiene vero sulle tredici pagine sta in tests/test_dashboard_statici.py:
+#   che lo tiene vero sulle quindici pagine sta in tests/test_dashboard_statici.py:
 #   senza, il primo style="" aggiunto per comodita' non si vedrebbe qui ma
 #   nella console di chi legge, con l'elemento senza stile.
 # - script-src 'self': oggi non c'e' nessuno script, e la direttiva dice che
@@ -119,7 +119,7 @@ CSP = "; ".join(
 # privacy policy.
 #
 # Qui e non nei template perche' compaiono in DUE posti: il piede di tutte e
-# nove le pagine e la testata delle due pubbliche. Due copie sono due copie che
+# undici le pagine e la testata delle due pubbliche. Due copie sono due copie che
 # divergono al primo indirizzo che cambia (CLAUDE.md 7), e la divergenza di un
 # URL non si vede finche' qualcuno non ci clicca sopra.
 #
@@ -482,8 +482,16 @@ def crea_app(
         return pagina(request, "guilds.html", guilds=guilds, nomi=sessione.nomi)
 
     @app.get("/guilds/{guild_id}", response_class=HTMLResponse, dependencies=protetta)
-    async def stato(request: Request, guild_id: int):
-        """Vista Stato (dashboard.md 4): la vista iniziale, quella che spiega le altre."""
+    async def vista_stato(request: Request, guild_id: int):
+        """Vista Stato (dashboard.md 4): la vista iniziale, quella che spiega le altre.
+
+        Cinque chiamate e non due, ed e' il prezzo dichiarato di "Cosa puoi
+        leggere oggi": non c'e' modo di sapere se una vista e' leggibile senza
+        guardare il ``quality`` delle sue righe, e un campo riassuntivo
+        sull'API sarebbe un secondo posto da tenere allineato con le righe che
+        riassume. ``cohorts()`` chiede un solo snapshot: il default e' nella
+        firma del client, e qui non si ha un'opinione diversa da quella.
+        """
         api: ApiClient = request.app.state.api
         guild = await api.guild(guild_id)
         runs = await api.runs(guild_id)
@@ -491,11 +499,63 @@ def crea_app(
             request,
             "stato.html",
             guild_id=guild_id,
-            guild=guild,
-            runs=runs,
-            ultima=runs[0] if runs else None,
-            buco_di_osservazione=guild.left_at is not None and guild.rejoined_at is not None,
+            vista=stato.costruisci(
+                guild,
+                runs,
+                await api.robustness(guild_id),
+                await api.communities(guild_id),
+                await api.cohorts(guild_id),
+            ),
             vista_corrente="stato",
+        )
+
+    @app.get("/guilds/{guild_id}/domande", response_class=HTMLResponse, dependencies=protetta)
+    async def pagina_domande(request: Request, guild_id: int):
+        """Le Domande (dashboard.md 4): risposte generiche, con un indirizzo ciascuna.
+
+        Legge le run per una ragione sola: le soglie citate nelle risposte
+        vengono da ``params``, come in Stato. Senza run non ci sono soglie da
+        citare, e le frasi che le nominavano semplicemente non compaiono.
+        """
+        api: ApiClient = request.app.state.api
+        runs = await api.runs(guild_id)
+        ultima = stato.parametri_ultima_run(runs)
+        return pagina(
+            request,
+            "domande.html",
+            guild_id=guild_id,
+            domande=domande.costruisci(
+                guild_id,
+                ultima.params if ultima is not None else None,
+                privacy_url=SITO_PUBBLICO["privacy"],
+                cadenza=stato.cadenza_osservata(runs),
+            ),
+            vista_corrente="domande",
+        )
+
+    @app.get(
+        "/guilds/{guild_id}/dettagli-tecnici",
+        response_class=HTMLResponse,
+        dependencies=protetta,
+    )
+    async def pagina_dettagli_tecnici(request: Request, guild_id: int):
+        """I Dettagli tecnici (dashboard.md 4): cio' che e' uscito da Stato.
+
+        ``vista_corrente`` c'e' — quindi menu e riga di contesto ci sono — ma
+        nessuna voce del menu porta qui: ci si arriva dalla domanda che la
+        nomina. Il menu serve a tornare indietro, non ad arrivarci.
+        """
+        api: ApiClient = request.app.state.api
+        runs = await api.runs(guild_id)
+        ultima = stato.parametri_ultima_run(runs)
+        return pagina(
+            request,
+            "dettagli_tecnici.html",
+            guild_id=guild_id,
+            ultima=ultima,
+            storico=stato.storico(runs),
+            aree=regole.per_area(ultima.params if ultima is not None else None),
+            vista_corrente="dettagli",
         )
 
     @app.get("/guilds/{guild_id}/robustezza", response_class=HTMLResponse, dependencies=protetta)

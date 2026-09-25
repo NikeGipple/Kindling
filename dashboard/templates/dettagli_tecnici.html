@@ -1,0 +1,71 @@
+{#- Dettagli tecnici (dashboard.md 4, "La pagina Dettagli tecnici").
+
+    Quello che e' uscito dalla vista Stato il 22/09/2026: storico delle run,
+    parametri dell'ultima, diagnostica letterale. Non e' nel menu — ci si arriva
+    solo dalla domanda "Dove trovo i dettagli tecnici di un calcolo?".
+
+    Qui i timestamp restano COMPLETI e in UTC, con il filtro data_ora delle altre
+    viste: la domanda di questa pagina e' "quale codice ha prodotto questo numero,
+    e quando", e la risposta si confronta con i log, che sono in UTC.
+
+    params e stats si mostrano come testo letterale: stats e' diagnostica, non
+    contratto (api.md 3), e le sue chiavi non possono diventare etichette ne'
+    condizioni. Le chiavi di params sono RAGGRUPPATE, non filtrate: quelle che
+    dashboard/regole.py non conosce finiscono sotto "Altri parametri". -#}
+{% extends "base.html" %}
+{% block titolo %}Dettagli tecnici · {{ nome_server }}{% endblock %}
+{% block contenuto %}
+<h1>Dettagli tecnici</h1>
+<p class="guida">Che cosa ha prodotto i numeri di questo server, e con quali parametri.
+Le date di questa pagina sono complete e in UTC, perché è la forma che si confronta
+con i log.</p>
+
+{% if ultima %}
+<h2>Storico delle esecuzioni</h2>
+<div class="scorri">
+  <table>
+    <thead><tr><th>Snapshot</th><th>Metriche al</th><th>Calcolate il</th><th>Versione del codice</th></tr></thead>
+    <tbody>
+      {% for r in storico %}
+      <tr>
+        <td><code>{{ r.snapshot_id }}</code></td>
+        <td>{{ r.as_of | data_ora }}</td>
+        <td>{{ r.created_at | data_ora }}</td>
+        <td>{% if r.code_version %}<code>{{ r.code_version }}</code>{% else %}<em>non registrata</em>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h2>Parametri dell'ultima esecuzione</h2>
+{% if aree %}
+<p class="nota">Snapshot <code>{{ ultima.snapshot_id }}</code>, metriche al
+{{ ultima.as_of | data_ora }}. Due esecuzioni con parametri diversi non sono
+confrontabili fra loro.</p>
+{% for area in aree %}
+<h3>{{ area.nome }}</h3>
+<div class="scorri">
+  <table>
+    <tbody>
+      {% for chiave, valore in area.voci %}
+      <tr><th scope="row"><code>{{ chiave }}</code></th><td><code>{{ valore | tojson }}</code></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+{% else %}
+<p>Nessun parametro registrato per questa esecuzione.</p>
+{% endif %}
+
+<h2>Diagnostica dell'ultima esecuzione</h2>
+<p class="nota">Testo letterale di <code>stats</code>: è la scatola nera
+dell'esecuzione, utile quando un numero sembra sbagliato. Le sue chiavi cambiano
+con il codice del job, quindi non diventano etichette né condizioni di questa pagina.</p>
+<pre>{{ ultima.stats | tojson(indent=2) }}</pre>
+{% else %}
+<p>Nessuna esecuzione di metriche è ancora stata registrata per questo server: non
+c'è niente da ispezionare. I dettagli compaiono con il primo calcolo settimanale.</p>
+{% endif %}
+{% endblock %}

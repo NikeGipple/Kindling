@@ -88,13 +88,20 @@
 <main class="contenitore{% if vista_corrente is defined %} vista{% endif %}">
   {#- Solo le viste che ESISTONO: una voce disabilitata sarebbe una promessa, e
       di cio' che non c'e' non si accenna (dashboard.md 4). Da oggi sono tutte e
-      quattro, nell'ordine in cui si leggono: Stato spiega le altre tre. -#}
+      quattro, nell'ordine in cui si leggono: Stato spiega le altre tre.
+
+      "Domande" sta nella stessa barra ma in fondo e staccato: non e' una quinta
+      vista — non mostra nessun numero di nessun server — ed e' il posto da cui
+      le viste prendono le spiegazioni che altrimenti ripeterebbero. Dettagli
+      tecnici NON c'e', e non e' una dimenticanza: ci si arriva solo dalla
+      domanda che lo nomina (dashboard.md 4). -#}
   {% if vista_corrente is defined %}
   <nav class="viste" aria-label="Viste">
     <a href="/guilds/{{ guild_id }}"{% if vista_corrente == "stato" %} aria-current="page"{% endif %}>Stato</a>
     <a href="/guilds/{{ guild_id }}/robustezza"{% if vista_corrente == "robustezza" %} aria-current="page"{% endif %}>Robustezza</a>
     <a href="/guilds/{{ guild_id }}/community"{% if vista_corrente == "community" %} aria-current="page"{% endif %}>Community</a>
     <a href="/guilds/{{ guild_id }}/coorti"{% if vista_corrente == "coorti" %} aria-current="page"{% endif %}>Coorti</a>
+    <a class="voce-domande" href="/guilds/{{ guild_id }}/domande"{% if vista_corrente == "domande" %} aria-current="page"{% endif %}>Domande</a>
   </nav>
   {% endif %}
   {% block contenuto %}{% endblock %}

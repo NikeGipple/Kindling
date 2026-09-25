@@ -110,7 +110,7 @@ def client_autenticato(app, **kwargs) -> TestClient:
     return entra(TestClient(app, **kwargs))
 
 
-# --- le tredici pagine, prese dalle rotte che le producono --------------------
+# --- le quindici pagine, prese dalle rotte che le producono ------------------
 #
 # Sta qui e non dentro un file di test perche' due file la guardano: la cornice
 # (menu, piede, legenda, coda del marchio) e le intestazioni delle risposte
@@ -126,13 +126,15 @@ def client_autenticato(app, **kwargs) -> TestClient:
 FUORI_DALL_INSIEME = 424242
 assert FUORI_DALL_INSIEME not in GUILD_DI_TEST
 
-# I nove template che estendono base.html. Scritti qui perche' i test possano
-# dire "nove", non "quelli che mi sono ricordato di raggiungere".
+# Gli undici template che estendono base.html. Scritti qui perche' i test
+# possano dire "undici", non "quelli che mi sono ricordato di raggiungere".
 TEMPLATE_CON_CORNICE = {
     "accesso.html",
     "accesso_negato.html",
     "community.html",
     "coorti.html",
+    "dettagli_tecnici.html",
+    "domande.html",
     "errore.html",
     "guilds.html",
     "non_osservata.html",
@@ -191,6 +193,10 @@ def raccogli_pagine() -> dict:
         raccolta["robustezza"] = ("robustezza.html", c.get(f"/guilds/{GUILD_TODAY}/robustezza"))
         raccolta["community"] = ("community.html", c.get(f"/guilds/{GUILD_TODAY}/community"))
         raccolta["coorti"] = ("coorti.html", c.get(f"/guilds/{GUILD_TODAY}/coorti"))
+        raccolta["domande"] = ("domande.html", c.get(f"/guilds/{GUILD_TODAY}/domande"))
+        raccolta["dettagli"] = (
+            "dettagli_tecnici.html", c.get(f"/guilds/{GUILD_TODAY}/dettagli-tecnici")
+        )
         # 123 e' nell'insieme autorizzato ma il fixture non lo osserva: la
         # guardia passa e l'API risponde 404. E' la pagina del difetto 1c.
         raccolta["non_osservata"] = ("non_osservata.html", c.get("/guilds/123"))

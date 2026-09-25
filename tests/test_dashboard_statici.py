@@ -87,7 +87,7 @@ def pagine() -> dict:
 
 
 def test_le_pagine_restano_private_e_senza_cache(pagine):
-    # Tutte e tredici, non solo /login e una vista: l'eccezione di /static/ e' un
+    # Tutte e quindici, non solo /login e una vista: l'eccezione di /static/ e' un
     # ramo nuovo in un middleware che prima non ne aveva, e "tutte tranne quelle
     # che mi sono ricordato di guardare" e' il modo in cui un'eccezione si
     # allarga senza che nessuno se ne accorga.
@@ -269,7 +269,7 @@ PAGINE_CON_GRAFICI = (
 IN_LINEA = ("<style", 'style="', "<script")
 
 
-def test_nessuna_delle_tredici_pagine_ha_stile_o_script_in_linea(pagine):
+def test_nessuna_delle_quindici_pagine_ha_stile_o_script_in_linea(pagine):
     for nome, (_, risposta) in pagine.items():
         for forma in IN_LINEA:
             assert forma not in risposta.text, f"{nome}: {forma}"

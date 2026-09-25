@@ -2,7 +2,7 @@
 
 Tre cose che nessun test guardava, e che sbagliate non darebbero nessun errore.
 
-1. **base.html si rende su tutte e nove le pagine.** ``crea_templates()`` usa
+1. **base.html si rende su tutte e undici le pagine.** ``crea_templates()`` usa
    ``StrictUndefined``: una variabile aggiunta alla cornice e mai impostata non
    diventa una stringa vuota, fa fallire il rendering — ma solo sulle pagine che
    la incontrano, e tre categorie non hanno ne' sessione ne' guild (la pagina
@@ -29,9 +29,9 @@ stesse pagine portano invece la testata della landing. Il template pubblico lo
 dichiara da se' sostituendo ``{% block dopo_marchio %}`` — UN blocco per le due
 cose, perche' sono la stessa decisione e una pagina nuova non possa prenderne
 meta'. Piu' una sesta che guarda gli URL dei documenti: sono assoluti, vengono
-da ``SITO_PUBBLICO`` e stanno nel piede di tutte e tredici le pagine.
+da ``SITO_PUBBLICO`` e stanno nel piede di tutte e quindici le pagine.
 
-Le nove pagine si raggiungono **dalle rotte**, non rendendo i template a mano: un
+Le undici pagine si raggiungono **dalle rotte**, non rendendo i template a mano: un
 contesto costruito qui sarebbe una copia di quello che passa la rotta, e la copia
 che diverge e' esattamente cio' che questi test devono poter vedere. La raccolta
 vive in ``tests/sessione_dashboard.py`` perche' la guarda anche
@@ -69,11 +69,11 @@ def pagine() -> dict:
 # --- 1. la rete sotto StrictUndefined ----------------------------------------
 
 
-def test_tutte_e_nove_le_pagine_si_rendono_fino_in_fondo(pagine):
+def test_tutte_e_undici_le_pagine_si_rendono_fino_in_fondo(pagine):
     # I quattro casi di accesso_negato.html e i due di errore.html sono pagine
     # diverse dello stesso template: si contano i template, non le pagine.
     assert {template for template, _ in pagine.values()} == TEMPLATE_CON_CORNICE
-    assert len(pagine) == 13
+    assert len(pagine) == 15
 
     for nome, (template, risposta) in sorted(pagine.items()):
         assert "text/html" in risposta.headers["content-type"], nome
@@ -88,11 +88,12 @@ def test_tutte_e_nove_le_pagine_si_rendono_fino_in_fondo(pagine):
         assert "Kindling © 2026" in risposta.text, nome
 
 
-def test_le_nove_pagine_hanno_gli_stati_che_dichiarano(pagine):
+def test_le_undici_pagine_hanno_gli_stati_che_dichiarano(pagine):
     # Non e' decorazione: se una pagina d'errore rispondesse 200 il test sopra
     # resterebbe verde guardando la pagina sbagliata.
     attesi = {
         "elenco": 200, "stato": 200, "robustezza": 200, "community": 200, "coorti": 200,
+        "domande": 200, "dettagli": 200,
         "accesso": 200, "non_osservata": 404, "negato_server": 404, "negato_verifica": 403,
         "negato_scaduta": 401, "negato_nessun_server": 403,
         "errore_api_giu": 503, "errore_contratto": 502,
@@ -103,8 +104,12 @@ def test_le_nove_pagine_hanno_gli_stati_che_dichiarano(pagine):
 # --- 2. il menu appartiene alla vista, non alla guild ------------------------
 
 
-def test_il_menu_e_la_riga_di_contesto_stanno_solo_nelle_quattro_viste(pagine):
-    viste = {"stato", "robustezza", "community", "coorti"}
+def test_il_menu_e_la_riga_di_contesto_stanno_solo_dentro_un_server(pagine):
+    # Le quattro viste, piu' le due pagine che stanno dentro un server senza
+    # essere viste: Domande e Dettagli tecnici. Dettagli tecnici porta il menu
+    # ma NON una voce che ci rimandi (ci si arriva dalla domanda che lo nomina):
+    # il menu serve a tornare indietro, e lo verifica il test sotto.
+    viste = {"stato", "robustezza", "community", "coorti", "domande", "dettagli"}
     con_menu = {nome for nome, (_, r) in pagine.items() if 'class="viste"' in r.text}
     assert con_menu == viste
     # Menu e riga di contesto dicono la stessa cosa — "sei dentro una vista di un
@@ -168,7 +173,7 @@ def test_la_coda_del_marchio_sta_solo_dove_si_e_entrati(pagine):
     # pagine pubbliche sono cinque (accesso piu' i quattro casi di accesso
     # negato) e le altre otto la portano.
     assert len(PAGINE_PUBBLICHE) == 5
-    assert len(con_coda) == 8
+    assert len(con_coda) == 10
 
 
 # --- 6. i documenti pubblici: nel piede sempre, in testata solo da fuori ------

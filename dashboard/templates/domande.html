@@ -1,0 +1,29 @@
+{#- La pagina Domande (dashboard.md 4, "La pagina Domande").
+
+    Non e' una quinta vista: non mostra nessun numero di questo server. Serve a
+    dare un INDIRIZZO a ogni spiegazione, cosi' che le viste ci rimandino invece
+    di ripeterla — per questo ogni <details> ha un id stabile, deciso in
+    dashboard/domande.py.
+
+    I <details> sono aperti di partenza, e non e' una svista. Senza JavaScript
+    non esiste un modo di aprire quello raggiunto da un'ancora (`:target` puo'
+    evidenziarlo, non puo' mettere l'attributo `open`): con tutti chiusi, un link
+    da una vista atterrerebbe su una risposta invisibile, cioe' fallirebbe
+    esattamente nel compito per cui gli id esistono. Aperti, l'ancora consegna la
+    risposta e `:target` dice quale, e chi vuole richiuderle puo' farlo. -#}
+{% extends "base.html" %}
+{% block titolo %}Domande · {{ nome_server }}{% endblock %}
+{% block contenuto %}
+<h1>Domande</h1>
+<p class="guida">Quello che la dashboard mostra, quello che non mostra, e perché.</p>
+
+<div class="domande">
+  {% for d in domande %}
+  <details id="{{ d.codice }}" open>
+    <summary>{{ d.domanda }}</summary>
+    {% for p in d.paragrafi %}<p>{{ p }}</p>{% endfor %}
+    {% if d.link %}<p><a href="{{ d.link.url }}">{{ d.link.testo }}</a></p>{% endif %}
+  </details>
+  {% endfor %}
+</div>
+{% endblock %}

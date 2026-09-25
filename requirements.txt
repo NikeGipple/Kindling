@@ -23,3 +23,12 @@ httpx>=0.27,<0.29
 # la importa). Firmato, non cifrato: in sessione non c'e' nessun token
 # (docs/architettura/dashboard.md 3).
 itsdangerous>=2.1,<3
+# Il database dei fusi orari per zoneinfo. Lo usa la sola vista Stato, che mostra
+# le date in Europe/Rome invece che in UTC (dashboard.md 4): e' l'unica pagina
+# il cui lettore e' un amministratore, non qualcuno che confronta una riga con
+# un log. Non e' una dipendenza di comodo — senza, ZoneInfo("Europe/Rome") alza
+# ZoneInfoNotFoundError su Windows sempre, e su un'immagine slim ogni volta che
+# il database di sistema non c'e'. Il fallimento e' rumoroso e immediato
+# (all'avvio del processo, non alla prima pagina), ma non e' un motivo per
+# lasciarlo dipendere dalla piattaforma.
+tzdata>=2024.1
