@@ -478,12 +478,47 @@ else
     echo "(fallito come atteso: permission denied)"
 fi
 
+# graph_snapshots: la TABELLA resta illeggibile, e non perche' contenga dati di
+# qualcuno — non ne contiene. E' che cio' che l'API puo' leggere dev'essere un
+# elenco DECISO e non uno che cresce da solo (api.md 1): con il SELECT sulla
+# tabella, una colonna aggiunta domani sarebbe leggibile senza che nessuno
+# l'abbia scelto. Dal 25/09/2026 quel che si legge e' la sola vista
+# graph_snapshot_params, controllata sotto.
+#
+# Questi due controlli esistevano solo in tests/test_parametri_grafo.py, cioe'
+# addosso al repository. Un GRANT allargato a mano sulla droplet — il modo in cui
+# questi permessi si allargano davvero, durante un debug — non incontrava niente
+# fino al successivo `pytest` di qualcun altro.
+if "$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" exec -T postgres psql \
+    -U kindling_api -d kindling -c "SELECT count(*) FROM graph_snapshots"; then
+    log "ABORT kindling_api legge graph_snapshots: perimetro compromesso"
+    echo "ATTENZIONE: kindling_api legge graph_snapshots, dovrebbe leggere solo" >&2
+    echo "  la vista graph_snapshot_params (migration 0014)" >&2
+    perimetro_rotto=1
+else
+    echo "(fallito come atteso: permission denied)"
+fi
+
 echo ""
 echo "--- perimetro del ruolo kindling_api: deve RIUSCIRE ---"
 if ! "$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" exec -T postgres psql \
     -U kindling_api -d kindling -c "SELECT count(*) FROM metric_runs"; then
     log "ABORT kindling_api non legge metric_runs: perimetro compromesso"
     echo "ATTENZIONE: kindling_api non legge metric_runs, dovrebbe" >&2
+    perimetro_rotto=1
+fi
+
+# La vista, senza la quale GET /guilds/{id}/runs fallisce — cioe' OGNI pagina
+# della dashboard, perche' tutte passano di li'. Il caso non e' teorico: 0010
+# comincia con REVOKE ALL ON ALL TABLES IN SCHEMA, che in Postgres comprende
+# anche le viste, quindi riapplicare 0010 DA SOLA dopo 0014 toglie proprio
+# questo permesso.
+if ! "$DOCKER_BIN" compose --project-directory "$PROJECT_DIR" exec -T postgres psql \
+    -U kindling_api -d kindling -c "SELECT count(*) FROM graph_snapshot_params"; then
+    log "ABORT kindling_api non legge graph_snapshot_params: perimetro compromesso"
+    echo "ATTENZIONE: kindling_api non legge la vista graph_snapshot_params." >&2
+    echo "  Applicare 0014, o riapplicare TUTTE le migration in ordine: 0010 da" >&2
+    echo "  sola revoca anche i permessi sulle viste." >&2
     perimetro_rotto=1
 fi
 

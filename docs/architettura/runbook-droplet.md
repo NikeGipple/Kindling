@@ -88,10 +88,16 @@ sul database (li elenca, non li applica), costruisce `bot`/`api`/`dashboard`
 le prime cinque (date delle immagini, `KINDLING_CODE_VERSION` dentro il
 container `job`, health dell'API, stato dei container `api` e `dashboard`,
 `API_DATABASE_URL`) sono **informative** — stampate, non decidono niente. Le
-altre non lo sono: le due sul **perimetro del ruolo `kindling_api`**
-(`graph_edges` deve restare illeggibile, `metric_runs` deve essere leggibile)
-sono il primo invariante non negoziabile del progetto (vedi sotto, "Controllo
-che il perimetro sia davvero in piedi"); poi che il container `dashboard`
+altre non lo sono: le **quattro** sul **perimetro del ruolo `kindling_api`**
+(`graph_edges` e `graph_snapshots` devono restare illeggibili, `metric_runs` e
+la vista `graph_snapshot_params` devono essere leggibili) sono il primo
+invariante non negoziabile del progetto (vedi sotto, "Controllo che il perimetro
+sia davvero in piedi"). Erano due fino al 25/09/2026: le altre due esistevano
+solo in `tests/test_parametri_grafo.py`, cioè addosso al repository, mentre il
+modo in cui questi permessi si allargano davvero è un `GRANT` dato a mano sulla
+droplet durante un debug — che nessun `pytest` vede. Lo script non esce al primo
+esito sbagliato: li stampa tutti e quattro e poi si ferma. Poi che il container
+`dashboard`
 **non abbia** `DATABASE_URL` né `API_DATABASE_URL` (`dashboard.md` §1), che
 `/data` di Caddy sia il volume `caddy_data`, e — dal 19/09/2026 — **quale
 codice gira davvero**: `api` e `dashboard` devono avere come
@@ -131,6 +137,48 @@ Sei codici di uscita distinti da conoscere, oltre a `0`:
 | `13` | il container `dashboard` ha `DATABASE_URL` o `API_DATABASE_URL` nell'environment (il nome è nel log, il valore mai): toglierla da `docker-compose.yml` e rilanciare. **Non è un deploy riuscito** |
 | `14` | non si è potuto verificare l'environment della `dashboard` (container assente o `docker inspect` fallito): non equivale a "nessuna variabile", va guardato a mano |
 | altro | `git pull`, il build o l'`up` sono falliti: il log dice dove |
+
+### Il deploy della vista Stato v2 richiede un rebuild, non un riavvio
+
+*(25/09/2026. Vale per il primo deploy che porta la riscrittura della vista
+Stato; dopo quello questa sottosezione è storia, non un passo.)*
+
+Due cose che questo cambiamento aggiunge alla procedura normale, ed entrambe
+falliscono in un modo che sembra un'altra cosa.
+
+**1. `tzdata` è una dipendenza nuova in `requirements.txt`.** La vista Stato
+mostra le date nel fuso di Roma, e `zoneinfo` senza quel pacchetto non trova il
+database dei fusi. `dashboard/stato.py` valuta `ZoneInfo("Europe/Rome")`
+all'import, quindi il processo **non parte affatto**: il container va in
+crash-loop con `ZoneInfoNotFoundError`, che in un log ha tutta l'aria di un
+difetto della dashboard e non di un'immagine vecchia. `ops/kindling-deploy.sh`
+ricostruisce sempre le immagini, quindi seguendo la procedura non succede; il
+caso da evitare è il `docker compose up -d dashboard` fatto a mano, senza
+`--build`, su un'immagine costruita prima di questo commit.
+
+Verifica, dopo il deploy — se risponde, il pacchetto c'è e il fuso si risolve:
+
+```bash
+docker compose exec dashboard python -c "from zoneinfo import ZoneInfo; print(ZoneInfo('Europe/Rome'))"
+```
+
+**2. `0014_graph_snapshot_params.sql` va applicata**, e lo script si ferma da
+solo (uscita `10`) se non lo è: crea la vista che espone all'API tre parametri
+del grafo, e senza di essa `GET /guilds/{id}/runs` fallisce con un errore di
+permessi — cioè l'intera dashboard, perché tutte le sue pagine passano di lì.
+
+La migration dà il `SELECT` **sulla vista**, non su `graph_snapshots`. Se dopo
+averla applicata si rilanciasse `0010` **da sola**, il suo
+`REVOKE ALL ON ALL TABLES IN SCHEMA` toglierebbe anche quel permesso: le
+migration si applicano tutte e in ordine, come già fa il comando che lo script
+stampa. Da qui in avanti il controllo lo fa `ops/kindling-deploy.sh` a ogni
+deploy (uscita `12`); questo comando serve **prima**, subito dopo aver applicato
+la migration a mano, per non scoprirlo dal codice di uscita dello script. Deve
+rispondere `t` per la vista e `f` per la tabella:
+
+```bash
+docker compose exec -T postgres psql -U kindling -d kindling -Atc "SELECT has_table_privilege('kindling_api','graph_snapshot_params','SELECT'), has_table_privilege('kindling_api','graph_snapshots','SELECT')"
+```
 
 ### Procedura manuale, passo per passo
 
@@ -623,6 +671,12 @@ contengono dati riferibili a una persona — le sei `metric_*` più `guilds`. È
 che rende il perimetro dell'API una garanzia del database invece di una
 convenzione: un endpoint scritto per errore contro `graph_edges` fallisce con un
 errore di permessi.
+
+Dal 25/09/2026 c'è un'ottava cosa leggibile, e non è una tabella: la vista
+`graph_snapshot_params` (`0014`), tre colonne estratte da
+`graph_snapshots.params`. `graph_snapshots` resta senza `GRANT` — vedi
+`api.md` §1 per il perché, e la sottosezione sul deploy della vista Stato v2 per
+il controllo da fare dopo aver applicato la migration.
 
 ### La password del ruolo
 

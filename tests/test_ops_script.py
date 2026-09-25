@@ -319,7 +319,10 @@ GIT_STUB = '\n'.join([
 #
 # STUB_GRAPH_EDGES_LEAKS e STUB_METRIC_RUNS_DENIED simulano il perimetro del
 # ruolo kindling_api rotto nei due versi possibili: legge quello che non
-# dovrebbe, o non legge quello che dovrebbe.
+# dovrebbe, o non legge quello che dovrebbe. Dal 25/09/2026 le tabelle guardate
+# sono quattro, e STUB_GRAPH_SNAPSHOTS_LEAKS / STUB_VISTA_GRAFO_DENIED fanno lo
+# stesso per la coppia graph_snapshots (illeggibile) / graph_snapshot_params
+# (leggibile) — la tabella e la vista stretta di migration 0014.
 #
 # KINDLING_CODE_VERSION dei container api, dashboard e bot (letta dallo script
 # con `docker inspect`): STUB_API_CODE_VERSION, STUB_DASHBOARD_CODE_VERSION,
@@ -346,6 +349,18 @@ DOCKER_STUB_DEPLOY = '\n'.join([
     "        exit 0 ;;",
     '    *"graph_edges"*)',
     '        if [ "${STUB_GRAPH_EDGES_LEAKS:-}" = "1" ]; then',
+    '            echo "5" ; exit 0',
+    "        fi",
+    '        echo "ERROR: permission denied" >&2 ; exit 1 ;;',
+    # La VISTA prima della tabella: i due rami sono opposti, e un case che le
+    # confondesse simulerebbe il contrario di quello che il test crede.
+    '    *"graph_snapshot_params"*)',
+    '        if [ "${STUB_VISTA_GRAFO_DENIED:-}" = "1" ]; then',
+    '            echo "ERROR: permission denied" >&2 ; exit 1',
+    "        fi",
+    '        echo "2" ; exit 0 ;;',
+    '    *"graph_snapshots"*)',
+    '        if [ "${STUB_GRAPH_SNAPSHOTS_LEAKS:-}" = "1" ]; then',
     '            echo "5" ; exit 0',
     "        fi",
     '        echo "ERROR: permission denied" >&2 ; exit 1 ;;',
@@ -458,6 +473,8 @@ def _run_deploy(
     git_body: str = GIT_STUB,
     graph_edges_leaks: bool = False,
     metric_runs_denied: bool = False,
+    graph_snapshots_leaks: bool = False,
+    vista_grafo_denied: bool = False,
     dashboard_env: str = "PATH=/usr/local/bin:/usr/bin;KINDLING_API_BASE_URL=http://api:8000",
     dashboard_missing: bool = False,
     dashboard_inspect_fails: bool = False,
@@ -502,6 +519,8 @@ def _run_deploy(
         STUB_SCHEMA_MIGRATIONS=schema_migrations,
         STUB_GRAPH_EDGES_LEAKS="1" if graph_edges_leaks else "0",
         STUB_METRIC_RUNS_DENIED="1" if metric_runs_denied else "0",
+        STUB_GRAPH_SNAPSHOTS_LEAKS="1" if graph_snapshots_leaks else "0",
+        STUB_VISTA_GRAFO_DENIED="1" if vista_grafo_denied else "0",
         STUB_DASHBOARD_ENV=dashboard_env,
         STUB_DASHBOARD_MISSING="1" if dashboard_missing else "0",
         STUB_DASHBOARD_INSPECT_FAILS="1" if dashboard_inspect_fails else "0",
@@ -772,6 +791,54 @@ def test_si_ferma_se_kindling_api_non_legge_metric_runs(tmp_path):
 
     assert esito.status == 12
     assert "perimetro compromesso" in esito.log
+
+
+def test_si_ferma_se_kindling_api_legge_graph_snapshots(tmp_path):
+    """La tabella resta illeggibile: si legge solo la vista stretta di 0014.
+
+    Il modo in cui questo permesso si allarga davvero non e' una migration
+    sbagliata — quelle stanno in git e si rileggono — ma un GRANT dato a mano
+    sulla droplet durante un debug e mai revocato. Fino al 25/09/2026 l'unico
+    posto che se ne sarebbe accorto era ``tests/test_parametri_grafo.py``, cioe'
+    il repository: il database reale non lo guardava nessuno.
+    """
+    esito = _run_deploy(tmp_path, graph_snapshots_leaks=True)
+
+    assert esito.status == 12
+    assert "perimetro compromesso" in esito.log
+    assert "graph_snapshots" in esito.log
+
+
+def test_si_ferma_se_kindling_api_non_legge_la_vista_dei_parametri_del_grafo(tmp_path):
+    """Il verso opposto, e ha una causa concreta.
+
+    ``0010`` comincia con ``REVOKE ALL ON ALL TABLES IN SCHEMA``, che in Postgres
+    comprende anche le viste: riapplicarla DA SOLA dopo ``0014`` toglie il
+    permesso sulla vista. Il sintomo in produzione non e' una riga mancante ma
+    l'intera dashboard giu', perche' ogni sua pagina passa da ``/runs``.
+    """
+    esito = _run_deploy(tmp_path, vista_grafo_denied=True)
+
+    assert esito.status == 12
+    assert "perimetro compromesso" in esito.log
+    assert "graph_snapshot_params" in esito.log
+
+
+def test_i_quattro_controlli_del_perimetro_si_vedono_tutti_prima_di_fermarsi(tmp_path):
+    # Come per i due storici: chi legge vede TUTTI i problemi, non solo il
+    # primo. Con quattro controlli invece di due, uscire al primo nasconderebbe
+    # tre quarti del quadro.
+    esito = _run_deploy(
+        tmp_path,
+        graph_edges_leaks=True,
+        metric_runs_denied=True,
+        graph_snapshots_leaks=True,
+        vista_grafo_denied=True,
+    )
+
+    assert esito.status == 12
+    for tabella in ("graph_edges", "metric_runs", "graph_snapshots", "graph_snapshot_params"):
+        assert tabella in esito.log, tabella
 
 
 def test_il_controllo_del_perimetro_mostra_entrambi_gli_esiti_prima_di_fermarsi(tmp_path):
