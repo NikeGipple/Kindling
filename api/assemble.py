@@ -22,6 +22,7 @@ from .models import (
     CommunitySizeBucket,
     CommunitySizeValues,
     CommunityValues,
+    GraphParamsValues,
     GuildRow,
     OnboardingQuality,
     OnboardingRow,
@@ -91,6 +92,15 @@ def run(row: Mapping[str, Any]) -> RunRow:
         stats=as_dict(row.get("stats")),
         code_version=row.get("code_version"),
         created_at=row.get("created_at"),
+        # Sempre costruito, anche quando i tre valori sono tutti None (snapshot
+        # cancellato, o LEFT JOIN senza corrispondenza): la stessa ragione per
+        # cui values c'e' anche su una riga soppressa — assente e vuoto non
+        # devono somigliarsi a livello di JSON.
+        graph_params=GraphParamsValues(
+            decay_half_life_days=row.get("decay_half_life_days"),
+            decay_cutoff_days=row.get("decay_cutoff_days"),
+            min_overlap_minutes=row.get("min_overlap_minutes"),
+        ),
     )
 
 

@@ -123,13 +123,27 @@ _LATEST_SNAPSHOTS = """
 
 
 async def fetch_runs(guild_id: int, *, limit: int) -> list[asyncpg.Record]:
+    """Le run di una guild, con i parametri del grafo del loro snapshot.
+
+    ``LEFT JOIN`` e non ``JOIN``: una run il cui snapshot non c'e' piu' deve
+    restare nello storico, senza i tre parametri, invece di sparire dall'elenco
+    delle esecuzioni. Con un join interno il sintomo sarebbe una riga mancante
+    nei Dettagli tecnici, che nessuno nota.
+
+    La vista ``graph_snapshot_params`` (migration 0014) e' l'unica superficie di
+    ``graph_snapshots`` che ``kindling_api`` puo' leggere: la tabella non ha
+    nessun GRANT, e ``tests/test_parametri_grafo.py`` fallisce se lo acquista.
+    """
     pool = get_pool()
     return await pool.fetch(
         """
-        SELECT snapshot_id, as_of, params, stats, code_version, created_at
-        FROM metric_runs
-        WHERE guild_id = $1
-        ORDER BY as_of DESC, snapshot_id DESC
+        SELECT r.snapshot_id, r.as_of, r.params, r.stats, r.code_version,
+               r.created_at,
+               p.decay_half_life_days, p.decay_cutoff_days, p.min_overlap_minutes
+        FROM metric_runs r
+        LEFT JOIN graph_snapshot_params p ON p.snapshot_id = r.snapshot_id
+        WHERE r.guild_id = $1
+        ORDER BY r.as_of DESC, r.snapshot_id DESC
         LIMIT $2
         """,
         guild_id,

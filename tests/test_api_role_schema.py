@@ -40,8 +40,10 @@ MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
 SCHEMA = "kindling_api_test"
 ROLE = "kindling_api"
 
-# Tabelle che l'API DEVE poter leggere: le sei metric_* piu' guilds. E' il
-# criterio di api.md 1 applicato alle tabelle di oggi.
+# Cio' che l'API DEVE poter leggere: le sei metric_* piu' guilds, e dal
+# 25/09/2026 la VISTA graph_snapshot_params — tre colonne estratte da
+# graph_snapshots.params (migration 0014). La tabella resta fuori: e' l'elenco
+# di cio' che e' leggibile a dover essere una decisione, non una conseguenza.
 LEGGIBILI = (
     "guilds",
     "metric_runs",
@@ -50,11 +52,13 @@ LEGGIBILI = (
     "metric_community_sizes",
     "metric_cohorts",
     "metric_cohort_retention",
+    "graph_snapshot_params",
 )
 
 # Tabelle che l'API NON deve poter leggere, perche' contengono dati riferibili a
-# una persona. members e' il caso non ovvio: sembra una tabella di date, ma la
-# chiave e' (guild_id, author_id).
+# una persona — piu' graph_snapshots, che dati personali non ne ha ma di cui si
+# espone solo la vista stretta qui sopra. members e' il caso non ovvio: sembra
+# una tabella di date, ma la chiave e' (guild_id, author_id).
 VIETATE = (
     "raw_events",
     "members",

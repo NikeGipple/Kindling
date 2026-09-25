@@ -86,6 +86,7 @@ from api.models import (
     CommunitySizeBucket,
     CommunitySizeValues,
     CommunityValues,
+    GraphParamsValues,
     GuildRow,
     Health,
     OnboardingQuality,
@@ -156,6 +157,24 @@ COHORT_SCOPES = PARAMS.cohort_layer_scopes
 RETENTION_HORIZONS = PARAMS.retention_horizons_days
 SIZE_BUCKETS = tuple(label for label, _low, _high in PARAMS.community_size_buckets())
 K = PARAMS.k_connections
+
+
+def graph_params() -> GraphParamsValues:
+    """I tre parametri del GRAFO che l'API espone (migration 0014, vista
+    ``graph_snapshot_params``), derivati da ``job/config.py`` e non ricopiati.
+
+    Una funzione e non una costante condivisa: i modelli pydantic sono mutabili,
+    e una sola istanza appesa a venti RunRow e' un oggetto che qualcuno un giorno
+    modifica per uno scenario e cambia sotto tutti gli altri.
+
+    ``_scenario_edge`` NON la usa: li' i tre valori restano a None, ed e' il caso
+    che esercita "lo snapshot non c'e' piu', le due regole non si mostrano".
+    """
+    return GraphParamsValues(
+        decay_half_life_days=DEFAULT_PARAMS.decay_half_life_days,
+        decay_cutoff_days=DEFAULT_PARAMS.decay_cutoff_days,
+        min_overlap_minutes=DEFAULT_PARAMS.min_overlap_minutes,
+    )
 
 REASON_BELOW_THRESHOLD = "below_threshold"
 REASON_SECONDARY = "secondary"
@@ -937,6 +956,7 @@ def _scenario_today() -> dict[str, Any]:
         "runs": [
             RunRow(
                 snapshot_id=12, as_of=as_of_12, params=params,
+                graph_params=graph_params(),
                 stats={"durations_ms": {"cohorts_ms": 3.6, "robustness_ms": 163.7,
                                         "communities_ms": 611.1, "structural_total_ms": 778.6},
                        "snapshot_gaps": {"max_gap_days": 6.822847063263889,
@@ -948,6 +968,7 @@ def _scenario_today() -> dict[str, Any]:
             ),
             RunRow(
                 snapshot_id=11, as_of=as_of_11, params=params,
+                graph_params=graph_params(),
                 stats={"durations_ms": {"cohorts_ms": 4.6, "robustness_ms": 182.0,
                                         "communities_ms": 586.5, "structural_total_ms": 773.1},
                        "snapshot_gaps": None,
@@ -1020,6 +1041,7 @@ def _scenario_mature() -> dict[str, Any]:
             RunRow(
                 snapshot_id=sid, as_of=as_of,
                 params={"min_cardinality": 5, "k_connections": 5, "min_nodes_structural": 30},
+                graph_params=graph_params(),
                 stats={"durations_ms": {"robustness": 9100 + i * 40, "communities": 5200,
                                         "cohorts": 1400}, "snapshots_used": 12 - i},
                 code_version="dfc1696",
@@ -1234,6 +1256,12 @@ def _scenario_edge() -> dict[str, Any]:
             RunRow(
                 snapshot_id=sid, as_of=as_of,
                 params={"min_cardinality": 5, "k_connections": 5, "min_nodes_structural": 30},
+                # graph_params NON passato, quindi i tre valori restano a None:
+                # lo snapshot del grafo non c'e' piu' (o l'ha scritto un codice
+                # che non registrava quei parametri). E' il caso che fa sparire
+                # "memoria delle interazioni" e "tempo minimo insieme in vocale"
+                # dalla griglia delle regole di Stato, accanto al code_version
+                # assente qui sotto: due assenze diverse sulla stessa run.
                 stats={"durations_ms": {"robustness": 11200, "communities": 6400,
                                         "cohorts": 2100},
                        "snapshot_gaps": {"cadence_days_median": 7.0, "max_gap_days": 56.0}},
@@ -1400,6 +1428,7 @@ def _scenario_scala() -> dict[str, Any]:
         "runs": [
             RunRow(
                 snapshot_id=sid_di[quando], as_of=quando, params=params,
+                graph_params=graph_params(),
                 stats={"durations_ms": {"cohorts_ms": 41.0, "robustness_ms": 210.4,
                                         "communities_ms": 903.2},
                        "snapshots_used": usati, "snapshots_skipped_params": 0,

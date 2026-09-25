@@ -31,6 +31,7 @@ Come si applica:
 | `members` | **fuori** | il caso non ovvio: vedi sotto |
 | `guilds` | **dentro** | fatti sul server e sul deployment del bot |
 | `metric_*` (sei tabelle) | **dentro** | aggregati già sopra soglia |
+| `graph_snapshots` | **fuori**, ma non per il criterio | vedi sotto |
 
 **`members` è il caso da non sbagliare.** A colpo d'occhio sembra una tabella di
 date — `joined_at`, `left_at` — e "sono solo date" è vero solo finché non si
@@ -45,6 +46,24 @@ passare mentre il criterio no.
 nessuno di essi è riferibile a una persona. Era finita fuori nella prima stesura
 di questa nota per categoria — "non è una tabella `metric_*`" — che è appunto il
 ragionamento per lista.
+
+**`graph_snapshots` è il caso in cui il criterio da solo non basta.** Non
+contiene niente di riferibile a una persona — `guild_id`, `as_of`, la finestra, i
+parametri, `code_version` — quindi il criterio non la terrebbe fuori, eppure la
+tabella non è leggibile e resta tale. La ragione è la stessa per cui i `GRANT`
+sono espliciti tabella per tabella (§4): **ciò che è leggibile dev'essere un
+elenco deciso, non un elenco che cresce da solo.** Con il `SELECT` sulla tabella,
+una colonna aggiunta domani a `graph_snapshots` sarebbe leggibile senza che
+nessuno l'abbia scelto e senza nessun segnale.
+
+Quello che è leggibile è la **vista `graph_snapshot_params`** (migration `0014`):
+`snapshot_id` più tre colonne — `decay_half_life_days`, `decay_cutoff_days`,
+`min_overlap_minutes` — estratte da `params`. Servono alla vista Stato della
+dashboard, che mostra i parametri con cui i numeri sono stati calcolati
+(`dashboard.md` §4): senza, quelle due regole avrebbero dovuto essere ricopiate
+da `job/config.py`, cioè mostrare la configurazione di *oggi* accanto a una run
+di settimane fa. Aggiungere un quarto parametro costa una migration, ed è
+esattamente il punto.
 
 Il criterio non resta una convenzione: §4 lo rende una garanzia del database.
 
@@ -80,6 +99,21 @@ alle altre per risparmiare tre chiamate HTTP a un dashboard che gira sulla stess
 macchina. `runs` porta `as_of`, `params`, `stats` (durate per metrica) e
 `code_version` — che è la domanda "quando ha girato l'ultima volta, quanto ci ha
 messo, con quali parametri", cioè quella operativa.
+
+`runs` porta anche **`graph_params`**, tre campi tipizzati con i parametri del
+grafo dello snapshot misurato, dalla vista di §1. **Tipizzati e non un secondo
+dizionario accanto a `params`**, e la differenza non è di forma: `params` è
+diagnostica, le sue chiavi cambiano col codice del job e nessuno deve dipenderne
+(§3), mentre questi tre sono ciò che la dashboard mostra come regole del calcolo
+— quindi sono contratto. Un dizionario li renderebbe indistinguibili da ciò che
+contratto non è. Restano **separati da `params`** anche per la ragione per cui
+`job/config.py` separa `MetricParams` da `GraphParams`: i parametri delle
+metriche devono poter cambiare senza rendere incomparabili gli snapshot del
+grafo, e fonderli qui farebbe scattare l'avviso «metodo di calcolo aggiornato»
+della dashboard — che confronta `params` — anche per un cambiamento che riguarda
+il grafo. `graph_params` c'è sempre, con i campi a `None` quando i valori non ci
+sono (snapshot cancellato, chiave assente, valore di forma inattesa): come
+`values` su una riga soppressa, perché assente e vuoto non si confondano.
 
 **Due tabelle non hanno un endpoint proprio, ed è una decisione, non una
 dimenticanza.**
@@ -229,15 +263,27 @@ richiedere una migrazione. Ciò su cui si può contare sono le colonne tipizzate
 `quality` e `values`.
 
 `previous_snapshot_id` resta nella risposta come **id opaco**: serve a dire "il
-confronto è con quello", ma il consumatore non può risolverlo, perché
-`graph_snapshots` non è leggibile dall'API.
+confronto è con quello", ma il consumatore non può risolverlo. La tabella
+`graph_snapshots` non è leggibile dall'API, e l'unica sua superficie esposta —
+la vista `graph_snapshot_params` di §1 — porta tre parametri e nient'altro:
+niente `as_of`, niente finestra, niente da cui ricostruire lo snapshot
+precedente. *(Fino al 25/09/2026 questa riga diceva che `graph_snapshots` non è
+leggibile e basta; era vero allora, e resta vero della tabella.)*
 
 ## 4. Ruolo Postgres di sola lettura
 
 L'API si collega con un ruolo dedicato che ha `SELECT` **solo** sulle sette
-tabelle leggibili di §1 — le sei `metric_*` più `guilds` — e nient'altro: né
-scrittura, né lettura delle tabelle che contengono dati riferibili a una
-persona.
+tabelle leggibili di §1 — le sei `metric_*` più `guilds` — e sulla vista
+`graph_snapshot_params`, e nient'altro: né scrittura, né lettura delle tabelle
+che contengono dati riferibili a una persona.
+
+**Il `GRANT` della vista è sulla vista, mai sulla tabella sotto.** In Postgres
+una vista si legge con i privilegi di chi la possiede, quindi `kindling_api` la
+interroga senza avere nessun permesso su `graph_snapshots` — e non ne ha. Una
+trappola d'ordine: `0010` comincia con `REVOKE ALL ON ALL TABLES IN SCHEMA`, che
+comprende anche le viste, quindi `0014` deve restare dopo e le migration vanno
+applicate tutte e in ordine. `tests/test_api_role_schema.py` le applica due
+volte di fila proprio per provare che la sequenza regge.
 
 **Perché, e non è igiene.** Oggi "l'API non legge `graph_edges`" è una
 convenzione, verificata da chi rilegge il codice. Con un ruolo dedicato diventa

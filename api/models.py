@@ -265,6 +265,38 @@ class CohortGroup(BaseModel):
 # --- run e guild -----------------------------------------------------------
 
 
+class GraphParamsValues(BaseModel):
+    """I parametri del GRAFO con cui lo snapshot di questa run e' stato costruito.
+
+    Vengono da ``graph_snapshots.params``, che l'API legge attraverso la vista
+    stretta ``graph_snapshot_params`` (migration 0014): ``graph_snapshots`` resta
+    non leggibile da ``kindling_api``, e la vista espone queste tre colonne e
+    nient'altro.
+
+    **Campi tipizzati e non un secondo dizionario.** ``params`` accanto e' un
+    blob di diagnostica: le sue chiavi cambiano col codice del job e nessuno deve
+    dipenderne (api.md 3). Questi tre no — sono cio' che la vista Stato mostra
+    come regole del calcolo, quindi sono contratto, e un dizionario li renderebbe
+    indistinguibili da cio' che contratto non e'.
+
+    **Separati da ``params`` anche perche' cambiano indipendentemente.**
+    ``MetricParams`` e ``GraphParams`` sono divisi in ``job/config.py`` proprio
+    perche' i parametri delle metriche possano cambiare senza rendere
+    incomparabili gli snapshot del grafo. Fonderli qui rimetterebbe insieme cio'
+    che quella divisione tiene separato, e in particolare farebbe scattare
+    l'avviso "metodo di calcolo aggiornato" della dashboard — che confronta
+    ``params`` — anche per un cambio che riguarda il grafo.
+
+    ``None`` su un campo significa che il valore non c'e': snapshot cancellato,
+    chiave assente, o valore di forma inattesa (la vista lo filtra con
+    ``jsonb_typeof``). A valle vuol dire "questa regola non si mostra".
+    """
+
+    decay_half_life_days: Optional[float] = None
+    decay_cutoff_days: Optional[float] = None
+    min_overlap_minutes: Optional[float] = None
+
+
 class RunRow(BaseModel):
     """Un'esecuzione del layer metriche. Diagnostica, non una metrica."""
 
@@ -273,6 +305,15 @@ class RunRow(BaseModel):
     params: dict[str, Any] = Field(
         default_factory=dict,
         description="Parametri usati. Due run con parametri diversi non sono confrontabili.",
+    )
+    graph_params: GraphParamsValues = Field(
+        default_factory=GraphParamsValues,
+        description=(
+            "Parametri del grafo dello snapshot di questa run, dalla vista "
+            "graph_snapshot_params. Presente sempre, con i campi a None quando "
+            "i valori non ci sono — come values su una riga soppressa, perche' "
+            "assente e vuoto non si confondano."
+        ),
     )
     stats: dict[str, Any] = Field(
         default_factory=dict,
