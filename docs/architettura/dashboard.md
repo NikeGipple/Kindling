@@ -197,7 +197,9 @@ riguardano due componenti invece di uno (3-quater).
 
 ## 4. Le viste, e cosa contengono davvero
 
-Quattro, e nessuna in più per simmetria con gli endpoint.
+Quattro, e nessuna in più per simmetria con gli endpoint. Più due pagine che
+viste non sono — **Domande** e **Dettagli tecnici** — e che non mostrano nessun
+numero di nessun server: stanno in fondo a questa sezione.
 
 **Il catalogo di `metriche-aggregate-admin.md` elenca sette metriche. Ne
 esistono tre.** Concentrazione strutturale, densità cross-community, reciprocità
@@ -212,7 +214,7 @@ dashboard e quante righe sono.
 
 | Vista | Endpoint | Righe per snapshot | Campi principali |
 |---|---|---|---|
-| **Stato** | `/guilds/{id}` + `/guilds/{id}/runs` | 1 + 1 | `first_seen_at`, `backfilled_at`, `left_at`, `rejoined_at`, `latest_metrics_as_of`; `params`, `stats`, `code_version` |
+| **Stato** | `/guilds/{id}` + `/guilds/{id}/runs` + le tre serie | 1 + 1 + quelle sotto | `first_seen_at`, `backfilled_at`, `left_at`, `rejoined_at`; `as_of` e `params` delle run; `quality.suppressed` e `quality.significant` delle tre viste. `stats` e `code_version` sono passati ai **Dettagli tecnici** |
 | **Robustezza** | `/guilds/{id}/robustness` | 4 layer × 3 frazioni = **12** | `nodes_removed`, `giant_before`, `giant_after_targeted`, `components_after_targeted`, `giant_after_random_mean/sd`, `targeted_excess`, `targeted_z` |
 | **Community** | `/guilds/{id}/communities` | 4 layer, + 6 classi di dimensione ciascuno | `community_count`, `modularity`, `modularity_z`, `node_overlap`, `stability_jaccard`, `previous_gap_days`, `communities_born/dissolved/merged/split`; `sizes[]` con `bucket`, `community_count`, `member_count` |
 | **Coorti** | `/guilds/{id}/cohorts?limit=1` | per coorte: 2 onboarding + 3 retention, fino a **25** coorti = **125** righe sull'ultimo snapshot | onboarding: `event_count`, `censored_count`, `censored_by_leave`, `median_days_to_k`, `median_reached`, `p25/p75_days_to_k`, `reached_by_14d/28d` — retention: `retained_fraction`, `is_computable`, `not_computable_reason` |
@@ -239,12 +241,272 @@ osservabilità, cioè la ragione dei caveat che compaiono altrove. `api.md` §2 
 dice già — servire i caveat senza la ragione dei caveat è peggio che non
 servirli. Se `left_at` e `rejoined_at` sono entrambi valorizzati, la vista lo
 dichiara in chiaro: c'è un buco di osservazione, e cambia la lettura di ogni
-metrica di coorte.
+metrica di coorte. La sua riscrittura del 22/09/2026 — destinatario, ordine
+delle parti, fuso, e cosa ne è uscito — sta più sotto, in «La vista Stato, in
+dettaglio».
 
 **Coorti non si divide.** Onboarding e retention stanno nella stessa vista,
 raggruppate per `cohort_start`, come nella risposta dell'API. Servirle separate
 inviterebbe a leggerle separate, che è il modo di fallire contro cui la
 duplicazione di `n_effective`/`excluded_rejoins`/`is_survivors_only` esiste.
+
+### La vista Stato, in dettaglio
+
+**Riscritta il 22/09/2026.** La prima stesura era un pannello di servizio: due
+tabelle, un blocco di una trentina di `chiave=valore`, il testo letterale di
+`stats`, e otto timestamp completi in UTC. Diceva cose vere a chi ha scritto il
+job. La dashboard però ha un destinatario solo — **l'amministratore del server
+osservato** (§3: l'autorizzazione è ADMINISTRATOR su quel server, e non esiste
+nessun altro modo di entrare) — e a lui quella pagina non diceva *cosa stia
+facendo Kindling sul suo server*. Da qui il titolo, che è la domanda:
+**«Cosa sta facendo Kindling»**.
+
+Quello che serviva a chi gestisce il sistema non è stato cancellato: è stato
+spostato nella pagina **Dettagli tecnici**, in fondo a questa sezione.
+
+**Le sette parti, in quest'ordine.** L'ordine è la sequenza in cui si legge, non
+una gerarchia di importanza: da quando osserva → come lo fa → quando lo ha fatto
+→ cosa se ne ricava oggi → con quali regole → cosa cambia la lettura.
+
+1. **Titolo e introduzione.** Cosa Kindling osserva, e che ogni vista risponde a
+   una domanda diversa.
+2. **Tre fatti**, in cima: da quanti giorni osserva (da `first_seen_at`), a
+   quando arrivano i dati (l'`as_of` dell'ultima run), quando è previsto il
+   prossimo calcolo. I due fatti che dipendono da una run **non compaiono
+   affatto** quando di run non ce ne sono: al loro posto una frase che lo dice.
+3. **Come funziona**: tre passi — Osserva / Collega / Misura ogni settimana. Il
+   primo nomina i quattro layer **con i nomi delle cose che succedono su
+   Discord** (risposte, menzioni, reazioni, tempo passato insieme in vocale), e
+   non dice «messaggi»: Kindling non misura i messaggi, misura le interazioni
+   fra due persone, e chiamarli messaggi prometterebbe una lettura dei contenuti
+   che non c'è.
+4. **Il calendario**: l'arrivo del bot, un punto per ogni run, oggi, il prossimo
+   calcolo. Nessuna nota sui ricalcoli: chi legge non ha modo di distinguere un
+   ricalcolo da un calcolo, e non gli serve.
+5. **Cosa puoi leggere oggi**: una riga per Robustezza, Community e Coorti.
+6. **Le regole del calcolo**: i valori con cui Kindling misura *questo* server.
+7. **Avvisi**: i fatti che cambiano la lettura di tutto il resto.
+
+**Il fuso è Europe/Rome e le date sono brevi** («21 set»). È la sola pagina in
+cui la scelta cambia rispetto al resto della dashboard, e cambia perché cambia
+il lettore: un amministratore vive in un fuso, non in UTC, e una data seguita da
+`UTC` è una data che deve convertire a mente per capire se «lunedì» è ieri o
+oggi. Il fuso è **fisso**, non quello del browser: la dashboard si rende sul
+server e non riceve niente dal client (§1), quindi un fuso «locale» qui non
+esiste. La forma relativa («oggi», «6 giorni fa») sta sopra e la data breve
+sotto: la prima risponde a «è aggiornato?», la seconda a «aggiornato a quando?».
+I timestamp completi con UTC restano dove servono davvero, nei Dettagli tecnici.
+
+**`data_ora` non è stata toccata.** Continua a rendere la data completa in UTC, e
+continuano a usarla Robustezza, Community, Coorti, l'elenco dei server e i
+Dettagli tecnici. Le due forme convivono perché rispondono a due domande diverse;
+questa sezione riguarda solo la pagina in cui la domanda è la prima.
+
+**`zoneinfo` ha bisogno di `tzdata`**, che è entrato in `requirements.txt` con
+questa vista. Non è una dipendenza di comodo: su un'immagine `python:3.12-slim`
+il database dei fusi può non esserci, e `ZoneInfo("Europe/Rome")` alza
+`ZoneInfoNotFoundError` **all'avvio del processo**, non alla prima pagina. È il
+raro caso in cui il fallimento è rumoroso e immediato; il pacchetto lo toglie di
+mezzo su ogni piattaforma, Windows di sviluppo compreso, dove senza non funziona
+affatto.
+
+**«Prossimo aggiornamento»: la cadenza è osservata, non dichiarata.** La cadenza
+reale è una riga di `/etc/cron.d/kindling` (`ops/kindling.cron`, lunedì 04:15
+UTC): non è nel database, non passa dall'API, e la dashboard non può leggerla in
+nessun modo. Fino al 22/09/2026 al suo posto c'era `default_window_days`
+importato da `job/config.py`, ed era **la classe di difetto del §10**: se il cron
+passasse a quindicinale, la pagina avrebbe continuato a dire sette giorni e
+nessun test sarebbe fallito. Un numero giusto per costruzione finché nessuno
+cambia il pezzo che lo rende giusto.
+
+Dal 25/09/2026 la cadenza si **misura sulle run**: la mediana degli intervalli
+fra gli `as_of` che la pagina ha già in mano. La mediana e non l'ultimo
+intervallo, perché lo storico contiene già un `as_of` delle 04:15 invece che di
+mezzanotte — le run scritte prima dell'ancoraggio al lunedì — e un solo
+intervallo anomalo sposterebbe la previsione. **Con una sola run la cadenza non
+esiste e il fatto non compare**: un intervallo si misura fra due punti, e il
+ripiego sarebbe di nuovo un numero inventato con l'aria di essere misurato.
+
+Il significato cambia con la sorgente, e va detto: **la pagina descrive quello
+che è successo su questo server, non quello che il cron promette.** Su una guild
+con due sole run, una delle quali pre-ancoraggio, la cadenza osservata è di 6,8
+giorni e la previsione cade di domenica invece che di lunedì — non è un errore,
+è il fatto. La stessa cadenza osservata alimenta la risposta «ogni quanto si
+aggiornano i dati» nelle Domande, che per questo dice «finora» e non «sempre».
+
+Per questo il fatto è etichettato **«previsto»** e non «programmato»: dice dove
+cadrebbe il prossimo calcolo se la cadenza finora osservata continuasse, non che
+qualcuno lo eseguirà. Se quella data è già passata — il cron non ha girato — il
+fatto dice **«in ritardo»** e la
+riga sotto diventa «era previsto il …»: la sola forma relativa direbbe «3 giorni
+fa» sotto l'etichetta «Prossimo aggiornamento», che si legge come un errore di
+rendering invece che come un calcolo mancato. Il calendario, nello stesso caso,
+**non disegna nessuna tappa futura**: un «prossimo» a sinistra di «oggi» e un
+tratteggio lungo zero direbbero il contrario di quello che è successo.
+
+**«Cosa puoi leggere oggi»: quattro stati, tutti derivati da campi tipizzati.**
+La domanda posta prima di scrivere la sezione era se lo stato di una vista si
+ricavasse dai campi che l'API già espone, o se servisse un campo nuovo. Si
+ricava, e da due soli campi di `quality` — `suppressed` e `significant` — letti
+sulle righe **dell'ultimo snapshot** di quella vista (il massimo per
+`(as_of, snapshot_id)`, lo stesso ordinamento di `robustezza.costruisci`):
+
+| Stato | Condizione | Cosa dice |
+|---|---|---|
+| **in raccolta** | nessuna riga | Il calcolo non c'è ancora |
+| **sotto la soglia** | tutte le righe `suppressed` | I numeri esistono, ma riguardano troppe poche persone |
+| **con cautela** | righe pubblicate, nessuna `significant is True` | I numeri ci sono e non sono distinguibili dal caso |
+| **leggibile** | almeno una riga `significant is True` | Almeno una misura regge una conclusione |
+
+Nessuna soglia nuova, nessun conteggio di settimane, nessun giudizio composto:
+sono le stesse quattro situazioni che §5 e §6 già distinguono, dette in una
+pillola invece che in una tabella. Gli stati del mockup di partenza
+(«con cautela» perché *«con tre settimane di dati le tendenze sono ancora poco
+stabili»*, «prima coorte pronta») **non** sono derivabili: il primo conta le
+settimane, che nessun campo dice, e il secondo nomina una coorte specifica. Sono
+stati scartati, non approssimati.
+
+Il prezzo è dichiarato: **Stato interroga cinque endpoint invece di due**
+(`/guilds/{id}`, `/runs`, `/robustness`, `/communities`, `/cohorts?limit=1`).
+Non c'è modo di sapere se una vista è leggibile senza guardare le sue righe, e
+un campo riassuntivo nuovo sull'API sarebbe un secondo posto da tenere allineato
+con le righe che riassume — la forma di CLAUDE.md §7 che questo progetto ha già
+pagato più volte. Per Community si guarda `quality` della riga di layer e non
+quello dei `sizes[]`: la soppressione dei bucket è secondaria (`api/models.py`,
+`CommunitySizeBucket`), e un bucket soppresso accanto a una riga pubblicata non
+è «la vista non si legge».
+
+**Le regole del calcolo: i valori vengono da `params` della run.** Non da
+`job/config.py`, e la differenza non è di stile — `params` è ciò con cui *quei*
+numeri sono stati calcolati, `job/config.py` è ciò con cui verrebbero calcolati
+oggi, e sono la stessa cosa solo finché nessuno cambia un parametro. La mappa
+chiave → etichetta → spiegazione vive in `dashboard/regole.py`; le frasi che
+contengono il valore **si compongono dal valore**, mai scritte a mano. **Se una
+chiave manca da `params`, la regola non compare**: una regola con un valore di
+ripiego sarebbe un numero inventato con l'aria di essere misurato.
+
+Le regole sono otto, da **due sorgenti diverse e tenute tali**: sei dal
+dizionario `metric_runs.params`, due dai campi tipizzati `RunRow.graph_params`
+che l'API ricava dalla vista `graph_snapshot_params` (`api.md` §1). Non si
+fondono in un dizionario solo: `job/config.py` separa `MetricParams` da
+`GraphParams` perché i parametri delle metriche possano cambiare senza rendere
+incomparabili gli snapshot del grafo, e unirli qui rimetterebbe insieme ciò che
+quella divisione tiene separato — a cominciare dall'avviso «metodo di calcolo
+aggiornato», che confronta `params` e **non deve** scattare per un cambiamento
+del grafo (`tests/test_parametri_grafo.py`).
+
+| Regola | Sorgente | Campi |
+|---|---|---|
+| gruppo più piccolo mostrato | `params` | `min_cardinality`, `min_nodes_publish` |
+| soglia «integrato» | `params` | `k_connections`, `partner_min_interactions` |
+| quando si misura chi resta | `params` | `retention_horizons_days`, `min_observation_days` |
+| rete minima | `params` | `min_nodes_structural` |
+| uscite simulate | `params` | `removal_fractions` |
+| serate in vocale per la struttura | `params` | `voice_structural_min_sessions` |
+| memoria delle interazioni | `graph_params` | `decay_half_life_days`, `decay_cutoff_days` |
+| tempo minimo insieme in vocale | `graph_params` | `min_overlap_minutes` |
+
+Le due del grafo stanno in fondo alla griglia perché riguardano come il grafo è
+**costruito**, mentre le sei sopra riguardano come lo si **misura**. La regola
+dell'assenza vale identica su entrambe le sorgenti: chiave mancante in `params`
+o campo a `None` in `graph_params`, la regola non compare. Su una run il cui
+snapshot non esiste più le ultime due spariscono e le altre restano — due
+assenze indipendenti, ed è il caso che `…003` esercita nel fixture.
+
+**Le ultime due sono arrivate il 25/09/2026, e prima non c'erano.** Nella prima
+stesura di questa sezione restavano fuori perché `graph_snapshots` non è
+leggibile dall'API, e ricopiarne i valori da `job/config.py` sarebbe stato
+scrivere accanto a sei valori misurati due valori che *sembrano* misurati e
+invece raccontano la configurazione di oggi su una run di settimane fa. La
+soluzione scelta non le ha spostate nel job — che avrebbe rimesso i parametri del
+grafo dentro `metric_runs.params` con l'effetto collaterale sull'avviso descritto
+sopra — ma ha aperto una superficie di lettura stretta: la vista
+`graph_snapshot_params`, tre colonne, `GRANT` sulla vista e non sulla tabella
+(`api.md` §1 e §4).
+
+**Gli avvisi sono quattro, una frase ciascuno.** Le condizioni sono le stesse di
+prima — buco di osservazione (`left_at` **e** `rejoined_at`), bot uscito (solo
+`left_at`), rientro senza uscita registrata (solo `rejoined_at`) — più quello sui
+parametri, che ora dice una cosa utilizzabile: **«Metodo di calcolo aggiornato il
+&lt;data&gt;: confronta i numeri solo da quella data.»** La data è l'`as_of` della
+run **più recente** i cui `params` differiscono da quelli della run
+immediatamente precedente. Più recente e non la più antica: la frase promette un
+confine oltre il quale i numeri sono confrontabili, e con due cambi di parametri
+solo l'ultimo lo è.
+
+**Cosa è uscito da Stato**, e dove è finito: versione del codice, numero di
+snapshot, tabella dei parametri, storico in tabella e diagnostica `stats` sono
+nei **Dettagli tecnici**. La sezione «Cosa Kindling non fa» è diventata le
+**Domande**, dove ogni risposta ha un indirizzo proprio. Un test
+(`tests/test_dashboard_stato.py`) fallisce se nel template di Stato ricompaiono
+`code_version`, `stats` o una chiave grezza di `params`: erano lì per una
+ragione, e una ragione torna più facilmente di quanto si creda.
+
+### La pagina Domande
+
+Rotta `/guilds/{id}/domande`, stessa guardia delle viste (è `guild_id` nel path
+che la attiva: `auth.verifica_accesso` lo legge da `request.path_params`, quindi
+non c'è niente da ricordarsi per una rotta nuova). Link in fondo alla barra delle
+viste, allineato a destra e staccato dalle quattro: non è una quinta vista, non
+mostra numeri di nessuno.
+
+Un elenco di `<details>`, uno per domanda, ognuno con un **`id` stabile**: le
+viste ci rimandano con un'ancora invece di ripetere la spiegazione, e un `id` che
+cambia è un link che porta in cima alla pagina senza dare nessun errore. Lo stile
+`:target` evidenzia la domanda raggiunta, e un test verifica che ogni ancora
+scritta in Stato esista davvero fra quegli `id`: un rinominare di qua non
+romperebbe niente di là, porterebbe solo in cima alla pagina.
+
+**I `<details>` sono aperti di partenza**, e non è una svista. Senza JavaScript
+non esiste un modo di aprire quello raggiunto da un'ancora: `:target` può
+evidenziarlo, non può mettergli l'attributo `open`. Con tutti chiusi, un rimando
+da una vista atterrerebbe su una risposta invisibile — cioè fallirebbe proprio
+nel compito per cui gli `id` esistono. Aperti, l'ancora consegna la risposta,
+`:target` dice quale, e chi vuole richiuderle può.
+
+**Le risposte sono generiche**, valide per ogni server osservato: nessuna data
+fissa, nessun nome, nessun numero di *questo* server. Dove serve una data si
+rimanda («prima dell'arrivo del bot — la data è in cima a Stato»); dove serve una
+soglia si legge da `params`, con la stessa regola di Stato: chiave mancante,
+frase che non compare.
+
+La prima domanda — *posso vedere un singolo membro?* — nomina il destinatario:
+«in questa dashboard gli amministratori vedono solo gruppi di almeno N membri».
+Non «Kindling non sa chi sei», che sarebbe falso: il bot registra `author_id`
+pseudonimizzati, e l'invariante è su cosa **esce** da qui, non su cosa esiste.
+
+### La pagina Dettagli tecnici
+
+Rotta `/guilds/{id}/dettagli-tecnici`, stessa guardia. **Non è nel menu**: ci si
+arriva solo dalla domanda «Dove trovo i dettagli tecnici di un calcolo?». Chi la
+cerca sa cosa cerca; chi non la cerca non deve inciamparci.
+
+Contiene quello che è uscito da Stato: lo storico delle run (snapshot, `as_of`,
+`created_at`, `code_version`), i parametri dell'ultima run raggruppati per area
+con la chiave in `<code>`, e `stats` come testo letterale con la nota che ne
+spiega lo statuto (`api.md` §3: diagnostica, non contratto). Qui i timestamp sono
+completi e in UTC, perché qui la domanda è «quale codice ha prodotto questo
+numero, e quando» — e la risposta a quella domanda si confronta con i log, che
+sono in UTC.
+
+Il raggruppamento dei parametri per area è una **mappa di etichette**
+(`dashboard/regole.py`), non un filtro: una chiave che la mappa non conosce
+finisce in un gruppo «altri parametri» e resta visibile. Un raggruppamento che
+scarta ciò che non riconosce è il difetto di CLAUDE.md §7 — sembra mostrare tutto
+e nasconde in silenzio esattamente la chiave nuova, cioè quella che interessa.
+
+### Niente JavaScript, e perché non serviva
+
+La CSP non ha `'unsafe-inline'` (§3, `dashboard/main.py`), quindi uno script
+dovrebbe essere un file servito da `/static/` con `script-src 'self'` — che la
+CSP già consente, e che non ha richiesto nessuna modifica perché la direttiva
+c'era già. Non c'è nessuno script, e non perché fosse vietato: le due sole
+interazioni di queste pagine si ottengono senza. Le spiegazioni delle regole sono
+un elemento nascosto che compare su `:hover` e su `:focus` (con `tabindex="0"`,
+quindi raggiungibile da tastiera e attivabile al tocco); le domande sono
+`<details>`, che apre e chiude da solo. Il test che vieta `<script` e `style="`
+su tutte le pagine (`tests/test_dashboard_statici.py`) resta invariato: è
+l'unico posto che se ne accorgerebbe.
 
 ### La vista Robustezza, in dettaglio
 
@@ -1881,6 +2143,21 @@ il flusso di autorizzazione richiede:
 
 **Si costruisce contro `…003`**, che è il caso peggiore, si verifica la scala su
 `…004`, e si controlla su `…001` e `…002`.
+
+**I quattro stati di «Cosa puoi leggere oggi» (§4) il fixture ne esercita due**,
+verificato il 22/09/2026 leggendo `quality` delle righe dell'ultimo snapshot di
+ogni scenario: `…001` dà *con cautela* su tutte e tre le viste — coerente con §6,
+dove nessuna riga è `is_significant = true` — e `…002`, `…003`, `…004` danno
+*leggibile* su tutte e tre. **Restano fuori *in raccolta* (nessuna riga) e *sotto
+la soglia* (tutte soppresse)**: nessuno dei quattro scenari ha una vista senza
+righe, e nemmeno una in cui ogni riga sia soppressa — `…003` ne ha di soppresse,
+ma accanto a righe pubblicate, che è un caso diverso. I due stati mancanti sono
+provati in `tests/test_dashboard_stato.py` con un transport finto e su
+`stato_da_qualita` direttamente. Non è un difetto del fixture da riparare
+d'ufficio: aggiungere una guild «tutta soppressa» significherebbe inventare uno
+scenario per far verde un test, quando i due stati sono già riproducibili a costo
+zero. È però il genere di cosa che va riletta quando si tocca l'ammissione degli
+archi (CLAUDE.md §7, il caso di `tools/fixture_api.py`).
 
 **Perché il fixture non può divergere dal contratto.** Non descrive la forma
 delle risposte: istanzia i modelli di `api/models.py`, gli stessi che l'API usa
