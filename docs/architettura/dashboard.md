@@ -280,9 +280,10 @@ una gerarchia di importanza: da quando osserva → come lo fa → quando lo ha f
    non dice «messaggi»: Kindling non misura i messaggi, misura le interazioni
    fra due persone, e chiamarli messaggi prometterebbe una lettura dei contenuti
    che non c'è.
-4. **Il calendario**: l'arrivo del bot, un punto per ogni run, oggi, il prossimo
-   calcolo. Nessuna nota sui ricalcoli: chi legge non ha modo di distinguere un
-   ricalcolo da un calcolo, e non gli serve.
+4. **Il calendario**: l'arrivo del bot, un punto per ogni run **con la sua
+   data**, oggi, il prossimo calcolo. Nessuna nota sui ricalcoli: chi legge non
+   ha modo di distinguere un ricalcolo da un calcolo, e non gli serve. Quando le
+   date non ci stanno, si diradano per una regola scritta: vedi sotto.
 5. **Cosa puoi leggere oggi**: una riga per Robustezza, Community e Coorti.
 6. **Le regole del calcolo**: i valori con cui Kindling misura *questo* server.
 7. **Avvisi**: i fatti che cambiano la lettura di tutto il resto.
@@ -343,6 +344,53 @@ fa» sotto l'etichetta «Prossimo aggiornamento», che si legge come un errore d
 rendering invece che come un calcolo mancato. Il calendario, nello stesso caso,
 **non disegna nessuna tappa futura**: un «prossimo» a sinistra di «oggi» e un
 tratteggio lungo zero direbbero il contrario di quello che è successo.
+
+**Il calendario: ogni calcolo porta la sua data, e il diradamento è una regola
+misurata.** Nella prima stesura i pallini dei calcoli erano muti — la data stava
+in un `<title>` SVG, cioè un tooltip invisibile al tocco — e non per una soglia:
+*a nessuna larghezza e con qualunque numero di run*. Il ragionamento era il caso
+peggiore (dodici run su 198 giorni distano il 3,5% l'una dall'altra, e a 992 px
+sono 34 px contro un'etichetta da 41) generalizzato a tutti i casi, compreso
+quello reale: tre calcoli su 1000 px, dove cinque date brevi ci stanno comode.
+Il risultato in produzione erano tre punti che non dicevano niente, cioè
+l'informazione per cui il calendario esiste.
+
+Da qui la regola, in due metà, perché **una media query da sola non basta**: la
+collisione dipende dalla larghezza *e* dalla spaziatura dei pallini, e il foglio
+di stile la spaziatura non la conosce.
+
+- **Python dirada sulla distanza.** Un calcolo porta la propria data solo se
+  dista almeno `SCARTO_MINIMO` (15%) dell'arco del calendario dall'arrivo, dalla
+  data già scritta del calcolo precedente e dal prossimo calcolo. «Oggi» non
+  entra nel conto: sta sulla riga sotto.
+- **Il foglio spegne sotto una larghezza.** Da `34rem` in giù le date dei
+  calcoli non si mostrano, e restano arrivo, oggi e prossimo. È il breakpoint
+  che il foglio usa già per la testata.
+
+**Il 15% non è scelto a occhio.** Misurato nel browser il 25/09/2026: l'etichetta
+più larga che questo formato di data possa produrre è «30 mag» a **40,8 px**
+(12 px, peso 600, `tabular-nums`; provate tutte e dodici le abbreviazioni di
+mese), e a `34rem` di viewport l'SVG è largo **488 px**. Due etichette centrate
+non si toccano se distano `(40,8 + 8) / 488 = 10,0%`; una non tocca un estremo,
+che è ancorato al bordo e quindi sporge di una larghezza intera invece che di
+mezza, se dista `(1,5 × 40,8 + 8) / 488 = 14,2%`. Una soglia sola per entrambi i
+casi, arrotondata per eccesso: **15%**. Gli 8 px sono lo spazio fra due etichette
+vicine, non un margine di sicurezza sulla misura.
+
+La catena si chiude e un test la verifica sui numeri, così non può marcire: il
+foglio garantisce che le date compaiano solo sopra i 488 px, Python garantisce
+che siano almeno al 15% l'una dall'altra, e il 15% di 488 px è 73 px — più dei
+40,8 + 8 che servono. Sulle tre run della produzione gli scarti sono del 25%, e
+le date compaiono tutte.
+
+**Le etichette stanno tutte sopra l'asse tranne «oggi», e non è decorazione.**
+Arrivo, calcoli e prossimo sono un righello: posizioni note, distanze regolari,
+e il diradamento le tiene separate. «Oggi» no — cade dove cade, e in produzione
+sta a quattro giorni dall'ultimo calcolo, cioè a un'inezia sull'asse. Sulla
+stessa riga si sovrapporrebbe all'etichetta di quel calcolo senza che nessuna
+regola di diradamento possa impedirlo, perché non è una tappa che si può
+togliere. Sta sotto per questo, ed è anche la ragione per cui non entra nel
+conteggio degli scarti.
 
 **«Cosa puoi leggere oggi»: quattro stati, tutti derivati da campi tipizzati.**
 La domanda posta prima di scrivere la sezione era se lo stato di una vista si
