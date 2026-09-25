@@ -22,6 +22,13 @@
   --grigio: #8a8a8f; --grigio-fondo: #efefeb;
   --avviso: #7a4b00; --avviso-fondo: #fff4dc; --avviso-bordo: #e7b84d;
   --errore: #8f1d1d; --errore-fondo: #fde8e8; --errore-bordo: #d64545;
+  /* La pillola "leggibile" della vista Stato, e nient'altro. Verde perche' e'
+     l'unico stato in cui un numero regge una conclusione — e' l'unico posto
+     della dashboard dove qualcosa e' "a posto", quindi il colore non entra in
+     concorrenza con l'avviso (che dice "attenzione") ne' con l'errore.
+     5,50:1 sul suo pannello, che sta a 1,11:1 dal fondo — le stesse proporzioni
+     dell'avviso (6,78:1 e 1,05:1). Misurati, non stimati. */
+  --ok: #2f6b3a; --ok-fondo: #e6f1e3;
   /* Le tre serie dei grafici e i due fondi della tabella delle coorti.
      Stavano scritti a mano in fondo al foglio, e i tre delle serie in due
      punti ciascuno (il tratto e il campione di legenda), dove una modifica
@@ -82,6 +89,12 @@
     --errore: #eb9b9b;
     --errore-fondo: #2c1616;
     --errore-bordo: #d05a5a;
+    /* La pillola "leggibile": 7,18:1 sul suo pannello, vicino al 7,06:1
+       dell'avviso scuro — la stessa forza, non di piu'. Il pannello sta a
+       1,23:1 dal fondo (l'avviso a 1,28): su nero una velatura cosi' tenue
+       serve solo a staccare la pillola dal testo, non a gridare. */
+    --ok: #89c184;
+    --ok-fondo: #1c2a1b;
     /* Le tre serie dei grafici: 8,29:1, 5,14:1 e 14,05:1 su --fondo — tutte
        sopra il 3:1 che una linea richiede.
        Fra loro sono separate in LUMINANZA e non solo in tinta, ed e' la
@@ -214,6 +227,13 @@ nav.viste a { padding: .5rem .8rem; margin-bottom: -1px; color: var(--tenue);
 nav.viste a:hover { color: var(--testo); }
 nav.viste a[aria-current="page"] { color: var(--testo); font-weight: 600;
                                    border-bottom: 2px solid var(--testo); }
+/* "Domande" e' nella barra ma non e' una vista: in fondo (margin-left: auto) e
+   dell'accento caldo invece del grigio delle schede, cosi' non si legge come la
+   quinta di una fila di quattro. A larghezza di telefono la barra va a capo e il
+   margine automatico lo porta a destra della riga nuova, che e' il posto giusto
+   lo stesso. 5,14:1 in chiaro e 6,91:1 in scuro su --fondo. */
+nav.viste .voce-domande { margin-left: auto; color: var(--brace); }
+nav.viste .voce-domande:hover { color: var(--testo); }
 
 /* Due bottoni, due pesi: "Esci" e' un'azione di servizio, "Accedi con
    Discord" e' l'unica cosa da fare sulla pagina d'accesso — ed e' la prima
@@ -409,3 +429,125 @@ pre { background: var(--grigio-fondo); padding: .75rem; overflow-x: auto; margin
 .stato--valore { color: var(--testo); }
 .riepilogo { margin: .25rem 0 1rem; }
 .riga-divergenza td { white-space: normal; }
+
+/* --- vista Stato, pagina Domande, pagina Dettagli tecnici ---------------- */
+/* Tre pagine che parlano all'amministratore invece che a chi gestisce il
+   sistema (dashboard.md 4). Niente qui usa un colore letterale o uno stile in
+   linea: la CSP non ha 'unsafe-inline', quindi il "left: ...%" con cui un
+   mockup posiziona una linea del tempo non e' praticabile — le ascisse sono
+   attributi SVG calcolati in Python (dashboard/stato.py). */
+
+/* Il paragrafo di apertura. Non e' .sottotitolo, che sta sotto l'h1 di una
+   pagina di servizio: questo dice a chi legge di cosa parla la pagina, e ha la
+   misura di riga di un testo da leggere. */
+.guida { color: var(--tenue); margin: 0 0 .5rem; max-width: 62ch; }
+
+/* I fatti in cima. auto-fit e non tre colonne fisse: senza run il fatto e' uno
+   solo, e due riquadri vuoti accanto sembrerebbero un dato mancante invece di
+   niente. Con auto-fit la griglia si adatta anche al telefono senza una media
+   query. */
+.fatti-stato { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+               gap: 1px; background: var(--riga); border: 1px solid var(--riga);
+               border-radius: .5rem; overflow: hidden; margin: 1.5rem 0 0; }
+.fatti-stato > div { background: var(--fondo); padding: .9rem 1rem; }
+.fatti-stato dt { font-size: .78rem; color: var(--tenue); letter-spacing: .02em; }
+.fatti-stato dd { margin: .15rem 0 0; font-size: 1.2rem; font-weight: 620;
+                  font-variant-numeric: tabular-nums; }
+.fatti-stato dd small { display: block; font-size: .85rem; font-weight: 400;
+                        color: var(--tenue); }
+
+/* I tre passi. Il numero viene da un contatore CSS e non dal markup: un <ol>
+   dice gia' che sono in ordine, e scrivere "1." nel testo sarebbe una seconda
+   copia della stessa informazione. */
+.passi { list-style: none; padding: 0; margin: 0; display: grid;
+         grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1.25rem;
+         counter-reset: passo; }
+.passi li { counter-increment: passo; border-top: 2px solid var(--testo); padding-top: .7rem; }
+.passi li::before { content: counter(passo); font-size: .78rem; color: var(--tenue);
+                    font-variant-numeric: tabular-nums; }
+.passi h3 { font-size: 1rem; margin: .1rem 0 .3rem; }
+.passi p { margin: 0; color: var(--tenue); max-width: 40ch; }
+
+/* La linea del tempo. L'SVG non ha viewBox: le unita' utente sono pixel CSS,
+   quindi il testo NON si rimpicciolisce quando il riquadro si stringe — che e'
+   il difetto di ogni grafico scalato a 320px. Le ascisse sono percentuali,
+   risolte sulla larghezza del riquadro.
+   overflow visibile perche' i pallini agli estremi stanno a cavallo del bordo;
+   i .5rem di margine laterale sono lo spazio in cui cadono. */
+figure.linea-tempo { margin: 1.25rem .5rem 0; }
+figure.linea-tempo svg { display: block; width: 100%; overflow: visible; }
+.linea-tempo .asse { stroke: var(--testo); stroke-width: 2; }
+.linea-tempo .asse--futuro { stroke: var(--tenue); stroke-dasharray: 4 4; }
+.linea-tempo .tappa { fill: var(--fondo); stroke: var(--testo); stroke-width: 2; }
+.linea-tempo .tappa--calcolo { fill: var(--testo); }
+.linea-tempo .tappa--oggi { fill: var(--brace); stroke: var(--brace); }
+/* Un anello vuoto e sottile, non tratteggiato: a 320px un cerchio di 5px con
+   un tratteggio si legge come un asterisco. A dire "questo non e' successo
+   ancora" basta il tratteggio dell'asse, che e' lungo abbastanza da vedersi. */
+.linea-tempo .tappa--futura { stroke: var(--tenue); stroke-width: 1.5; }
+.linea-tempo .cal-data { font-size: 12px; font-weight: 600; fill: var(--testo);
+                         font-variant-numeric: tabular-nums; }
+.linea-tempo .cal-nota { font-size: 11px; fill: var(--tenue); }
+
+/* Cosa puoi leggere oggi: nome, pillola di stato, frase, rimando. */
+.letture { border-top: 1px solid var(--riga); margin-top: 1rem; }
+.lettura { display: grid; grid-template-columns: 9rem auto 1fr; gap: .3rem 1rem;
+           align-items: baseline; padding: .8rem 0; border-bottom: 1px solid var(--riga); }
+.lettura h3 { margin: 0; font-size: 1rem; }
+.lettura p { grid-column: 3; margin: 0; color: var(--tenue); max-width: 58ch; }
+.lettura .approfondisci { grid-column: 3; justify-self: start; font-size: .88rem; }
+.pillola { justify-self: start; font-size: .78rem; font-weight: 600;
+           padding: .05rem .55rem; border-radius: 1rem; white-space: nowrap; }
+/* Un solo stato ha un colore proprio, ed e' quello in cui un numero regge una
+   conclusione. "con cautela" prende l'ambra dell'avviso perche' dice la stessa
+   cosa degli avvisi (attenzione a come leggi), e i due stati in cui non c'e'
+   niente da leggere restano neutri: colorarli direbbe che e' successo qualcosa. */
+.pillola--leggibile { background: var(--ok-fondo); color: var(--ok); }
+.pillola--con_cautela { background: var(--avviso-fondo); color: var(--avviso); }
+.pillola--sotto_soglia, .pillola--in_raccolta { background: var(--grigio-fondo);
+                                                color: var(--tenue); }
+
+/* Le regole del calcolo, con la spiegazione in un riquadro che compare su
+   :hover e su :focus. Il tabindex sul <li> (lo mette il template) e' cio' che la
+   rende raggiungibile da tastiera e al tocco senza una riga di JavaScript. */
+.regole { list-style: none; padding: 0; margin: .75rem 0 0; display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: .6rem; }
+.regola { position: relative; border: 1px solid var(--riga); border-radius: .4rem;
+          padding: .55rem .75rem; cursor: help; }
+.regola:hover, .regola:focus { border-color: var(--tenue); }
+.regola:focus-visible { outline: 2px solid var(--testo); outline-offset: 2px; }
+.regola b { display: block; font-variant-numeric: tabular-nums; font-weight: 620; }
+.regola__etichetta { font-size: .85rem; color: var(--tenue); }
+/* Invertito — il testo della pagina come fondo — per la stessa ragione per cui
+   un tooltip e' invertito ovunque: deve leggersi come qualcosa che sta SOPRA la
+   pagina, non come un pezzo di pagina comparso. Il contrasto e' quello di
+   --testo su --fondo scambiato: 16,10:1 in chiaro, 15,32:1 in scuro. */
+.regola__popup { display: none; position: absolute; z-index: 2; left: 0; right: 0;
+                 top: calc(100% + .35rem); background: var(--testo); color: var(--fondo);
+                 font-size: .85rem; line-height: 1.45; padding: .6rem .75rem;
+                 border-radius: .4rem; }
+.regola:hover .regola__popup, .regola:focus .regola__popup { display: block; }
+
+/* Gli avvisi di Stato sono frasi, non pannelli con un titolo: una misura di
+   riga ce l'hanno anche loro. Lo scope e' p.avviso perche' coorti.html usa la
+   stessa classe dentro una cella di tabella, dove una larghezza massima non ha
+   senso. */
+p.avviso { max-width: 68ch; }
+.nota-fuso { margin-top: 2rem; }
+
+/* Le domande. Il margine negativo e' cio' che permette al fondo di :target di
+   respirare intorno al testo invece di tagliarlo a filo: senza, la domanda
+   raggiunta da un'ancora sembrerebbe un errore di rendering. */
+.domande { margin-top: 1.5rem; max-width: 46rem; }
+.domande details { border-bottom: 1px solid var(--riga); padding: .75rem; margin: 0 -.75rem; }
+.domande details:first-of-type { border-top: 1px solid var(--riga); }
+.domande summary { cursor: pointer; font-weight: 600; }
+.domande details p { margin: .4rem 0 0; color: var(--tenue); max-width: 62ch; }
+.domande details:target { background: var(--grigio-fondo); border-radius: .4rem; }
+
+@media (max-width: 40rem) {
+  /* La riga di una lettura non ci sta in tre colonne: nome e pillola restano in
+     fila, frase e rimando prendono la riga intera. */
+  .lettura { grid-template-columns: 1fr auto; }
+  .lettura p, .lettura .approfondisci { grid-column: 1 / -1; }
+}
