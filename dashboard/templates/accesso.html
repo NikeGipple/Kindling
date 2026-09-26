@@ -6,28 +6,21 @@
 {% block dopo_marchio %}{% include "_testata_pubblica.html" %}{% endblock %}
 {% block contenuto %}
 <h1>Accesso alla dashboard</h1>
-<p>Le metriche aggregate dei server Discord osservati da Kindling sono riservate
-a chi ne è <strong>amministratore</strong>. Si entra con Discord, e prima di
-farlo vale la pena sapere cosa succede.</p>
+<p>
+Kindling è riservato agli <strong>amministratori</strong> delle community osservate. 
+Per verificare che tu abbia questo ruolo, l'accesso avviene tramite il tuo account Discord. Ecco come funziona la procedura di accesso:
+</p>
 {#- Gli stessi fatti dei due paragrafi che stavano qui prima (il secondo era
     grigio e in coda), uno per voce: letti come elenco si trovano, letti di
     seguito si saltavano. Nessuno e' stato tolto — sono il consenso informato di
     questa pagina, non contorno. Il sesto, "gli aggregati sono riservati agli
     amministratori", sta nella frase d'apertura: e' la premessa, non una voce. -#}
 <ul class="fatti">
-  <li><strong>Cosa chiede Discord.</strong> Di autorizzare Kindling a leggere il
-  tuo profilo e l'elenco dei tuoi server.</li>
-  <li><strong>Cosa vedrai.</strong> Da quell'elenco si ricava su quali server
-  osservati hai il permesso <strong>Amministratore</strong>: sono gli unici che
-  compariranno qui.</li>
-  <li><strong>Perché proprio Amministratore.</strong> Chi ha quel permesso può
-  già leggere ogni canale del server, quindi gli aggregati non gli mostrano
-  niente che non potesse ottenere da sé.</li>
-  <li><strong>Cosa resta a Kindling.</strong> Niente di chi accede: né un
-  account, né il token di Discord, che serve per quella lettura e viene
-  scartato.</li>
-  <li><strong>Quanto dura.</strong> Il permesso si ricontrolla ogni 15 minuti, e
-  dopo 8 ore bisogna accedere di nuovo.</li>
+  <li><strong>Quale autorizzazione ti verrà richiesta.</strong> Discord ti chiederà di autorizzare Kindling a leggere il tuo profilo e l'elenco dei server di cui fai parte.</li>
+  <li><strong>Quali server vedrai.</strong> Kindling individua i server osservati in cui hai il permesso Amministratore e solo quelli corrispondenti compariranno nella dashboard.</li>
+  <li><strong>Perché è richiesto il permesso Amministratore.</strong> Un amministratore può già leggere tutti i canali del server. Le metriche aggregate non mostrano quindi informazioni che non potrebbe già ottenere direttamente.</li>
+  <li><strong>Cosa conserva Kindling del login.</strong> Il token fornito da Discord viene usato esclusivamente per verificare la tua identità e i tuoi permessi. Non viene conservato oltre il tempo necessario a questa verifica.</li>
+  <li><strong>Quanto dura l'accesso.</strong> I tuoi permessi vengono verificati ogni 15 minuti. Dopo 8 ore sarà necessario effettuare nuovamente l'accesso.</li>
 </ul>
 {% include "_accedi.html" %}
 {% endblock %}
