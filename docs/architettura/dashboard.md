@@ -522,19 +522,19 @@ rimanda («prima dell'arrivo del bot — la data è in cima a Stato»); dove ser
 soglia si legge da `params`, con la stessa regola di Stato: chiave mancante,
 frase che non compare.
 
-**Le tre domande della vista Coorti (26/09/2026).** `d-leggibile` («Quando una
-coorte diventa leggibile?»), `d-vocale` («Qual è la differenza fra le due barre
-di «si integrano»?») e `d-parole` («Perché barre e non numeri?»). Il prefisso
-`d-` e non `q-` è quello del mockup approvato, tenuto com'è: gli `id` sono
-indirizzi, e la loro stabilità conta più della loro uniformità. Tre vincoli sulle
-risposte:
+**Le tre domande della vista Coorti (26/09/2026).** `q-coorte-leggibile` («Quando una
+coorte diventa leggibile?»), `q-vocale` («Qual è la differenza fra le due barre
+di «si integrano»?») e `q-barre` («Perché barre e non numeri?»).
+`q-coorte-leggibile` e non `q-leggibile`, che è già la domanda su Community: due
+indirizzi che differiscono di una parola sono facili da scambiare scrivendo un
+rimando. Tre vincoli sulle risposte:
 
-- `d-leggibile` cita `min_observation_days` da `params`, con la regola di
+- `q-coorte-leggibile` cita `min_observation_days` da `params`, con la regola di
   sempre: chiave mancante, frase senza numero;
-- `d-vocale` **non dice** che la barra blu non supera mai l'arancio: è falso,
+- `q-vocale` **non dice** che la barra blu non supera mai l'arancio: è falso,
   verificato per esecuzione (§4, «La vista Coorti», ultimo paragrafo della parte
   nuova). Dice cosa conta ciascuna delle due, e che non si sommano;
-- `d-parole` **non promette protezione della privacy**: i numeri esatti sono
+- `q-barre` **non promette protezione della privacy**: i numeri esatti sono
   nei Dettagli tecnici, a un clic, e una risposta che dicesse «le barre
   proteggono le persone» sarebbe falsa nello stesso modo della frase del 18/09
   di `stato-progetto.md` §10. La ragione dichiarata è la leggibilità, e il non
@@ -1177,8 +1177,10 @@ matura, all'orizzonte che eccede l'osservazione — nel fixture la coorte del
 24/08 di `…004`, matura a 14 giorni esatti e significativa, ha
 `reached_by_28d = 1,000` su entrambi gli ambiti. La maturità a 14 giorni non la
 esclude a 28, e questa vista la mostra come «tutti». È una proprietà della
-curva del job, non del rendering: se va disinnescata, è una decisione di
-`modello-metriche.md` §5.
+curva del job, non del rendering, e la vista non può disinnescarla: l'API non
+dice quante persone erano ancora seguite a quell'orizzonte. **Voce aperta in
+`modello-metriche.md` §5.4** («`reached_by_*` può reggersi su una o due
+persone»), con i tre campioni e una direzione possibile, non decisa.
 
 **Le colonne della riga leggibile, e nessun'altra.**
 
@@ -1265,7 +1267,7 @@ giorni) → dal 5 ottobre. Coincidono con il mockup approvato.
 a integrarsi, e rimane? …», con `k` dalla riga); «Conta solo chi è entrato dopo
 l'arrivo del bot (&lt;data&gt;). Le ultime &lt;n&gt; settimane sono sempre in
 osservazione: una coorte si legge quando sono passati &lt;min_observation_days&gt;
-giorni dall'ultimo ingresso.» con il rimando a `d-leggibile`. Il numero di
+giorni dall'ultimo ingresso.» con il rimando a `q-coorte-leggibile`. Il numero di
 settimane è `⌈min_observation_days / 7⌉`, e il sette non è un parametro: è la
 larghezza di una coorte, la settimana ISO di `cohort_start_of`. L'«sempre» ha
 un'eccezione di misura zero — una coorte in cui tutti entrano il lunedì alle
@@ -1280,9 +1282,9 @@ solito. Con **zero**: «La prima coorte sarà leggibile dal calcolo di
 niente. Da tre in su, niente. Poi la tabella, con la didascalia «dati aggiornati
 a &lt;data&gt;», e la nota «Le barre mostrano una proporzione approssimata; i
 numeri esatti sono nei dettagli tecnici», con due rimandi alle Domande
-(`d-parole`, `d-vocale`). **La nota non porta un link ai Dettagli tecnici**, a
+(`q-barre`, `q-vocale`). **La nota non porta un link ai Dettagli tecnici**, a
 differenza del mockup: quella pagina resta raggiungibile solo dalle Domande
-(«La pagina Dettagli tecnici», sotto), e ci arriva la risposta a `d-parole`.
+(«La pagina Dettagli tecnici», sotto), e ci arriva la risposta a `q-barre`.
 
 Le date di questa vista sono in Europe/Rome come in Stato, e per la stessa
 ragione: il lettore è un amministratore, non qualcuno che confronta una riga con
@@ -1334,7 +1336,7 @@ quello `any` — le due garanzie che `PartnerTracker` dà davvero:
   l'ultima a rischio la curva va a zero.
 
 La fascia è monotona e non può creare un'inversione, ma nemmeno impedirla: la
-eredita dai valori. La frase è stata tolta dalla risposta `d-vocale`.
+eredita dai valori. La frase è stata tolta dalla risposta `q-vocale`.
 
 #### La prima stesura, ora la tabella dei Dettagli tecnici
 

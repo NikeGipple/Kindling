@@ -895,6 +895,47 @@ scritta**, con `observation_days` e `is_mature` (osservazione ≥
 il fatto che esistono, e riportarle senza dire che sono giovani è il modo in cui
 si legge un numero incompleto come se fosse un risultato.
 
+**Voce aperta (26/09/2026, non decisa): `reached_by_*` può reggersi su una o due
+persone.** La regola sopra impedisce di estrapolare oltre l'osservazione, ma non
+dice su quante persone poggia il valore *dentro* l'osservazione. Sulle coorti
+piccole, a un orizzonte vicino al tempo massimo osservato, il gruppo a rischio può
+essersi ridotto a una o due persone; se l'ultima raggiunge `k`, la curva va a zero
+e `reached_by_*` vale 1,000 — il caso che il paragrafo sopra chiama «un fatto», e
+che lo è per la curva ma non per la coorte. Tre campioni:
+
+- **produzione, snapshot 13, coorte del 07/09**: non matura (8 giorni),
+  `reached_by_14d = reached_by_28d = 1,000` su `any` con 3 eventi su 8;
+- **fixture `…004`, coorte del 24/08**: matura (14 giorni esatti) e
+  **significativa**, `n = 18`, `reached_by_14d` 0,333 su `any` e 0,067 su
+  `voice`, e `reached_by_28d = 1,000` su **entrambi** gli ambiti. La maturità a 14
+  giorni non protegge l'orizzonte a 28;
+- **i due controesempi voce > qualunque** (`dashboard.md` §4, «La barra blu può
+  superare l'arancio»), su coorti mature e significative eseguendo
+  `compute_cohort`: cinque persone, 0,467 in `any` contro 0,625 in `voice`; e senza
+  nessuna uscita `any` a NULL mentre `voice` vale 1,0 perché l'ultima persona a
+  rischio in vocale raggiunge `k` all'`as_of`. È lo stesso fenomeno visto da un
+  altro lato: due stime che poggiano su gruppi a rischio diversi, uno dei quali
+  ridotto a una persona.
+
+**Perché la dashboard non può disinnescarlo.** Il gruppo a rischio a
+quell'orizzonte vive dentro `SurvivalCurve` e viene buttato (§8); l'API non lo
+espone, e `event_count`/`censored_count` sono totali sulla coorte, non conteggi
+all'orizzonte. Il valore viaggia senza il dato che dice quanto vale: è
+l'invariante n. 4 del progetto — se un dato dice quanto vale un altro dato, è una
+colonna — non ancora rispettato qui. La vista Coorti lo mostra come «tutti»
+(`dashboard.md` §4, «Limite dichiarato»), e l'unico strumento che avrebbe — non
+mostrarlo — richiederebbe una soglia inventata lato vista su un numero che non ha.
+
+**Una direzione possibile, non decisa:** il job scrive `reached_by_14d/28d` solo
+se a quell'orizzonte sono ancora seguite almeno N persone (che cosa conti come
+«seguita» fa parte della decisione), altrimenti NULL con un
+motivo tipizzato accanto, come `median_reached` per la mediana o
+`not_computable_reason` per la retention. Da decidere: quale N (lo stesso
+`min_cardinality`, o una soglia propria), se la regola sostituisce o affianca
+quella di `max_observed`, e che cosa ne segue per la significatività. Cambia lo
+schema di `metric_cohorts` e il contratto dell'API: va scritto qui prima, non
+scelto nel job.
+
 ### 5.5 Retention
 
 Per coorte e orizzonte `T ∈ {7, 14, 28}` giorni: frazione dei membri della

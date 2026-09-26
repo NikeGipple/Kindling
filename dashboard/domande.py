@@ -43,12 +43,12 @@ TITOLI = {
     # indirizzo che cambia e' un link che atterra in cima alla pagina senza
     # nessun errore, e Stato ci rimanda da prima.
     "q-segnate": "Perché le coorti partono dall'arrivo del bot?",
-    # Le tre domande della vista Coorti. Il prefisso "d-" e' quello del mockup
-    # approvato: gli id sono indirizzi, e la loro stabilita' conta piu' della
-    # loro uniformita'.
-    "d-leggibile": "Quando una coorte diventa leggibile?",
-    "d-vocale": "Qual è la differenza fra le due barre di «si integrano»?",
-    "d-parole": "Perché barre e non numeri?",
+    # Le tre domande della vista Coorti. "q-coorte-leggibile" e non
+    # "q-leggibile", che e' gia' la domanda su Community: due id che differiscono
+    # di una parola sono due indirizzi facili da scambiare scrivendo un rimando.
+    "q-coorte-leggibile": "Quando una coorte diventa leggibile?",
+    "q-vocale": "Qual è la differenza fra le due barre di «si integrano»?",
+    "q-barre": "Perché barre e non numeri?",
     "q-leggibile": "Quando sarà leggibile Community?",
     "q-aggiorna": "Ogni quanto si aggiornano i dati?",
     "q-raccoglie": "Cosa raccoglie il bot, esattamente?",
@@ -170,8 +170,8 @@ def costruisci(
             ),
         ),
         Domanda(
-            "d-leggibile",
-            TITOLI["d-leggibile"],
+            "q-coorte-leggibile",
+            TITOLI["q-coorte-leggibile"],
             con(
                 (
                     f"Quando sono passati almeno "
@@ -189,8 +189,8 @@ def costruisci(
             ),
         ),
         Domanda(
-            "d-vocale",
-            TITOLI["d-vocale"],
+            "q-vocale",
+            TITOLI["q-vocale"],
             con(
                 "La barra arancio conta ogni modo di interagire: risposte, menzioni, "
                 "reazioni e tempo passato insieme in vocale. La barra blu conta solo "
@@ -205,8 +205,8 @@ def costruisci(
             ),
         ),
         Domanda(
-            "d-parole",
-            TITOLI["d-parole"],
+            "q-barre",
+            TITOLI["q-barre"],
             con(
                 "Per leggibilità. In un gruppo di poche persone un numero esatto "
                 "(«1 su 14») fa pensare subito a qualcuno in particolare, e non dice "

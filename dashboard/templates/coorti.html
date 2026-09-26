@@ -38,7 +38,7 @@ ancora nessuna coorte da leggere.</p>
     {%- if vista.k is not none %} con almeno {{ vista.k }} persone diverse{% else %} con altre persone{% endif %}.</p>
     <p class="coorti-contesto">Conta solo chi è entrato dopo l'arrivo del bot
     ({{ vista.arrivo }}).{% if vista.frase_osservazione %} {{ vista.frase_osservazione }}{% endif %}
-    <a href="{{ domande }}#d-leggibile">{{ titoli_domande["d-leggibile"] }}</a></p>
+    <a href="{{ domande }}#q-coorte-leggibile">{{ titoli_domande["q-coorte-leggibile"] }}</a></p>
   </div>
   <aside class="coorti-legenda" aria-labelledby="coorti-legenda-titolo">
     <p class="coorti-legenda__titolo" id="coorti-legenda-titolo">Come si leggono le barre</p>
@@ -129,8 +129,8 @@ ancora nessuna coorte da leggere.</p>
 </div>
 
 <p class="coorti-nota">Le barre mostrano una proporzione approssimata; i numeri esatti
-sono nei dettagli tecnici. <a href="{{ domande }}#d-parole">{{ titoli_domande["d-parole"] }}</a>
-· <a href="{{ domande }}#d-vocale">{{ titoli_domande["d-vocale"] }}</a></p>
+sono nei dettagli tecnici. <a href="{{ domande }}#q-barre">{{ titoli_domande["q-barre"] }}</a>
+· <a href="{{ domande }}#q-vocale">{{ titoli_domande["q-vocale"] }}</a></p>
 {% else %}
 <p class="frase-vuota">Dall'arrivo del bot fino all'ultimo calcolo nessuna settimana ha
 ancora un gruppo di ingressi: non c'è ancora nessuna coorte da leggere.</p>

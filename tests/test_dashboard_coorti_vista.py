@@ -462,7 +462,7 @@ def test_la_barra_blu_puo_superare_l_arancio_e_le_domande_non_lo_negano():
     assert a.is_significant is True
     assert (a.reached_by_28d, v.reached_by_28d) == (None, 1.0)
 
-    risposta = next(d for d in domande.costruisci(1, None, privacy_url="x") if d.codice == "d-vocale")
+    risposta = next(d for d in domande.costruisci(1, None, privacy_url="x") if d.codice == "q-vocale")
     testo = " ".join(risposta.paragrafi)
     assert "mai più lunga" not in testo and "non supera" not in testo
 
@@ -592,7 +592,7 @@ def test_i_testi_in_ordine_e_i_rimandi_alle_domande(dashboard):
     assert posizioni == sorted(posizioni)
 
     rimandi = re.findall(rf'href="/guilds/{GUILD_SCALE}/domande#([\w-]+)"', html)
-    assert rimandi == ["d-leggibile", "d-parole", "d-vocale"]
+    assert rimandi == ["q-coorte-leggibile", "q-barre", "q-vocale"]
     # I Dettagli tecnici restano raggiungibili solo dalle Domande.
     assert "dettagli-tecnici" not in _main(html)
 
@@ -611,16 +611,16 @@ def test_la_legenda_ha_i_tre_colori_e_le_tre_lunghezze():
 
 def test_le_tre_domande_nuove_e_il_titolo_nuovo(dashboard):
     html = unescape(dashboard.get(f"/guilds/{GUILD_TODAY}/domande").text)
-    for codice in ("d-leggibile", "d-vocale", "d-parole"):
+    for codice in ("q-coorte-leggibile", "q-vocale", "q-barre"):
         assert f'<details id="{codice}" open>' in html
     assert domande.TITOLI["q-segnate"] == "Perché le coorti partono dall'arrivo del bot?"
-    blocco = html[html.index('id="d-leggibile"'):html.index('id="d-vocale"')]
+    blocco = html[html.index('id="q-coorte-leggibile"'):html.index('id="q-vocale"')]
     assert "almeno 14 giorni dall'ingresso dell'ultimo arrivato" in blocco
 
 
 def test_d_parole_non_promette_protezione_della_privacy_e_porta_ai_dettagli(dashboard):
     html = unescape(dashboard.get(f"/guilds/{GUILD_TODAY}/domande").text)
-    blocco = html[html.index('id="d-parole"'):]
+    blocco = html[html.index('id="q-barre"'):]
     blocco = blocco[:blocco.index("</details>")].lower()
     for parola in ("privacy", "proteg", "anonim", "riservat"):
         assert parola not in blocco, parola

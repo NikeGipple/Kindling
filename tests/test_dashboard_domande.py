@@ -32,7 +32,7 @@ from dashboard import config, domande, regole
 from dashboard.main import SITO_PUBBLICO, crea_app
 from job.config import MetricParams
 from tests.sessione_dashboard import OAUTH_DI_TEST, client_autenticato
-from tools.fixture_api import GUILD_EDGE, GUILD_MATURE, GUILD_TODAY
+from tools.fixture_api import GUILD_EDGE, GUILD_MATURE, GUILD_SCALE, GUILD_TODAY
 from tools.fixture_api import app as fixture_app
 
 PARAMS_COMPLETI = MetricParams().as_run_params()
@@ -126,6 +126,31 @@ def test_le_soglie_citate_vengono_da_params_e_spariscono_se_mancano():
     assert len(senza) == len(complete)
     assert "La soglia è" not in " ".join(senza[0].paragrafi)
     assert senza[0].paragrafi  # la risposta non sparisce con la soglia
+
+
+def test_ogni_ancora_di_ogni_pagina_esiste_fra_le_domande(dashboard):
+    """Ogni rimando a /domande#... scritto in una pagina atterra su un id vero.
+
+    Un id rinominato a meta' non da' nessun errore: il link porta in cima alla
+    pagina, e chi ci arriva non sa di aver perso la risposta. E' successo quasi il
+    26/09/2026, quando le tre domande di Coorti hanno cambiato prefisso prima del
+    deploy. Il controllo di Stato (test_dashboard_stato.py) guardava solo Stato;
+    questo guarda tutte le pagine che rimandano, su tutte le guild del fixture —
+    Coorti in particolare, i cui rimandi cambiano con i dati (l'avviso, la nota).
+    """
+    viste = ("", "/robustezza", "/community", "/coorti", "/dettagli-tecnici")
+    trovate: set[str] = set()
+    for gid in (GUILD_TODAY, GUILD_MATURE, GUILD_EDGE, GUILD_SCALE):
+        ids = set(re.findall(r'<details id="([\w-]+)"', dashboard.get(f"/guilds/{gid}/domande").text))
+        assert ids == set(domande.TITOLI), gid
+        for vista in viste:
+            html = dashboard.get(f"/guilds/{gid}{vista}").text
+            for ancora in re.findall(rf'href="/guilds/{gid}/domande#([\w-]+)"', html):
+                assert ancora in ids, (gid, vista or "stato", ancora)
+                trovate.add(ancora)
+    # Il test non deve passare perche' non ha trovato niente da controllare: i tre
+    # rimandi di Coorti e quelli di Stato devono esserci davvero.
+    assert {"q-coorte-leggibile", "q-vocale", "q-barre", "q-segnate"} <= trovate
 
 
 def test_senza_run_le_domande_si_rendono_lo_stesso():
