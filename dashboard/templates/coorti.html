@@ -26,13 +26,13 @@
 <h1>Coorti</h1>
 
 {% if vista.vuota %}
-<p class="guida">Chi entra nel server riesce a integrarsi, e rimane?</p>
+<p class="guida guida--vista">Chi entra nel server riesce a integrarsi, e rimane?</p>
 <p class="frase-vuota">Il calcolo non è ancora girato per questo server: non esiste
 ancora nessuna coorte da leggere.</p>
 {% else %}
 <div class="coorti-intro">
   <div class="coorti-intro__testo">
-    <p class="guida">Chi entra nel server riesce a integrarsi, e rimane? Kindling
+    <p class="guida guida--vista">Chi entra nel server riesce a integrarsi, e rimane? Kindling
     raggruppa chi è entrato nella stessa settimana — una <em>coorte</em> — e per ogni
     gruppo guarda due cose: quanti sono ancora presenti, e quanti iniziano a interagire
     {%- if vista.k is not none %} con almeno {{ vista.k }} persone diverse{% else %} con altre persone{% endif %}.</p>

@@ -40,6 +40,7 @@ from api.models import (
     RobustnessRow,
     RunRow,
 )
+from . import coorti as _coorti
 from . import domande as _domande
 from . import regole as _regole
 
@@ -426,18 +427,31 @@ def _ultimo_snapshot(righe: Sequence[Any]) -> list[Any]:
     return [r for r in righe if (r.as_of, r.snapshot_id) == massimo]
 
 
-def _qualita_coorti(gruppi: Sequence[CohortGroup]) -> list[Quality]:
-    """Tutte le righe di un gruppo di coorte contano: onboarding e retention.
+def _qualita_coorti(gruppi: Sequence[CohortGroup], ancora: datetime) -> list[Quality]:
+    """Le righe che la vista Coorti mostra, e solo quelle: onboarding e retention.
 
-    Sono cinque righe per coorte con ``quality`` propri, e leggerne una sola
-    sarebbe scegliere quale delle due domande della vista rappresenta lo stato
-    dell'altra (dashboard.md §4, "Coorti non si divide").
+    **Le stesse coorti della vista**, prese da ``coorti.gruppi_visibili`` e non da
+    una copia della condizione: posteriori all'arrivo del bot, al piu' dodici.
+    Fino al 26/09/2026 qui contavano tutte le coorti dello snapshot, anteriori
+    comprese — diciassette su venticinque in produzione — e la pillola poteva dire
+    "con cautela" di una vista che mostrava solo righe sotto la soglia.
+
+    Tutte le righe di un gruppo contano: sono cinque righe per coorte con
+    ``quality`` propri, e leggerne una sola sarebbe scegliere quale delle due
+    domande della vista rappresenta lo stato dell'altra (dashboard.md §4, "Coorti
+    non si divide"). Il massimo per ``(as_of, snapshot_id)`` lo sceglie
+    ``coorti.costruisci``, con lo stesso ordinamento di ``_ultimo_snapshot``.
     """
-    return [q for g in gruppi for r in (*g.onboarding, *g.retention) for q in (r.quality,)]
+    return [
+        r.quality
+        for g in _coorti.gruppi_visibili(gruppi, ancora)
+        for r in (*g.onboarding.values(), *g.retention.values())
+    ]
 
 
 def _letture(
     guild_id: int,
+    ancora: datetime,
     robustness: Sequence[RobustnessRow],
     communities: Sequence[CommunityRow],
     cohorts: Sequence[CohortGroup],
@@ -465,7 +479,7 @@ def _letture(
             "Coorti",
             "coorti",
             "Chi entra nello stesso periodo: si lega agli altri, e resta?",
-            _qualita_coorti(_ultimo_snapshot(cohorts)),
+            _qualita_coorti(cohorts, ancora),
             "q-segnate",
         ),
     )
@@ -633,7 +647,7 @@ def costruisci(
         calendario=_calendario(
             inizio, [giorno(r.as_of) for r in runs], oggi, prossimo
         ),
-        letture=_letture(guild.guild_id, robustness, communities, cohorts),
+        letture=_letture(guild.guild_id, guild.first_seen_at, robustness, communities, cohorts),
         regole=_regole.costruisci(
             ultima.params if ultima is not None else None,
             ultima.graph_params if ultima is not None else None,

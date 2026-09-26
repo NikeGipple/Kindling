@@ -552,6 +552,23 @@ def anteriore_all_ancora(gruppo: Gruppo, ancora: datetime) -> bool:
     return gruppo.cohort_start < _giorno_utc(ancora)
 
 
+def posteriori(vista: Vista, ancora: datetime) -> list[Gruppo]:
+    """Le coorti di ``vista`` posteriori all'arrivo del bot, dalla piu' recente.
+
+    L'UNICO posto in cui si decide quali coorti la vista Coorti prende in
+    considerazione. Lo usano la pagina e la pillola di Coorti in Stato
+    (``gruppi_visibili``): fino al 26/09/2026 Stato leggeva tutte le coorti dello
+    snapshot, anteriori comprese, e le due pagine potevano dire cose diverse
+    sulla stessa settimana senza nessun errore (CLAUDE.md 7).
+    """
+    return [g for g in vista.gruppi if not anteriore_all_ancora(g, ancora)]
+
+
+def gruppi_visibili(gruppi: Sequence[CohortGroup], ancora: datetime) -> list[Gruppo]:
+    """Le righe che la vista Coorti mostra davvero: posteriori, al piu' ``COORTI_VISIBILI``."""
+    return posteriori(costruisci(list(gruppi)), ancora)[:COORTI_VISIBILI]
+
+
 def calcolo_che_vede(
     as_of: datetime, giorni: int, cadenza: Optional[timedelta]
 ) -> Optional[datetime]:
@@ -770,12 +787,10 @@ def pagina(
     cadenza = _stato.cadenza_osservata(runs)
     as_of = tecnica_.snapshot.as_of
 
-    posteriori = [
-        g for g in tecnica_.gruppi if not anteriore_all_ancora(g, guild.first_seen_at)
-    ]
-    orizzonti_presenti = tuple(sorted({h for g in posteriori for h in g.retention}))
+    dopo = posteriori(tecnica_, guild.first_seen_at)
+    orizzonti_presenti = tuple(sorted({h for g in dopo for h in g.retention}))
     orizzonti_integra = orizzonti_integrazione()
-    ambiti = tuple(a for a in AMBITI if any(a in g.onboarding for g in posteriori))
+    ambiti = tuple(a for a in AMBITI if any(a in g.onboarding for g in dopo))
 
     # Gia' dalla piu' recente: costruisci() ordina per cohort_start DESC.
     tutte = [
@@ -784,12 +799,12 @@ def pagina(
             soglia=soglia, orizzonti_presenti=orizzonti_presenti,
             orizzonti_integra=orizzonti_integra, ambiti=ambiti,
         )
-        for g in posteriori
+        for g in dopo
     ]
     return Pagina(
         vuota=False,
         arrivo=_stato.data_estesa(guild.first_seen_at),
-        k=_k(posteriori),
+        k=_k(dopo),
         giorni_maturita=giorni_maturita,
         frase_osservazione=_frase_osservazione(giorni_maturita),
         aggiornati_a=_stato.data_estesa(as_of, con_giorno=True),

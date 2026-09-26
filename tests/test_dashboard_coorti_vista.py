@@ -660,3 +660,88 @@ def test_la_rotta_chiede_guild_run_e_coorti():
             assert client.get(f"/guilds/{GUILD_TODAY}/coorti").status_code == 200
     assert sorted(richieste) == sorted([
         f"/guilds/{GUILD_TODAY}", f"/guilds/{GUILD_TODAY}/runs", f"/guilds/{GUILD_TODAY}/cohorts"])
+
+
+# --- la pillola di Coorti in Stato guarda le stesse righe della vista ---------
+
+
+def _attesa(vista: coorti.Pagina) -> str:
+    """La pillola che la vista Coorti giustifica, da quello che mostra davvero."""
+    from dashboard import stato
+
+    if not vista.righe:
+        return stato.IN_RACCOLTA
+    if all(r.stato == coorti.SOTTO_SOGLIA for r in vista.righe):
+        return stato.SOTTO_SOGLIA
+    if any(r.stato == coorti.LEGGIBILE for r in vista.righe):
+        return stato.LEGGIBILE
+    return stato.CON_CAUTELA
+
+
+def _pillola(gruppi, guild) -> str:
+    from dashboard import stato
+
+    lettura = next(
+        l for l in stato._letture(guild.guild_id, guild.first_seen_at, [], [], gruppi)
+        if l.nome == "Coorti"
+    )
+    return lettura.stato
+
+
+def test_la_pillola_di_coorti_in_stato_dice_quello_che_la_vista_mostra():
+    """Stato e la vista Coorti leggono le stesse righe: ``coorti.gruppi_visibili``.
+
+    Fino al 26/09/2026 Stato contava tutte le coorti dello snapshot, anteriori
+    all'arrivo del bot comprese. Sul fixture le pillole coincidevano per caso;
+    i casi costruiti sotto sono quelli in cui non coincidevano.
+    """
+    for gid in GUILDS:
+        s = SCENARIOS[gid]
+        gruppi = _ultimo(gid)
+        assert _pillola(gruppi, s["guild"]) == _attesa(_pagina(gruppi, gid)), gid
+
+    guild = SCENARIOS[GUILD_SCALE]["guild"]
+    tutte = _ultimo(GUILD_SCALE)
+    ancora = guild.first_seen_at.date()
+    anteriori = [g for g in tutte if g.cohort_start < ancora]
+    soppresse_dopo = [g for g in tutte if g.cohort_start >= ancora and g.onboarding[0].quality.suppressed]
+
+    casi = {
+        # Solo coorti anteriori: la vista non mostra niente. Prima Stato diceva
+        # "con cautela" (le diciassette di soli sopravvissuti).
+        "solo anteriori": (anteriori, "in_raccolta"),
+        # Anteriori pubblicate piu' posteriori soppresse: la vista mostra solo
+        # righe sotto la soglia. Prima: "con cautela".
+        "anteriori + soppresse": (anteriori + soppresse_dopo, "sotto_soglia"),
+        "nessuna coorte": ([], "in_raccolta"),
+    }
+    for nome, (gruppi, attesa) in casi.items():
+        assert _attesa(_pagina(gruppi, GUILD_SCALE)) == attesa, nome
+        assert _pillola(gruppi, guild) == attesa, nome
+
+
+def test_la_pillola_guarda_solo_le_dodici_righe_visibili():
+    """Una coorte leggibile oltre la dodicesima non si vede, e non accende la pillola."""
+    as_of = datetime(2026, 9, 14, tzinfo=UTC)
+    ancora = datetime(2026, 5, 1, tzinfo=UTC)
+    snapshot = [as_of - timedelta(weeks=k) for k in range(30)]
+    membri = []
+    for settimane in range(1, 17):
+        membri += _membri_generati((as_of - timedelta(weeks=settimane)).date(), 8,
+                                   snapshot_as_of=snapshot, seme=settimane, ore_ultimo=20)
+    gruppi = _coorti(700, as_of, membri, ancora=ancora, snapshot_as_of=snapshot)
+    guild = SCENARIOS[GUILD_SCALE]["guild"].model_copy(update={"first_seen_at": ancora})
+    visibili = {g.cohort_start for g in coorti.gruppi_visibili(gruppi, ancora)}
+    assert len(visibili) == 12
+    # Nelle dodici visibili, tutte le leggibili diventano non significative: la
+    # pillola deve seguire la vista, non le quattro coorti piu' vecchie.
+    finte = [g.model_copy(deep=True) for g in gruppi]
+    for g in finte:
+        if g.cohort_start in visibili:
+            for r in g.onboarding:
+                r.quality.significant = False
+                r.quality.is_mature = False
+    assert any(g.onboarding[0].quality.significant is True for g in finte)
+    runs = [RunRow(snapshot_id=700, as_of=as_of, params=MetricParams().as_run_params())]
+    assert _attesa(coorti.pagina(finte, guild, runs)) == "con_cautela"
+    assert _pillola(finte, guild) == "con_cautela"

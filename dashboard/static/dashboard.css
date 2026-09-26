@@ -173,7 +173,13 @@ a:hover { color: var(--testo); }
    portarle a 16 e' un lavoro a se', che si misura sulle viste e non qui.
    Tutto il resto della dashboard — testata, piede, pagine d'accesso, elenco,
    errori — sta a 16px/1.6 come la home. */
-main.vista { font-size: 15px; line-height: 1.5; }
+/* --misura-vista e' la misura del testo corrente delle viste per
+   l'amministratore: introduzione di Stato e di Coorti, avviso e nota di Coorti.
+   Una variabile sola, cosi' le due viste finiscono allo stesso bordo. Sta qui e
+   non in :root, che per regola (tests/test_dashboard_statici.py) contiene i soli
+   colori dei due temi; e non la prende .guida da sola, che e' anche l'apertura
+   di Domande e Dettagli tecnici — lo decide .guida--vista. */
+main.vista { font-size: 15px; line-height: 1.5; --misura-vista: 44.5rem; }
 
 /* --- la cornice del sito ------------------------------------------------ */
 /* Marchio, menu a schede, contesto del server, piede. Geometria della landing:
@@ -473,14 +479,13 @@ pre { background: var(--grigio-fondo); padding: .75rem; overflow-x: auto; margin
    markup (dashboard.md 4). Niente style="": la CSP non ha 'unsafe-inline', e le
    larghezze delle barre sono sette classi. */
 
-/* Introduzione, avviso e nota condividono una misura sola. */
-.coorti-vista { --misura-coorti: 44.5rem; }
-.coorti-vista .guida, .coorti-contesto, .coorti-avviso, .coorti-nota {
-  max-width: var(--misura-coorti); }
+/* Introduzione, avviso e nota condividono una misura sola: --misura-vista, la
+   stessa dell'introduzione di Stato. */
+.coorti-contesto, .coorti-avviso, .coorti-nota { max-width: var(--misura-vista); }
 .coorti-contesto { color: var(--tenue); font-size: .92rem; margin: .9rem 0 0; }
 .coorti-nota { color: var(--tenue); font-size: .88rem; margin: .75rem 0 0; }
 /* p.avviso ha gia' la sua misura (68ch): qui vince quella della vista. */
-p.avviso.coorti-avviso { max-width: var(--misura-coorti); margin-top: 1.25rem; }
+p.avviso.coorti-avviso { max-width: var(--misura-vista); margin-top: 1.25rem; }
 
 /* La legenda a destra dell'introduzione, e sotto di lei sotto i 56rem: e' la
    larghezza a cui la colonna di testo scenderebbe sotto una riga leggibile. */
@@ -600,6 +605,10 @@ p.avviso.coorti-avviso { max-width: var(--misura-coorti); margin-top: 1.25rem; }
    pagina di servizio: questo dice a chi legge di cosa parla la pagina, e ha la
    misura di riga di un testo da leggere. */
 .guida { color: var(--tenue); margin: 0 0 .5rem; max-width: 62ch; }
+/* L'introduzione di Stato e di Coorti: la misura comune delle due viste, al posto
+   dei 62ch. Un modificatore e non .guida stessa, perche' Domande e Dettagli
+   tecnici aprono con la stessa classe e restano a 62ch. */
+.guida.guida--vista { max-width: var(--misura-vista); }
 
 /* I fatti in cima. auto-fit e non tre colonne fisse: senza run il fatto e' uno
    solo, e due riquadri vuoti accanto sembrerebbero un dato mancante invece di

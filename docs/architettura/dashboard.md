@@ -428,6 +428,20 @@ quello dei `sizes[]`: la soppressione dei bucket è secondaria (`api/models.py`,
 `CommunitySizeBucket`), e un bucket soppresso accanto a una riga pubblicata non
 è «la vista non si legge».
 
+**Per Coorti, le righe sono quelle che la vista mostra (26/09/2026).** Dalla
+riscrittura di Coorti la vista esclude le coorti anteriori all'arrivo del bot e ne
+mostra al più dodici; Stato invece continuava a leggere tutte le coorti dello
+snapshot, e in produzione diciassette su venticinque erano anteriori. Sul fixture
+le pillole coincidevano per caso; con sole coorti anteriori Stato avrebbe detto
+«con cautela» di una vista vuota. Ora le righe arrivano da
+`coorti.gruppi_visibili`, la stessa funzione della vista — non una copia della
+condizione — e `tests/test_dashboard_coorti_vista.py` confronta la pillola con
+ciò che la vista mostra, su ogni guild del fixture e sui casi in cui le due
+avevano divergito. La corrispondenza resta quella della tabella sopra; l'unica
+differenza con gli stati di riga della vista è difensiva: una coorte con righe
+discordi e `significant` vero accende «leggibile» in Stato mentre la vista la
+mostra come discorde, senza barre.
+
 **Le regole del calcolo: i valori vengono da `params` della run.** Non da
 `job/config.py`, e la differenza non è di stile — `params` è ciò con cui *quei*
 numeri sono stati calcolati, `job/config.py` è ciò con cui verrebbero calcolati
@@ -1295,8 +1309,11 @@ data è il testo stesso della cella, non l'etichetta di un punto su un asse.
 schermo largo e scende sotto l'introduzione sotto i 56rem. Due gruppi: *il
 colore dice cosa si misura* (presenti, si integrano in qualunque modo, si
 integrano in vocale) e *la lunghezza dice quanti* (nessuno, circa metà, tutti).
-Introduzione, avviso e nota condividono una variabile di larghezza sola
-(`--misura-coorti`).
+Introduzione, avviso e nota condividono una variabile di larghezza sola,
+`--misura-vista` (44,5rem), la stessa dell'introduzione di Stato: le due viste
+finiscono allo stesso bordo. Domande e Dettagli tecnici aprono con la stessa
+classe `.guida` e restano a 62ch — la misura comune la porta il modificatore
+`.guida--vista`, non la classe.
 
 **Colori.** Grigio (`--tenue`) per «presenti», arancio (`--brace`) per `any`, e
 un token nuovo, `--integra-voce`, per `voice`: `#1f4478` in chiaro, `#b4d0f5`
