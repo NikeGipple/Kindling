@@ -324,7 +324,9 @@ body:has(header.sito nav.servizio) main li { max-width: none; }
    elenco si trovano. */
 .fatti { list-style: none; padding: 0; margin: 1.25rem 0 2rem; }
 .fatti li { margin-bottom: .7rem; color: var(--tenue); }
-.fatti strong { color: var(--testo); font-weight: 600; }
+/* Il termine e' il titolo della voce, e la frase che segue ne e' la risposta:
+   va a capo sotto di lui invece di continuare sulla stessa riga. */
+.fatti strong { display: block; color: var(--testo); font-weight: 600; }
 
 h3 { font-size: 1rem; margin: 1.25rem 0 .25rem; }
 h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
