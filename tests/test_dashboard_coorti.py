@@ -1,4 +1,9 @@
-"""Vista Coorti: le regole si verificano sul MARKUP, come per Robustezza e Community.
+"""La tabella tecnica delle coorti: le regole si verificano sul MARKUP.
+
+Fino al 26/09/2026 questa tabella era la vista Coorti; oggi la vista parla a chi
+amministra il server (``tests/test_dashboard_coorti_vista.py``) e la tabella sta,
+identica, nei Dettagli tecnici — divisa in due, dopo e prima dell'arrivo del bot.
+Le regole che questo file verifica valgono per lei come valevano allora.
 
 Quello che qui non si puo' verificare altrove: il GRUPPO. Cinque righe dell'API
 (due ambiti di onboarding, tre orizzonti di retention) diventano una riga di
@@ -85,10 +90,21 @@ def _gruppi(api, guild_id: int, limit: int = DEFAULT_COHORTS_LIMIT) -> list[Coho
     return TypeAdapter(list[CohortGroup]).validate_json(risposta.content)
 
 
-def _rendi(gruppi: list[CohortGroup], guild_id: int = 1) -> str:
-    return crea_templates().get_template("coorti.html").render(
-        **cornice(guild_id=guild_id, vista=coorti.costruisci(gruppi), vista_corrente="coorti")
-    )
+def _rendi(gruppi: list[CohortGroup], guild_id: int = GUILD_SCALE) -> str:
+    """La pagina dei Dettagli tecnici con le sole coorti di ``gruppi``.
+
+    L'ancora e i params sono quelli dello scenario e della run che ha scritto
+    quei gruppi: la tabella si divide sull'arrivo del bot, e la maturita' dice
+    "su 14" solo se ``min_observation_days`` e' nei params.
+    """
+    scenario = SCENARIOS[guild_id]
+    snapshot = gruppi[0].snapshot_id if gruppi else None
+    params = next((r.params for r in scenario["runs"] if r.snapshot_id == snapshot), None)
+    return crea_templates().get_template("dettagli_tecnici.html").render(**cornice(
+        guild_id=guild_id, ultima=None, storico=[], aree=(),
+        coorti=coorti.tecnica(gruppi, scenario["guild"].first_seen_at, params),
+        vista_corrente="dettagli",
+    ))
 
 
 def _dello_snapshot(guild_id: int, snapshot_id: int) -> list[CohortGroup]:
@@ -123,11 +139,11 @@ def _etichette(tr: Nodo) -> set[str]:
     }
 
 
-def _tabella(html: str) -> Nodo:
-    """Il corpo della tabella. I controlli sul markup si fanno QUI, non sul testo
-    della pagina: i nomi delle classi compaiono anche nel CSS di ``base.html``, e
-    un ``in html`` li troverebbe li' senza che nessuna riga li porti."""
-    return next(_albero(html).radice.trova("table", classe="tabella-coorti"))
+def _tabelle(html: str) -> list[Nodo]:
+    """Le tabelle delle coorti: due nei Dettagli tecnici, dopo e prima
+    dell'arrivo del bot. I controlli sul markup si fanno QUI, non sul testo della
+    pagina, che contiene anche prosa e commenti."""
+    return list(_albero(html).radice.trova("table", classe="tabella-coorti"))
 
 
 def _pagine(api) -> list[tuple[str, int, list[CohortGroup], str]]:
@@ -200,7 +216,8 @@ def test_nessun_gruppo_dichiara_divergenze(api):
     restare inerte finche' il job si comporta come si comporta.
     """
     for nome, _gid, _gruppi_resi, html in _pagine(api):
-        assert not list(_tabella(html).trova("tr", classe="riga-divergenza")), nome
+        for tabella in _tabelle(html):
+            assert not list(tabella.trova("tr", classe="riga-divergenza")), nome
     for gid in GUILDS:
         vista = coorti.costruisci(SCENARIOS[gid]["cohorts"])
         assert all(g.divergenze == () for g in vista.gruppi), gid
@@ -622,14 +639,20 @@ def test_la_vista_chiede_sempre_uno_snapshot_solo():
 
     def risponde(request: httpx.Request) -> httpx.Response:
         richieste.append(request)
+        if request.url.path == f"/guilds/{GUILD_TODAY}":
+            return httpx.Response(200, json={
+                "guild_id": GUILD_TODAY, "first_seen_at": "2026-08-28T00:00:00Z"})
         return httpx.Response(200, json=[])
 
-    with _client(httpx.MockTransport(risponde)) as client:
-        assert client.get(f"/guilds/{GUILD_TODAY}/coorti").status_code == 200
-
-    assert len(richieste) == 1
-    assert richieste[0].url.path == f"/guilds/{GUILD_TODAY}/cohorts"
-    assert richieste[0].url.params["limit"] == "1"
+    # Le due pagine che chiedono le coorti: la vista e i Dettagli tecnici.
+    for pagina in ("coorti", "dettagli-tecnici"):
+        richieste.clear()
+        with _client(httpx.MockTransport(risponde)) as client:
+            assert client.get(f"/guilds/{GUILD_TODAY}/{pagina}").status_code == 200
+        coorti_chieste = [r for r in richieste if r.url.path.endswith("/cohorts")]
+        assert len(coorti_chieste) == 1, pagina
+        assert coorti_chieste[0].url.path == f"/guilds/{GUILD_TODAY}/cohorts"
+        assert coorti_chieste[0].url.params["limit"] == "1"
     # E il default sta nella firma, dove si legge: non nel server.
     assert inspect.signature(ApiClient.cohorts).parameters["limit"].default == 1
 
@@ -637,9 +660,10 @@ def test_la_vista_chiede_sempre_uno_snapshot_solo():
 def test_la_rotta_risponde_e_la_navigazione_porta_a_coorti(dashboard):
     risposta = dashboard.get(f"/guilds/{GUILD_SCALE}/coorti")
     assert risposta.status_code == 200
-    albero = _albero(risposta.text).radice
+    # Il solo menu: la vista ha anche i rimandi alle Domande, che non sono voci.
+    menu = next(_albero(risposta.text).radice.trova("nav", classe="viste"))
     voci = [(_testo(a), a.attrs.get("href"), a.attrs.get("aria-current"))
-            for a in albero.trova("a") if "/guilds/" in (a.attrs.get("href") or "")]
+            for a in menu.trova("a") if "/guilds/" in (a.attrs.get("href") or "")]
     assert voci == [
         ("Stato", f"/guilds/{GUILD_SCALE}", None),
         ("Robustezza", f"/guilds/{GUILD_SCALE}/robustezza", None),
@@ -655,10 +679,15 @@ def test_le_tre_assenze_hanno_tre_pagine_diverse(dashboard):
     """Guild mai vista, guild senza snapshot, API che non risponde: tre cose diverse."""
     assert dashboard.get("/guilds/123456789/coorti").status_code == 404
 
-    vuota = crea_templates().get_template("coorti.html").render(
-        **cornice(guild_id=1, vista=coorti.costruisci([]), vista_corrente="coorti"))
+    guild = SCENARIOS[GUILD_TODAY]["guild"]
+    vuota = crea_templates().get_template("coorti.html").render(**cornice(
+        guild_id=1, vista=coorti.pagina([], guild, []), vista_corrente="coorti"))
     assert list(_albero(vuota).radice.trova("p", classe="frase-vuota"))
     assert not list(_albero(vuota).radice.trova("table"))
+    # E nei Dettagli tecnici la sezione delle coorti lo dice a parole sue.
+    senza = _rendi([], GUILD_TODAY)
+    assert "Nessuna coorte calcolata" in senza
+    assert not _tabelle(senza)
 
     def rotta(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("nessuna rete")
@@ -682,9 +711,10 @@ def test_details_non_si_legge_mai_in_questa_vista():
                if isinstance(n, ast.Attribute) and n.attr == "details"]
     assert accessi == []
 
-    template = open(coorti.__file__.replace("coorti.py", "templates/coorti.html"),
-                    encoding="utf-8").read()
-    # Senza i commenti Jinja, che dicono la stessa cosa a parole.
-    codice = re.sub(r"\{#.*?#\}", "", template, flags=re.S)
-    assert not re.search(r"\.details\b", codice)
-    assert "not_significant_because" not in codice
+    for nome in ("coorti.html", "_coorti_tecnica.html"):
+        template = open(coorti.__file__.replace("coorti.py", f"templates/{nome}"),
+                        encoding="utf-8").read()
+        # Senza i commenti Jinja, che dicono la stessa cosa a parole.
+        codice = re.sub(r"\{#.*?#\}", "", template, flags=re.S)
+        assert not re.search(r"\.details\b", codice), nome
+        assert "not_significant_because" not in codice, nome

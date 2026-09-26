@@ -60,7 +60,7 @@ def _corpo_domande(html: str) -> str:
 # --- la pagina Domande --------------------------------------------------------
 
 
-def test_le_nove_domande_hanno_un_id_stabile_e_sono_aperte(dashboard):
+def test_ogni_domanda_ha_un_id_stabile_ed_e_aperta(dashboard):
     html = dashboard.get(f"/guilds/{GUILD_TODAY}/domande").text
     corpo = _corpo_domande(html)
 
@@ -69,7 +69,7 @@ def test_le_nove_domande_hanno_un_id_stabile_e_sono_aperte(dashboard):
     # Aperte, e non e' una svista: senza JavaScript non esiste un modo di aprire
     # quella raggiunta da un'ancora, e un rimando che atterra su una risposta
     # invisibile fallisce proprio nel compito per cui gli id esistono.
-    assert corpo.count("<details") == corpo.count(" open>") == 9
+    assert corpo.count("<details") == corpo.count(" open>") == len(domande.TITOLI)
     # Ogni domanda ha almeno un paragrafo: un <details> vuoto sarebbe una
     # domanda senza risposta, e nessun errore lo direbbe.
     for blocco in corpo.split("<details")[1:]:
@@ -138,7 +138,7 @@ def test_senza_run_le_domande_si_rendono_lo_stesso():
     with client_autenticato(crea_app(api_http=http, oauth=OAUTH_DI_TEST)) as client:
         html = client.get("/guilds/5/domande").text
 
-    assert html.count("<details") == 9
+    assert html.count("<details") == len(domande.TITOLI)
     assert "La soglia è" not in html
 
 
@@ -219,7 +219,8 @@ def test_code_version_assente_si_dice_invece_di_restare_vuota(dashboard):
 
 def test_i_dettagli_senza_run_lo_dicono():
     def api(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("/runs"):
+        # Anche /cohorts, dal 26/09/2026: la pagina porta la tabella delle coorti.
+        if request.url.path.endswith(("/runs", "/cohorts")):
             return httpx.Response(200, json=[])
         return httpx.Response(200, json={"guild_id": 5, "first_seen_at": "2026-08-28T00:00:00Z"})
 
@@ -271,7 +272,10 @@ def test_i_parametri_parziali_di_una_run_non_inventano_le_chiavi_mancanti(dashbo
     # GUILD_MATURE registra tre parametri soli: le aree senza nemmeno una chiave
     # non compaiono, e le chiavi assenti non si prendono da job/config.py.
     html = dashboard.get(f"/guilds/{GUILD_MATURE}/dettagli-tecnici").text
-    aree = re.findall(r"<h3>([^<]*)</h3>", html)
+    # Solo la sezione dei parametri: sotto, dal 26/09/2026, ci sono le coorti con
+    # i loro titoli di terzo livello.
+    parametri = html[html.index("Parametri dell'ultima esecuzione"):html.index('id="coorti"')]
+    aree = re.findall(r"<h3>([^<]*)</h3>", parametri)
 
     assert aree == ["Soppressione", "Coorti", "Calcolabilità"]
     assert "<code>seed</code>" not in html

@@ -11,8 +11,12 @@
     params e stats si mostrano come testo letterale: stats e' diagnostica, non
     contratto (api.md 3), e le sue chiavi non possono diventare etichette ne'
     condizioni. Le chiavi di params sono RAGGRUPPATE, non filtrate: quelle che
-    dashboard/regole.py non conosce finiscono sotto "Altri parametri". -#}
+    dashboard/regole.py non conosce finiscono sotto "Altri parametri".
+
+    In fondo, dal 26/09/2026, la tabella che era la vista Coorti: tutti i numeri,
+    in due tabelle — dopo e prima dell'arrivo del bot (_coorti_tecnica.html). -#}
 {% extends "base.html" %}
+{% from "_coorti_tecnica.html" import tabella %}
 {% block titolo %}Dettagli tecnici · {{ nome_server }}{% endblock %}
 {% block contenuto %}
 <h1>Dettagli tecnici</h1>
@@ -67,5 +71,39 @@ con il codice del job, quindi non diventano etichette né condizioni di questa p
 {% else %}
 <p>Nessuna esecuzione di metriche è ancora stata registrata per questo server: non
 c'è niente da ispezionare. I dettagli compaiono con il primo calcolo settimanale.</p>
+{% endif %}
+
+{#- Fuori dal blocco di ``ultima``: le coorti arrivano da un altro endpoint, e la
+    loro assenza si dice con una frase propria. -#}
+<h2 id="coorti">Coorti — numeri esatti dell'ultimo calcolo</h2>
+{% if coorti.vuota %}
+<p class="frase-vuota">Nessuna coorte calcolata per questo server: il calcolo delle
+metriche non è ancora girato.</p>
+{% else %}
+<p class="nota">Tutte le coorti dell'ultimo snapshot, pubblicate e soppresse, con la
+curva di integrazione per ambito, le censure e la retention per orizzonte. La vista
+Coorti mostra le stesse righe come proporzioni approssimate, e solo quelle posteriori
+all'arrivo del bot.{% if coorti.k is not none %} <strong>Eventi</strong> è quante
+persone della coorte sono arrivate a {{ coorti.k }} connessioni distinte: è il numero
+che dice quanto poggia la mediana accanto.{% endif %}{% if coorti.giorni_maturita is not none %}
+Una coorte è significativa quando ha almeno {{ coorti.giorni_maturita }} giorni di
+osservazione dall'ultimo ingresso, uno snapshot che copre quei giorni, ed è iniziata
+dopo l'arrivo del bot.{% endif %}</p>
+<p class="riepilogo">{{ frase_di_stato(coorti.tutte) }}</p>
+{% if coorti.posteriori.gruppi %}
+<h3>Dopo l'arrivo del bot</h3>
+{{ tabella(coorti.posteriori, coorti.giorni_maturita) }}
+{% endif %}
+{% if coorti.anteriori.gruppi %}
+{#- Marcate: una sezione a sé, con il motivo scritto sopra, perché nessuno le
+    confronti con le righe di sopra come se contassero la stessa popolazione. -#}
+<section class="coorti-anteriori">
+<h3>Prima dell'arrivo del bot</h3>
+<p class="nota">Di chi è entrato prima dell'arrivo del bot Kindling vede solo chi è
+rimasto: queste coorti contano i sopravvissuti, non chi è entrato, e la vista Coorti
+non le mostra. Il job continua a calcolarle, e qui restano visibili a chi le cerca.</p>
+{{ tabella(coorti.anteriori, coorti.giorni_maturita, "tabella-coorti--anteriori") }}
+</section>
+{% endif %}
 {% endif %}
 {% endblock %}

@@ -217,7 +217,7 @@ dashboard e quante righe sono.
 | **Stato** | `/guilds/{id}` + `/guilds/{id}/runs` + le tre serie | 1 + 1 + quelle sotto | `first_seen_at`, `backfilled_at`, `left_at`, `rejoined_at`; `as_of` e `params` delle run; `quality.suppressed` e `quality.significant` delle tre viste. `stats` e `code_version` sono passati ai **Dettagli tecnici** |
 | **Robustezza** | `/guilds/{id}/robustness` | 4 layer × 3 frazioni = **12** | `nodes_removed`, `giant_before`, `giant_after_targeted`, `components_after_targeted`, `giant_after_random_mean/sd`, `targeted_excess`, `targeted_z` |
 | **Community** | `/guilds/{id}/communities` | 4 layer, + 6 classi di dimensione ciascuno | `community_count`, `modularity`, `modularity_z`, `node_overlap`, `stability_jaccard`, `previous_gap_days`, `communities_born/dissolved/merged/split`; `sizes[]` con `bucket`, `community_count`, `member_count` |
-| **Coorti** | `/guilds/{id}/cohorts?limit=1` | per coorte: 2 onboarding + 3 retention, fino a **25** coorti = **125** righe sull'ultimo snapshot | onboarding: `event_count`, `censored_count`, `censored_by_leave`, `median_days_to_k`, `median_reached`, `p25/p75_days_to_k`, `reached_by_14d/28d` — retention: `retained_fraction`, `is_computable`, `not_computable_reason` |
+| **Coorti** | `/guilds/{id}` + `/guilds/{id}/runs` + `/guilds/{id}/cohorts?limit=1` | per coorte: 2 onboarding + 3 retention, fino a **25** coorti = **125** righe sull'ultimo snapshot | onboarding: `event_count`, `censored_count`, `censored_by_leave`, `median_days_to_k`, `median_reached`, `p25/p75_days_to_k`, `reached_by_14d/28d` — retention: `retained_fraction`, `is_computable`, `not_computable_reason` |
 
 Parametri che fissano quei conteggi, da `job/config.py`: layer `voice / reply /
 mention / reaction`; frazioni di rimozione `0,05 / 0,10 / 0,20`; `layer_scope`
@@ -522,6 +522,33 @@ rimanda («prima dell'arrivo del bot — la data è in cima a Stato»); dove ser
 soglia si legge da `params`, con la stessa regola di Stato: chiave mancante,
 frase che non compare.
 
+**Le tre domande della vista Coorti (26/09/2026).** `d-leggibile` («Quando una
+coorte diventa leggibile?»), `d-vocale` («Qual è la differenza fra le due barre
+di «si integrano»?») e `d-parole` («Perché barre e non numeri?»). Il prefisso
+`d-` e non `q-` è quello del mockup approvato, tenuto com'è: gli `id` sono
+indirizzi, e la loro stabilità conta più della loro uniformità. Tre vincoli sulle
+risposte:
+
+- `d-leggibile` cita `min_observation_days` da `params`, con la regola di
+  sempre: chiave mancante, frase senza numero;
+- `d-vocale` **non dice** che la barra blu non supera mai l'arancio: è falso,
+  verificato per esecuzione (§4, «La vista Coorti», ultimo paragrafo della parte
+  nuova). Dice cosa conta ciascuna delle due, e che non si sommano;
+- `d-parole` **non promette protezione della privacy**: i numeri esatti sono
+  nei Dettagli tecnici, a un clic, e una risposta che dicesse «le barre
+  proteggono le persone» sarebbe falsa nello stesso modo della frase del 18/09
+  di `stato-progetto.md` §10. La ragione dichiarata è la leggibilità, e il non
+  far pensare a una persona in particolare davanti a «1 su 14». Porta il link ai
+  Dettagli tecnici: è da qui che la vista ci manda, e la pagina resta
+  raggiungibile solo dalle Domande.
+
+**`q-segnate` cambia titolo e non `id`.** Diventa «Perché le coorti partono
+dall'arrivo del bot?», con una risposta che dice che di chi è entrato prima
+Kindling vede solo chi è rimasto. L'`id` resta `q-segnate` anche se il nome non
+descrive più il contenuto: un indirizzo che cambia è un link che porta in cima
+alla pagina senza nessun errore, e il rimando di Stato prende il testo dalla
+stessa mappa `domande.TITOLI`, quindi si aggiorna da solo.
+
 La prima domanda — *posso vedere un singolo membro?* — nomina il destinatario:
 «in questa dashboard gli amministratori vedono solo gruppi di almeno N membri».
 Non «Kindling non sa chi sei», che sarebbe falso: il bot registra `author_id`
@@ -540,6 +567,18 @@ spiega lo statuto (`api.md` §3: diagnostica, non contratto). Qui i timestamp so
 completi e in UTC, perché qui la domanda è «quale codice ha prodotto questo
 numero, e quando» — e la risposta a quella domanda si confronta con i log, che
 sono in UTC.
+
+**«Coorti — numeri esatti dell'ultimo calcolo» (26/09/2026).** La tabella che
+fino al 26/09 era la vista Coorti, completa e senza tagli: tutte le coorti
+dell'ultimo snapshot, pubblicate e soppresse, entrambi gli ambiti, retention,
+qualificazione ed etichette di riga (§4, «La prima stesura, ora la tabella dei
+Dettagli tecnici»). Il markup è lo stesso — un macro, `_coorti_tecnica.html`,
+estratto dal vecchio template invece che riscritto — e le date restano complete
+come nel resto della pagina. Due tabelle, non una: le coorti **posteriori**
+all'arrivo del bot, e sotto, con un titolo e un filo che le marcano, quelle
+**anteriori**, con lo stesso criterio della vista (flag sulle pubblicate, data
+sulle soppresse). La precisione delle colonne si calcola per tabella, come vuole
+§5. La pagina ora chiede anche `/guilds/{id}` e `/cohorts?limit=1`.
 
 Il raggruppamento dei parametri per area è una **mappa di etichette**
 (`dashboard/regole.py`), non un filtro: una chiave che la mappa non conosce
@@ -1061,6 +1100,243 @@ fixture:
   Robustezza.
 
 ### La vista Coorti, in dettaglio
+
+#### Riscritta il 26/09/2026: la vista per chi amministra il server
+
+La prima stesura (tutto quello che segue da «Le domande a cui risponde sono
+due», più sotto) era una tabella da ventisei colonne scritta per chi conosce il
+modello: `n`, esclusi, censurati, mediana, p25/p75, copertura, maturità. Diceva
+cose vere, a chi ha scritto il job. Come per Stato (§4, «La vista Stato, in
+dettaglio»), il destinatario della dashboard è uno solo — l'amministratore del
+server — e a lui quella tabella non rispondeva alla domanda della vista: **chi
+entra riesce a integrarsi, e rimane?** In produzione (snapshot 13, `as_of`
+21/09/2026) diciassette delle venticinque righe erano coorti anteriori
+all'arrivo del bot, che a quella domanda non possono rispondere affatto.
+
+La tabella non è stata cancellata: è **identica, completa, nei Dettagli
+tecnici** («Coorti — numeri esatti dell'ultimo calcolo», sotto). Tutto ciò che
+questa sezione diceva sul gruppo di cinque righe, sui motivi di non
+significatività, sulla retention e sui casi limite vale ancora, per quella
+tabella. Le sottosezioni da «Le domande a cui risponde sono due» in giù
+descrivono quella, non più la vista.
+
+**Dati.** La rotta chiede tre cose e non una: `/guilds/{id}` per l'ancora di
+osservabilità, `/guilds/{id}/runs` per i parametri della run e per la cadenza
+osservata, `/guilds/{id}/cohorts?limit=1` per le righe. L'ancora è
+`GuildRow.first_seen_at`, lo stesso campo che Stato mostra come «arrivo del
+bot»: non esiste una funzione della dashboard che la ricavi, Stato legge il
+campo e basta, e questa vista fa lo stesso. La cadenza è
+`stato.cadenza_osservata`, la stessa funzione del «Prossimo aggiornamento».
+
+**Solo coorti posteriori all'arrivo del bot.** Di chi è entrato prima, Kindling
+vede solo chi è rimasto: quei numeri non rispondono alla domanda, e restano nei
+Dettagli tecnici, in una tabella a parte. Il filtro ha due forme perché il dato
+ne ha due:
+
+- riga pubblicata → `quality.is_survivors_only is True`;
+- riga soppressa → `suppress()` ha azzerato quel flag, quindi
+  `cohort_start < first_seen_at.date()` (la data in UTC), che è **letteralmente
+  la condizione di `job/cohorts.py::is_survivors_only`**: stessa data, stesso
+  confronto stretto. Verificato che le due forme coincidano su ogni riga
+  pubblicata del fixture.
+
+**Dodici coorti, dalla più recente.** Delle posteriori all'ancora se ne vedono
+le ultime **12** (`coorti.COORTI_VISIBILI`), e nessuna sezione piegata: le più
+vecchie stanno solo nei Dettagli tecnici. Il 12 è una costante *della vista*,
+dichiarata come tale nel codice, non un parametro del job. Conta **righe**, non
+settimane di calendario: una settimana senza nessun ingresso non ha riga nel job
+(`split_cohorts` crea una coorte solo dove c'è un membro), e quindi nemmeno qui.
+
+**Una tabella, una riga per coorte, e ogni riga in uno stato solo.** Lo stato si
+decide in quest'ordine, da campi tipizzati:
+
+| Stato | Condizione | Cosa mostra la riga |
+|---|---|---|
+| **meno di N ingressi** | `quality.suppressed` | Settimana e frase «meno di N ingressi: non mostrata». N è `params["min_cardinality"]`; senza la chiave, la frase non ha il numero |
+| **in osservazione** | `is_mature is not True` | Settimana, persone, «leggibile dal calcolo di &lt;data&gt;». **Nessun numero della curva né della retention**, anche se calcolabile |
+| **leggibile** | `significant is True` | Le cinque celle con le barre (sotto) |
+| **non osservata abbastanza** | matura e `significant` non `True` | Settimana, persone, «Kindling non ha osservato abbastanza questa settimana per leggerla» |
+
+Il quarto stato è il **caso difensivo** che la produzione non ha ancora
+mostrato. Verificato per esecuzione su tutti gli snapshot del fixture: su una
+coorte posteriore all'ancora e pubblicata, `significant` è `False` **solo** per
+`cohort_not_mature` (34 righe) o per `no_snapshot_coverage` (2 righe, la coorte
+del 03/08 di `…004`), mai per altro — `survivors_only_cohort` è escluso dal
+filtro, e `compute_cohort` non ha un quarto motivo. Ma la condizione è scritta
+come «matura e non significativa», non come «senza copertura»: un motivo nuovo
+del job cadrebbe qui da solo, invece di finire per esclusione fra le leggibili.
+
+**Perché le coorti in osservazione non mostrano nessun numero.** La coorte del
+07/09 in produzione, con otto giorni di osservazione, ha `reached_by_14d` e
+`reached_by_28d` a **1,000** con tre eventi su otto: è la coda della curva di
+Kaplan-Meier che va a zero quando l'ultima persona a rischio raggiunge `k`
+(`SurvivalCurve.reached_by`, «la curva resta a zero per costruzione»). Una
+barra «tutti» su quella riga sarebbe il numero più bello della pagina e il meno
+vero. **Limite dichiarato:** la stessa coda può comparire anche su una coorte
+matura, all'orizzonte che eccede l'osservazione — nel fixture la coorte del
+24/08 di `…004`, matura a 14 giorni esatti e significativa, ha
+`reached_by_28d = 1,000` su entrambi gli ambiti. La maturità a 14 giorni non la
+esclude a 28, e questa vista la mostra come «tutti». È una proprietà della
+curva del job, non del rendering: se va disinnescata, è una decisione di
+`modello-metriche.md` §5.
+
+**Le colonne della riga leggibile, e nessun'altra.**
+
+- **Persone** — `n_effective`.
+- **Presenti** (*ancora nel server*) — `retained_fraction` a ogni orizzonte di
+  retention, una barra grigia ciascuno. Gli orizzonti sono gli `horizon_days`
+  delle righe, non una lista scritta nella vista.
+- **Si integrano** (*interagiscono con almeno &lt;k&gt; persone diverse*) —
+  `reached_by_14d` e `reached_by_28d`, due barre per cella: arancio per
+  `layer_scope = any`, blu per `voice`. Gli orizzonti vengono dai nomi dei campi
+  di `OnboardingValues`, cioè dal contratto; `k` è `OnboardingRow.k`.
+
+Niente mediana, p25/p75, censurati, esclusi, copertura, osservazione: stanno nei
+Dettagli tecnici. Un test fallisce se ricompaiono nella vista.
+
+**Le barre mostrano la fascia, non il valore.** I numeri esatti stanno solo nei
+Dettagli tecnici; qui una frazione `f` diventa una di sette fasce, e ogni fascia
+una larghezza fissa (una classe CSS: la CSP vieta `style=""`):
+
+| fascia | condizione | larghezza |
+|---|---|---|
+| nessuno | `f = 0` | 0% |
+| pochissimi | `0 < f < 0,2` | 10% |
+| pochi | `0,2 ≤ f < 0,4` | 30% |
+| circa metà | `0,4 ≤ f ≤ 0,6` | 50% |
+| la maggior parte | `0,6 < f < 0,8` | 70% |
+| quasi tutti | `0,8 ≤ f < 1` | 90% |
+| tutti | `f = 1` | 100% |
+
+Le tacche ai quinti sono lo sfondo della barra. La parola della fascia sta
+nell'`aria-label` della barra, non nel testo visibile.
+
+**La virgola mobile sui bordi, e non solo su 0 e 1.** Il job non arrotonda, e un
+bordo interno arriva spesso *appena sotto* il suo valore: `1 − 0,8` in Python è
+`0,19999999999999996`, e il fixture ha davvero `reached_by_14d =
+0,050000000000000044`. Confrontato così, un quinto esatto finirebbe fra i
+«pochissimi». La frazione si arrotonda quindi a **nove decimali** prima del
+confronto: abbastanza per assorbire l'errore di rappresentazione, troppo pochi
+per spostare una frazione vera — `0,99999` resta «quasi tutti», e nessuna coorte
+ha abbastanza persone perché due frazioni reali distino meno di 10⁻⁹.
+
+**Le celle senza dato su una riga leggibile.**
+
+- **Presenti con `not_computable_reason = 'horizon_not_reached'`** → «dal
+  &lt;data&gt;». Su una coorte matura capita solo a 28 giorni, ma la regola vale
+  per ogni orizzonte.
+- **Si integrano con `reached_by_*` a `None`** → «non ancora», senza data:
+  quando il valore diventerà calcolabile dipende dal primo ingresso della coorte
+  e dagli eventi, e l'API non espone né l'uno né gli altri. Se è `None` un solo
+  ambito, la cella mostra la barra dell'altro e «non ancora» accanto al campione
+  di colore di quello mancante — il caso esiste (sotto, «la barra blu»).
+  **Imprecisione dichiarata:** su una coorte matura `reached_by_14d` può essere
+  `None` solo se chi non ha raggiunto `k` è uscito prima dei 14 giorni, e allora
+  non diventerà mai calcolabile; «non ancora» lì promette troppo. Non osservato
+  in produzione né nel fixture.
+- Un altro motivo di non calcolabilità, o una retention soppressa accanto a un
+  onboarding pubblicato, non può comparire su una riga leggibile (§4, «I rami
+  difensivi»): la cella dice «non calcolabile» invece di inventare una barra.
+
+**Le date: da `as_of`, arrotondate al calcolo che le vedrà.** Verificato
+eseguendo `compute_cohort`: `observation_days` è
+`int((as_of − ultimo ingresso) / 1 giorno)`, cioè misurato **dall'ultimo
+ingresso** della coorte e **troncato** — un ultimo ingresso di 13 giorni e 23
+ore prima dà 13, non matura; di 14 giorni esatti dà 14, matura. Da qui:
+
+- «leggibile dal calcolo di» = `as_of + (min_observation_days − observation_days)` giorni;
+- «dal» per la retention = `as_of + (orizzonte − observation_days)` giorni;
+
+e in entrambi i casi la data si porta **al primo calcolo non anteriore**, cioè
+`as_of + m × cadenza` con `m` il più piccolo intero che ci arriva. Con la
+cadenza settimanale il risultato è esatto, non approssimato: siccome
+`observation_days` è troncato, il valore vero sta in `[obs, obs + 1)`, e un
+multiplo intero di sette giorni supera `soglia − valore vero` se e solo se
+supera `soglia − obs`. La cadenza è quella osservata di Stato (mediana degli
+intervalli fra gli `as_of`), e **con una run sola non c'è**: allora la data non
+compare — «in osservazione» senza data, «non ancora» al posto di «dal» — invece
+di un numero inventato. Senza `min_observation_days` in `params`, lo stesso.
+
+Controllo sui dati di produzione del 21/09: 14/09 (0 giorni) → calcolo del 5
+ottobre; 07/09 (8 giorni) → 28 settembre; retention a 28 giorni del 31/08 (14
+giorni) → dal 5 ottobre. Coincidono con il mockup approvato.
+
+**I testi, in quest'ordine.** Titolo; introduzione («Chi entra nel server riesce
+a integrarsi, e rimane? …», con `k` dalla riga); «Conta solo chi è entrato dopo
+l'arrivo del bot (&lt;data&gt;). Le ultime &lt;n&gt; settimane sono sempre in
+osservazione: una coorte si legge quando sono passati &lt;min_observation_days&gt;
+giorni dall'ultimo ingresso.» con il rimando a `d-leggibile`. Il numero di
+settimane è `⌈min_observation_days / 7⌉`, e il sette non è un parametro: è la
+larghezza di una coorte, la settimana ISO di `cohort_start_of`. L'«sempre» ha
+un'eccezione di misura zero — una coorte in cui tutti entrano il lunedì alle
+00:00 matura esattamente al secondo calcolo — che la frase non nomina.
+
+Poi l'avviso giallo, **solo con una o due coorti leggibili** fra tutte le
+posteriori all'ancora (non solo fra le dodici visibili): «Per ora una sola
+settimana è leggibile» / «Per ora due settimane sono leggibili», con la
+precisazione che dicono com'è andata a quel gruppo e non ancora come va di
+solito. Con **zero**: «La prima coorte sarà leggibile dal calcolo di
+&lt;data&gt;», la più vicina fra quelle delle coorti in osservazione; senza data,
+niente. Da tre in su, niente. Poi la tabella, con la didascalia «dati aggiornati
+a &lt;data&gt;», e la nota «Le barre mostrano una proporzione approssimata; i
+numeri esatti sono nei dettagli tecnici», con due rimandi alle Domande
+(`d-parole`, `d-vocale`). **La nota non porta un link ai Dettagli tecnici**, a
+differenza del mockup: quella pagina resta raggiungibile solo dalle Domande
+(«La pagina Dettagli tecnici», sotto), e ci arriva la risposta a `d-parole`.
+
+Le date di questa vista sono in Europe/Rome come in Stato, e per la stessa
+ragione: il lettore è un amministratore, non qualcuno che confronta una riga con
+un log. La forma è estesa («lunedì 21 settembre», «31 agosto») perché qui la
+data è il testo stesso della cella, non l'etichetta di un punto su un asse.
+
+**La legenda** («Come si leggono le barre») sta a destra dell'introduzione su
+schermo largo e scende sotto l'introduzione sotto i 56rem. Due gruppi: *il
+colore dice cosa si misura* (presenti, si integrano in qualunque modo, si
+integrano in vocale) e *la lunghezza dice quanti* (nessuno, circa metà, tutti).
+Introduzione, avviso e nota condividono una variabile di larghezza sola
+(`--misura-coorti`).
+
+**Colori.** Grigio (`--tenue`) per «presenti», arancio (`--brace`) per `any`, e
+un token nuovo, `--integra-voce`, per `voice`: `#1f4478` in chiaro, `#b4d0f5`
+in scuro. Misure (WCAG 2.x; simulazioni di Machado et al. a severità 1,0, come
+§12) nel commento del foglio. Il blu è più scuro dell'arancio in chiaro e più
+chiaro in scuro: le due barre si separano **anche in luminanza**, non solo in
+tinta — la lezione di §12.1 — e in più il blu sta sempre sotto l'arancio nella
+stessa cella.
+
+**Su telefono** (sotto i 40rem) ogni riga è una scheda, **con il solo CSS sullo
+stesso markup**: settimana e persone in testa; il blocco «Presenti» con tre
+barre affiancate; il blocco «Si integrano» con due colonne. Le etichette delle
+celle vengono da `data-etichetta`, i titoli dei due blocchi da attributi della
+riga — le parole stanno nel template, non nel foglio. Le schede in osservazione
+o sotto soglia sono basse e su fondo grigio. La `<thead>` resta per i lettori di
+schermo, nascosta visivamente. Nessuno scorrimento orizzontale a 320px.
+
+**La barra blu può superare l'arancio, e le Domande non lo negano.** Il mockup
+affermava il contrario («la seconda barra non è mai più lunga della prima»). È
+falso, verificato eseguendo `compute_cohort` su entrambi gli ambiti, con partner
+vocali sottoinsieme dei partner `any` e raggiungimento vocale mai anteriore a
+quello `any` — le due garanzie che `PartnerTracker` dà davvero:
+
+- **fra due numeri**: 190 casi su 40.000 in una simulazione con uscite, e anche
+  la fascia si inverte (36 casi). Esempio su una coorte matura e significativa
+  di cinque persone: `reached_by_14d` 0,467 in `any` («circa metà») e 0,625 in
+  `voice` («la maggior parte»). Kaplan-Meier non garantisce che ritardare un
+  evento abbassi la stima in ogni punto: chi raggiunge `k` più tardi in vocale
+  resta *a rischio* più a lungo, e il gruppo a rischio cambia l'altezza dei
+  gradini degli altri eventi. Senza uscite l'inversione numerica resta
+  possibile (4 casi su 40.000) ma nella simulazione non ha mai cambiato fascia;
+  con le uscite sì;
+- **fra un numero e un `None`**: senza nessuna uscita, `any` può restare `None`
+  mentre `voice` vale 1,0. Chi raggiunge `k` presto in `any` esce dalla curva
+  `any` al giorno dell'evento, e l'osservazione più lunga di quella curva si
+  accorcia; in `voice` la stessa persona resta osservata fino all'`as_of`, e se è
+  l'ultima a rischio la curva va a zero.
+
+La fascia è monotona e non può creare un'inversione, ma nemmeno impedirla: la
+eredita dai valori. La frase è stata tolta dalla risposta `d-vocale`.
+
+#### La prima stesura, ora la tabella dei Dettagli tecnici
 
 **Le domande a cui risponde sono due, come in Community, ma qui sono legate da
 una popolazione condivisa invece che da un layer condiviso.** *Con quanta
@@ -2125,7 +2401,7 @@ sono numeri veri da mostrare. Quello che manca davvero è altro.
 | **Stato** | Piena e corretta | *Il bot osserva dal 28 agosto, l'ultimo calcolo è di lunedì.* Nessun caveat. |
 | **Robustezza** | 12 righe, **tutti i valori popolati**, tutte non significative | *Questi numeri esistono e non sono distinguibili dal rumore.* Il perché resta fuori: sta in `details`, e §5 lo vieta finché non è una colonna. |
 | **Community** | Popolata; stabilità su un solo layer (dati del rerun del 15/09/2026). Lo snapshot 11 non ha precedente su nessuno dei quattro layer: `previous_gap_days` e `stability_jaccard` assenti, `no_previous_snapshot`. Lo snapshot 12 si confronta con l'11 con `previous_gap_days` **6,823** su tutti e quattro i layer, ma `stability_jaccard` c'è solo su `voice` (**0,333**): `mention`, `reaction` e `reply` hanno `node_overlap` sotto il minimo (`node_overlap_below_minimum`), non un precedente mancante. Nodi dall'11 al 12: `voice` 9→15, `mention` 26→29, `reaction` 24→25, `reply` 24→23. **Nessun layer è oggi `is_significant = true`**: tutti e quattro sono ancora sotto i 30 nodi (`too_few_nodes`), `voice`@12 compreso — che pure ha `modularity_z = 5,624` e `stability_jaccard = 0,333`, entrambi ben oltre le rispettive soglie. | *La struttura si vede, e su `voice` anche la stabilità: nessuna delle due letture dipende dal grafo essere "abbastanza grande" secondo la soglia strutturale, che qui non ha ancora acceso niente. Sugli altri tre layer la stabilità non si legge perché tra una settimana e l'altra sono cambiate troppe persone, non perché il grafo sia piccolo — sono due limiti diversi che oggi capitano insieme.* |
-| **Coorti** | **25 coorti** sull'ultimo snapshot (14/09/2026), **50 righe di onboarding**: **12 soppresse** (`n<5`, 6 coorti × 2 `layer_scope`), **34 "solo sopravvissuti"** (17 coorti, anteriori all'ancora del 28/08), **4 né l'uno né l'altro** (2 coorti recenti, con copertura di snapshot). **Nessuna riga è oggi `is_significant = true`**: le uniche coorti non "solo sopravvissuti" non sono ancora mature (`observation_days < 14` dall'ultimo iscritto — la coorte del 31/08 ne ha 7). Retention: aritmeticamente **18** righe soppresse, **51** con `not_computable_reason = before_observability_anchor` (stessa causa di "solo sopravvissuti"), **6** sulle 2 coorti recenti (calcolabilità per orizzonte non verificata su dati reali in questa sessione — nessun accesso al database di produzione da qui). | *Il 68% delle coorti conta solo chi è rimasto da prima che Kindling iniziasse a osservare: quei numeri esistono ma contano le persone sbagliate. Le coorti nate dopo non sono ancora abbastanza mature per dire se l'integrazione funziona.* |
+| **Coorti** | **Aggiornato il 26/09/2026** (snapshot 13, `as_of` 21/09, letto dalle sole tabelle `metric_*`): **25 coorti** — **5 soppresse**, tutte anteriori all'ancora (30/08 secondo la lettura del 26/09; il resto di questo documento e il fixture `…001` dicono 28/08 — per il filtro della vista non cambia niente, la coorte del 24/08 precede entrambe e quella del 31/08 le segue entrambe, ma la data va verificata); **17 «solo sopravvissuti»**; **3 posteriori all'ancora**. La coorte del **31/08** è la **prima `is_significant = true` mai vista in produzione**: `n = 14`, matura a 14 giorni, coperta; `any` `reached_by_14d = 0,083`, `reached_by_28d` NULL; `voice` `reached_by_14d = 0,000`; retention 0,857 a 7 e a 14 giorni, `horizon_not_reached` a 28. Il **07/09** non è matura (8 giorni) e ha `reached_by_14d = reached_by_28d = 1,000` su `any` con 3 eventi su 8 — la coda della curva, ed è la ragione per cui la vista non mostra numeri sulle coorti non mature. Il **14/09** ha 0 giorni di osservazione, retention tutta `horizon_not_reached`. *La stesura del 14/09, sotto, resta come storia.* — **25 coorti** sull'ultimo snapshot (14/09/2026), **50 righe di onboarding**: **12 soppresse** (`n<5`, 6 coorti × 2 `layer_scope`), **34 "solo sopravvissuti"** (17 coorti, anteriori all'ancora del 28/08), **4 né l'uno né l'altro** (2 coorti recenti, con copertura di snapshot). **Nessuna riga è oggi `is_significant = true`**: le uniche coorti non "solo sopravvissuti" non sono ancora mature (`observation_days < 14` dall'ultimo iscritto — la coorte del 31/08 ne ha 7). Retention: aritmeticamente **18** righe soppresse, **51** con `not_computable_reason = before_observability_anchor` (stessa causa di "solo sopravvissuti"), **6** sulle 2 coorti recenti (calcolabilità per orizzonte non verificata su dati reali in questa sessione — nessun accesso al database di produzione da qui). | *Una settimana si legge: quella del 31 agosto, quattordici persone. Dice com'è andata a quel gruppo, non ancora come va di solito. Le due settimane dopo sono in osservazione, con la data del calcolo da cui si leggeranno. Le coorti anteriori all'arrivo del bot non compaiono nella vista: di chi è entrato prima Kindling vede solo chi è rimasto, e quei numeri stanno nei Dettagli tecnici.* |
 
 Sono quattro frasi diverse, e la differenza tra "non attendibile", "non ancora
 calcolabile", "troppo pochi per essere mostrati" e "nessun caveat" è
@@ -2191,7 +2467,7 @@ il flusso di autorizzazione richiede:
 | `900000000000000001` | Lo stato reale di oggi: **due** snapshot — l'11 pre-ancoraggio e il 12 ancorato — niente di significativo |
 | `900000000000000002` | Dodici settimane di serie e stabilità calcolata. Tre layer grandi e significativi; `voice` è il layer a basso traffico — assente in due snapshot, sotto soglia in un altro — ed è quello che esercita l'interruzione della linea e il caso misto |
 | `900000000000000003` | I casi che mordono: soppressione, `targeted_excess` negativo, baseline degenere, `node_overlap` sotto soglia, mediana non raggiunta, buco di osservazione, `code_version` assente |
-| `900000000000000004` | La **scala** delle coorti (aggiunta il 16/09/2026 con la vista Coorti): 25 `cohort_start` su un solo snapshot, nelle stesse proporzioni della produzione — 6 soppresse, 17 anteriori all'ancora, 2 immature — più le significative che la produzione non ha, e due buchi negli snapshot di grafo che spengono la copertura di due coorti. Un secondo run, undici giorni dopo l'ancora, porta l'unica combinazione che non può coesistere con una coorte significativa (§4, punto 2) |
+| `900000000000000004` | La **scala** delle coorti (aggiunta il 16/09/2026 con la vista Coorti): 25 `cohort_start` su un solo snapshot, nelle stesse proporzioni della produzione — 6 soppresse, 17 anteriori all'ancora, 2 immature — più le significative che la produzione non ha, e due buchi negli snapshot di grafo che spengono la copertura di due coorti. Un secondo run, undici giorni dopo l'ancora, porta l'unica combinazione che non può coesistere con una coorte significativa (§4, punto 2). Per la vista Coorti del 26/09/2026 esercita da solo **i quattro stati di riga** posteriori all'ancora — tre leggibili, due in osservazione, due sotto la soglia, e il caso difensivo senza copertura (03/08) — verificato prima di scrivere la vista, non costruito per lei. Le sue due run distano 49 giorni: le date «leggibile dal» che ne escono cadono al 2 novembre, e non è un difetto — è la cadenza osservata, la stessa di Stato |
 
 **Si costruisce contro `…003`**, che è il caso peggiore, si verifica la scala su
 `…004`, e si controlla su `…001` e `…002`.

@@ -53,6 +53,14 @@ _MESI_BREVI = (
     "gen", "feb", "mar", "apr", "mag", "giu",
     "lug", "ago", "set", "ott", "nov", "dic",
 )
+# I nomi estesi, per le date che sono il testo stesso di una frase ("leggibile
+# dal calcolo di lunedi' 5 ottobre") e non l'etichetta di un punto su un asse.
+# Li usa anche main.data_ora: una copia sola.
+GIORNI = ("lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica")
+MESI = (
+    "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+    "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
+)
 
 
 def adesso() -> datetime:
@@ -83,6 +91,20 @@ def data_breve(valore: Any) -> str:
         return "—"
     g = valore if isinstance(valore, date) and not isinstance(valore, datetime) else giorno(valore)
     return f"{g.day} {_MESI_BREVI[g.month - 1]}"
+
+
+def data_estesa(valore: Any, *, con_giorno: bool = False) -> str:
+    """``21 settembre``, o ``lunedì 21 settembre`` con ``con_giorno``.
+
+    Stesso fuso di ``data_breve`` (Roma, per un ``datetime``; un ``date`` e' gia'
+    un giorno di calendario e non si converte). Senza anno, come la forma breve:
+    la vista che la usa mostra al massimo dodici settimane.
+    """
+    if valore is None:
+        return "—"
+    g = valore if isinstance(valore, date) and not isinstance(valore, datetime) else giorno(valore)
+    testo = f"{g.day} {MESI[g.month - 1]}"
+    return f"{GIORNI[g.weekday()]} {testo}" if con_giorno else testo
 
 
 def relativo(quando: date, oggi: date) -> str:

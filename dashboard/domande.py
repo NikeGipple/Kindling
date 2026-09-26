@@ -39,7 +39,16 @@ TITOLI = {
     "q-mancanti": "Perché alcuni numeri mancano o sono in grigio?",
     "q-voto": "Perché non c'è un punteggio complessivo della community?",
     "q-passato": "Kindling sa cosa è successo prima del suo arrivo nel server?",
-    "q-segnate": "Perché le coorti più vecchie sono segnate?",
+    # L'id resta "q-segnate" anche se dal 26/09/2026 il titolo e' un altro: un
+    # indirizzo che cambia e' un link che atterra in cima alla pagina senza
+    # nessun errore, e Stato ci rimanda da prima.
+    "q-segnate": "Perché le coorti partono dall'arrivo del bot?",
+    # Le tre domande della vista Coorti. Il prefisso "d-" e' quello del mockup
+    # approvato: gli id sono indirizzi, e la loro stabilita' conta piu' della
+    # loro uniformita'.
+    "d-leggibile": "Quando una coorte diventa leggibile?",
+    "d-vocale": "Qual è la differenza fra le due barre di «si integrano»?",
+    "d-parole": "Perché barre e non numeri?",
     "q-leggibile": "Quando sarà leggibile Community?",
     "q-aggiorna": "Ogni quanto si aggiornano i dati?",
     "q-raccoglie": "Cosa raccoglie il bot, esattamente?",
@@ -75,7 +84,7 @@ def costruisci(
     privacy_url: str,
     cadenza: Optional[timedelta] = None,
 ) -> tuple[Domanda, ...]:
-    """Le nove domande, con le soglie che i dati della run consentono di citare.
+    """Le domande, con le soglie che i dati della run consentono di citare.
 
     ``cadenza`` e' quella OSSERVATA fra le run (``stato.cadenza_osservata``), non
     un valore preso da ``job/config.py``: la risposta "ogni quanto si aggiornano
@@ -86,6 +95,8 @@ def costruisci(
     p = params or {}
     cardinalita = _soglia(p, "min_cardinality")
     nodi = _soglia(p, "min_nodes_structural")
+    maturita = _soglia(p, "min_observation_days")
+    k = _soglia(p, "k_connections")
     giorni_cadenza = (
         round(cadenza.total_seconds() / 86400, 1) if cadenza is not None else None
     )
@@ -148,12 +159,63 @@ def costruisci(
             "q-segnate",
             TITOLI["q-segnate"],
             con(
-                "Di chi è entrato prima dell'arrivo del bot (la data è in cima a "
-                "Stato) Kindling vede solo chi è ancora nel server. Quei gruppi "
-                "portano l'etichetta «solo sopravvissuti»: i loro numeri contano le "
-                "persone rimaste, non quelle entrate, e la permanenza non si può "
+                "Perché di chi è entrato prima dell'arrivo del bot (la data è in cima "
+                "a Stato) Kindling vede solo chi è ancora nel server: chi se n'era già "
+                "andato non ha lasciato traccia. Un gruppo così conta le persone "
+                "rimaste, non quelle entrate, e quanti sono rimasti non si può "
                 "calcolare.",
+                "Per questo la vista Coorti parte dall'arrivo del bot. I gruppi "
+                "precedenti non sono spariti: restano nei dettagli tecnici, marcati "
+                "come tali.",
             ),
+        ),
+        Domanda(
+            "d-leggibile",
+            TITOLI["d-leggibile"],
+            con(
+                (
+                    f"Quando sono passati almeno "
+                    f"{plurale(maturita, 'giorno', 'giorni')} dall'ingresso "
+                    "dell'ultimo arrivato"
+                    if maturita is not None
+                    else "Quando è passato abbastanza tempo dall'ingresso dell'ultimo "
+                    "arrivato"
+                )
+                + ", e Kindling osservava il server per tutto quel periodo. Prima, i "
+                "numeri dipendono da pochissime persone e cambiano molto da un "
+                "calcolo all'altro.",
+                "Finché non lo è, la sua riga in Coorti dice da quale calcolo lo "
+                "diventerà.",
+            ),
+        ),
+        Domanda(
+            "d-vocale",
+            TITOLI["d-vocale"],
+            con(
+                "La barra arancio conta ogni modo di interagire: risposte, menzioni, "
+                "reazioni e tempo passato insieme in vocale. La barra blu conta solo "
+                "il tempo passato insieme in vocale. La prima comprende anche il "
+                "vocale: non è «scritto contro vocale».",
+                f"La soglia è la stessa per tutte e due: almeno "
+                f"{plurale(k, 'persona diversa', 'persone diverse')}."
+                if k is not None
+                else None,
+                "Sono due stime separate della stessa settimana, non due parti di un "
+                "totale: non si sommano e non si sottraggono.",
+            ),
+        ),
+        Domanda(
+            "d-parole",
+            TITOLI["d-parole"],
+            con(
+                "Per leggibilità. In un gruppo di poche persone un numero esatto "
+                "(«1 su 14») fa pensare subito a qualcuno in particolare, e non dice "
+                "più di una barra quasi vuota. Le barre sono divise in quinti e "
+                "riportano la proporzione a una di sette fasce, da «nessuno» a «tutti».",
+                "I numeri esatti non sono nascosti: stanno nei dettagli tecnici, per "
+                "chi deve verificare un calcolo.",
+            ),
+            Link(f"/guilds/{guild_id}/dettagli-tecnici#coorti", "Dettagli tecnici: le coorti"),
         ),
         Domanda(
             "q-leggibile",

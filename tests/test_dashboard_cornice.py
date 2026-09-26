@@ -133,8 +133,10 @@ def test_la_guild_non_osservata_non_offre_viste_che_per_lei_non_esistono(pagine)
 def test_la_legenda_e_solo_nelle_tre_viste_con_simboli(pagine):
     con_legenda = {nome for nome, (_, r) in pagine.items() if 'class="legenda-simboli"' in r.text}
     # Stato no: mostra il contesto, non metriche, e nessuna sua cella passa da
-    # cella(). Elenco, accesso e pagine d'errore nemmeno.
-    assert con_legenda == {"robustezza", "community", "coorti"}
+    # cella(). Elenco, accesso e pagine d'errore nemmeno. Coorti e' uscita il
+    # 26/09/2026 — barre a fasce, nessuna cella() — e sono entrati i Dettagli
+    # tecnici, che da quel giorno portano la vecchia tabella delle coorti.
+    assert con_legenda == {"robustezza", "community", "dettagli"}
 
 
 def test_la_legenda_nomina_solo_quello_che_il_codice_rende():

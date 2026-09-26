@@ -133,18 +133,23 @@ SITO_PUBBLICO = {
     "codice": "https://github.com/NikeGipple/Kindling",
 }
 
-_GIORNI = ("lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica")
-_MESI = (
-    "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
-    "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
-)
+# Scritti in stato.py, che li usa anche per le date di Roma della vista Coorti:
+# due copie degli stessi dodici nomi divergerebbero al primo ritocco.
+_GIORNI = stato.GIORNI
+_MESI = stato.MESI
 
 # Le viste dove i simboli di qualificazione POSSONO comparire, e quindi dove il
 # piede porta la legenda. La regola guarda la vista, non i dati del giorno: una
 # legenda che va e viene con quello che c'e' oggi in tabella diventerebbe essa
 # stessa un segnale, e non l'ha progettata nessuno. Stato non c'e' perche' mostra
 # il contesto, non metriche: nessuna sua cella passa da cella().
-_VISTE_CON_SIMBOLI = frozenset({"robustezza", "community", "coorti"})
+#
+# Coorti e' uscita il 26/09/2026: la vista mostra barre a fasce, e nessuna sua
+# cella passa piu' da cella() — una legenda di simboli che la pagina non contiene
+# sarebbe proprio il piede che base.html dice di non scrivere. Sono entrati i
+# Dettagli tecnici, che da quel giorno portano la vecchia tabella delle coorti, e
+# con lei soppressioni, non calcolabili ed etichette di riga.
+_VISTE_CON_SIMBOLI = frozenset({"robustezza", "community", "dettagli"})
 
 
 def _impronta(dati: bytes) -> str:
@@ -246,14 +251,20 @@ def crea_templates() -> Environment:
     env.globals["esclusi"] = coorti.esclusi
     env.globals["censura"] = coorti.censura
     env.globals["frase_di_stato"] = coorti.frase_di_stato
-    # Ambiti, orizzonti e soglie arrivano da job/config.py passando per
-    # coorti.py: ricopiarli nel template li farebbe divergere dal job in
-    # silenzio, che e' il difetto di CLAUDE.md 7 applicato a un'intestazione.
+    # Ambiti e orizzonti della tabella tecnica arrivano da job/config.py passando
+    # per coorti.py: ricopiarli nel template li farebbe divergere dal job in
+    # silenzio, che e' il difetto di CLAUDE.md 7 applicato a un'intestazione. Le
+    # SOGLIE (k, maturita') no: non sono globali, viaggiano con i dati della
+    # pagina perche' vengono dalla riga o dai params della run.
     env.globals["ambiti"] = coorti.AMBITI
     env.globals["orizzonti"] = coorti.ORIZZONTI
     env.globals["nomi_ambito"] = coorti.NOMI_AMBITO
-    env.globals["k_connessioni"] = coorti.K_CONNESSIONI
-    env.globals["giorni_maturita"] = coorti.GIORNI_MATURITA
+    # La vista Coorti: i nomi delle due misure di integrazione per la legenda, e
+    # i titoli delle Domande come testo dei rimandi — un "Perche'?" ripetuto tre
+    # volte sarebbe tre nomi accessibili uguali, e un titolo ricopiato qui
+    # direbbe una cosa e atterrerebbe su un'altra al primo ritocco.
+    env.globals["nomi_misura"] = coorti.NOMI_MISURA
+    env.globals["titoli_domande"] = domande.TITOLI
     return env
 
 
@@ -546,6 +557,7 @@ def crea_app(
         nomina. Il menu serve a tornare indietro, non ad arrivarci.
         """
         api: ApiClient = request.app.state.api
+        guild = await api.guild(guild_id)
         runs = await api.runs(guild_id)
         ultima = stato.parametri_ultima_run(runs)
         return pagina(
@@ -555,6 +567,13 @@ def crea_app(
             ultima=ultima,
             storico=stato.storico(runs),
             aree=regole.per_area(ultima.params if ultima is not None else None),
+            # La tabella che fino al 26/09/2026 era la vista Coorti (dashboard.md
+            # 4). L'ancora serve a dividerla in due: prima e dopo l'arrivo del bot.
+            coorti=coorti.tecnica(
+                await api.cohorts(guild_id),
+                guild.first_seen_at,
+                ultima.params if ultima is not None else None,
+            ),
             vista_corrente="dettagli",
         )
 
@@ -588,17 +607,22 @@ def crea_app(
     async def vista_coorti(request: Request, guild_id: int):
         """Vista Coorti (dashboard.md 4): chi entra si integra, e chi resta?
 
-        ``cohorts()`` chiede uno snapshot solo, e il default e' nella firma del
-        client: qui non si passa ``limit``, perche' la vista non ha un'opinione
-        diversa da quella gia' dichiarata li'.
+        Tre chiamate: la guild per l'ancora (le coorti anteriori all'arrivo del
+        bot non compaiono), le run per ``params`` e per la cadenza osservata con
+        cui si datano le coorti in osservazione, le coorti. ``cohorts()`` chiede
+        uno snapshot solo, e il default e' nella firma del client: qui non si
+        passa ``limit``, perche' la vista non ha un'opinione diversa da quella
+        gia' dichiarata li'.
         """
         api: ApiClient = request.app.state.api
+        guild = await api.guild(guild_id)
+        runs = await api.runs(guild_id)
         gruppi = await api.cohorts(guild_id)
         return pagina(
             request,
             "coorti.html",
             guild_id=guild_id,
-            vista=coorti.costruisci(gruppi),
+            vista=coorti.pagina(gruppi, guild, runs),
             vista_corrente="coorti",
         )
 

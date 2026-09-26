@@ -204,10 +204,14 @@ def test_ogni_lettura_rimanda_a_una_domanda_che_esiste(dashboard):
         # darebbe nessun errore qui, porterebbe solo in cima alla pagina.
         assert f'id="{ancora}"' in domande
     # E il testo del rimando e' il testo della domanda, non un "Perche'?" ripetuto.
-    for ancora in ancore:
-        from dashboard.domande import TITOLI
+    # Sul testo SENZA escape: dal 26/09/2026 un titolo ha un apostrofo ("dall'arrivo"),
+    # che l'autoescape scrive &#39;.
+    from html import unescape
 
-        assert TITOLI[ancora] in html
+    from dashboard.domande import TITOLI
+
+    for ancora in ancore:
+        assert TITOLI[ancora] in unescape(html)
 
 
 # --- i tre fatti in cima ------------------------------------------------------

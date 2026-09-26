@@ -40,6 +40,17 @@
   /* L'accento caldo della landing (public/landing.css), qui per i link dentro
      al testo e per il passaggio del bottone d'accesso. 5,14:1 su --fondo. */
   --brace: #a25718;
+  /* La barra blu della vista Coorti: "si integrano, in vocale" (layer_scope
+     voice), accanto all'arancio di --brace per "in qualunque modo". Misurati
+     il 26/09/2026, WCAG 2.x e Machado et al. a severita' 1,0 (dashboard.md 12):
+     9,32:1 su --fondo, 8,45:1 su --grigio-fondo (il fondo della barra).
+     Dall'arancio: 1,81:1 in visione tipica, 2,08:1 in deuteranopia, 1,44:1 in
+     protanopia — e in entrambe le simulazioni resta un blu contro un oliva, cioe'
+     separati in tinta sull'asse che un occhio dicromatico conserva. Piu' scuro
+     dell'arancio apposta: la lezione di 12.1 e' che la tinta da sola non basta,
+     e qui la luminanza separa le due barre anche dove la tinta non lo facesse.
+     Il blu sta inoltre sempre SOTTO l'arancio nella stessa cella. */
+  --integra-voce: #1f4478;
 }
 
 /* --- il tema scuro -------------------------------------------------------
@@ -114,6 +125,11 @@
     --coorti-fondo-alt: #1c1b19;
     --coorti-hover: #26241f;
     --brace: #e08a3c;        /* 6,91:1 su --fondo, come sulla landing */
+    /* Il blu di "in vocale": 11,66:1 su --fondo, 9,95:1 su --grigio-fondo.
+       Dall'arancio 1,69:1 in visione tipica, 1,51:1 in deuteranopia, 2,03:1 in
+       protanopia, blu contro oliva in entrambe. Qui e' PIU' CHIARO dell'arancio,
+       per la stessa ragione per cui in chiaro e' piu' scuro. */
+    --integra-voce: #b4d0f5;
   }
 }
 
@@ -402,8 +418,10 @@ pre { background: var(--grigio-fondo); padding: .75rem; overflow-x: auto; margin
 .campione--riferimento { border-top: 1px dashed var(--grigio); }
 .titolo-grafico { font-weight: 600; font-size: .95rem; margin-bottom: .25rem; }
 
-/* --- vista Coorti -------------------------------------------------------- */
-/* Venticinque righe di gruppo e ventisei colonne: la tabella scorre in
+/* --- la tabella tecnica delle coorti ------------------------------------- */
+/* Fino al 26/09/2026 era la vista Coorti; oggi sta nei Dettagli tecnici
+   (_coorti_tecnica.html). Le regole sono le stesse di allora.
+   Venticinque righe di gruppo e ventisei colonne: la tabella scorre in
    orizzontale (.scorri) e non si stringe. Le righe restano distinguibili una
    dall'altra anche quando dicono tutte la stessa cosa — e' il muro grigio che
    dashboard.md 4 chiede di non produrre. */
@@ -443,6 +461,133 @@ pre { background: var(--grigio-fondo); padding: .75rem; overflow-x: auto; margin
 .stato--valore { color: var(--testo); }
 .riepilogo { margin: .25rem 0 1rem; }
 .riga-divergenza td { white-space: normal; }
+/* Le coorti anteriori all'arrivo del bot, nei Dettagli tecnici: una sezione
+   marcata da un filo, perche' nessuno le legga come la continuazione della
+   tabella di sopra. Contano un'altra popolazione. */
+.coorti-anteriori { margin-top: 2rem; border-top: 2px solid var(--avviso-bordo);
+                    padding-top: .25rem; }
+
+/* --- vista Coorti (riscritta il 26/09/2026) ------------------------------ */
+/* Per chi amministra il server: barre a fasce invece di numeri, una riga per
+   coorte, e su telefono una scheda per riga — con il solo CSS, sullo stesso
+   markup (dashboard.md 4). Niente style="": la CSP non ha 'unsafe-inline', e le
+   larghezze delle barre sono sette classi. */
+
+/* Introduzione, avviso e nota condividono una misura sola. */
+.coorti-vista { --misura-coorti: 44.5rem; }
+.coorti-vista .guida, .coorti-contesto, .coorti-avviso, .coorti-nota {
+  max-width: var(--misura-coorti); }
+.coorti-contesto { color: var(--tenue); font-size: .92rem; margin: .9rem 0 0; }
+.coorti-nota { color: var(--tenue); font-size: .88rem; margin: .75rem 0 0; }
+/* p.avviso ha gia' la sua misura (68ch): qui vince quella della vista. */
+p.avviso.coorti-avviso { max-width: var(--misura-coorti); margin-top: 1.25rem; }
+
+/* La legenda a destra dell'introduzione, e sotto di lei sotto i 56rem: e' la
+   larghezza a cui la colonna di testo scenderebbe sotto una riga leggibile. */
+.coorti-intro { display: grid; grid-template-columns: minmax(0, 1fr) 15rem;
+                gap: 1rem 2.5rem; align-items: start; }
+.coorti-legenda { border-left: 1px solid var(--riga); padding-left: 1.25rem;
+                  font-size: .85rem; color: var(--tenue); }
+.coorti-legenda__titolo { margin: 0 0 .2rem; font-size: .78rem; font-weight: 600;
+                          letter-spacing: .02em; }
+.coorti-legenda__gruppo { margin: .55rem 0 .3rem; font-size: .75rem; font-style: italic; }
+.coorti-legenda ul { list-style: none; padding: 0; margin: 0; display: flex;
+                     flex-direction: column; gap: .35rem; }
+.coorti-legenda li { display: flex; align-items: center; gap: .5rem; }
+.coorti-legenda .barra { width: 2.2rem; flex: none; }
+@media (max-width: 56rem) {
+  .coorti-intro { grid-template-columns: minmax(0, 1fr); }
+  .coorti-legenda { border-left: none; padding-left: 0; border-top: 1px solid var(--riga);
+                    padding-top: .75rem; }
+  .coorti-legenda ul { flex-direction: row; flex-wrap: wrap; gap: .35rem 1.25rem; }
+}
+
+/* La barra. Il binario e' --grigio-fondo con un filo, e le tacche ai quinti sono
+   il suo sfondo: si vedono dove la barra non e' piena. Il pieno prende il colore
+   della misura; senza una misura nota resta --testo, non trasparente — un ambito
+   nuovo del job si vedrebbe, invece di sparire. */
+.barra { display: block; height: .55rem; border-radius: .3rem; overflow: hidden;
+         border: 1px solid var(--riga); background-color: var(--grigio-fondo);
+         background-image: repeating-linear-gradient(to right,
+           transparent 0 calc(20% - 1px), var(--riga) calc(20% - 1px) 20%); }
+.barra__pieno { display: block; height: 100%; width: 0;
+                background: var(--colore-misura, var(--testo)); }
+.fascia-0 .barra__pieno { width: 0; }
+.fascia-1 .barra__pieno { width: 10%; }
+.fascia-2 .barra__pieno { width: 30%; }
+.fascia-3 .barra__pieno { width: 50%; }
+.fascia-4 .barra__pieno { width: 70%; }
+.fascia-5 .barra__pieno { width: 90%; }
+.fascia-6 .barra__pieno { width: 100%; }
+/* I tre colori: grigio per chi e' presente (--tenue, 5,07:1 su --fondo e 4,60:1
+   su --grigio-fondo in chiaro; 6,25 e 5,33 in scuro), arancio per "in qualunque
+   modo", blu per "in vocale" (--integra-voce, misure in :root). */
+.misura--presenti { --colore-misura: var(--tenue); }
+.misura--any { --colore-misura: var(--brace); }
+.misura--voice { --colore-misura: var(--integra-voce); }
+.campione-barra { display: inline-block; flex: none; width: 1.4rem; height: .55rem;
+                  border-radius: .3rem; background: var(--colore-misura, var(--testo)); }
+
+.coorti-scorri { margin-top: 1rem; }
+.coorti-lettura { font-size: .9rem; }
+.coorti-lettura caption { caption-side: top; text-align: left; color: var(--tenue);
+                          font-size: .82rem; padding-bottom: .4rem; }
+.coorti-lettura th, .coorti-lettura td { padding: .55rem .6rem; vertical-align: middle; }
+.coorti-lettura thead th { font-size: .78rem; }
+.coorti-lettura__gruppi th { color: var(--testo); font-size: .82rem; }
+.coorti-lettura__gruppi th[colspan] { border-bottom: none; padding-bottom: 0; }
+.sottotitolo-colonna { font-weight: 400; color: var(--tenue); font-size: .78rem;
+                       margin-left: .35rem; }
+.coorti-lettura tbody th { color: var(--testo); font-size: .9rem; white-space: nowrap; }
+.coorti-lettura .persone { text-align: right; font-variant-numeric: tabular-nums;
+                           color: var(--tenue); padding-right: 1rem; }
+.coorti-lettura .inizio { border-left: 1px solid var(--riga); }
+.coorti-lettura .cella-presenti, .coorti-lettura .cella-integra { min-width: 5.5rem; }
+.coorti-lettura .barra + .barra, .coorti-lettura .barra + .barra-assente,
+.coorti-lettura .barra-assente + .barra { margin-top: .3rem; }
+/* Le righe che non si leggono ancora: il testo e' --tenue, 5,07:1 su --fondo e
+   4,60:1 sul --grigio-fondo delle schede su telefono (6,25 e 5,33 in scuro). */
+/* Con .coorti-lettura davanti: .coorti-lettura tbody th, sopra, vincerebbe. */
+.coorti-lettura .coorte--in_osservazione th, .coorti-lettura .coorte--sotto_soglia th,
+.coorti-lettura .coorte--non_osservata th, .coorti-lettura .coorte--discorde th {
+  color: var(--tenue); font-weight: 500; }
+.coorte__frase { color: var(--tenue); font-size: .85rem; }
+.coorte__attesa, .barra-assente { color: var(--tenue); font-size: .78rem; font-style: italic; }
+.barra-assente { display: flex; align-items: center; gap: .4rem; }
+.solo-lettori { position: absolute; width: 1px; height: 1px; overflow: hidden;
+                clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+
+/* Su telefono: una scheda per riga, sullo stesso markup. La <thead> resta per i
+   lettori di schermo; le etichette delle celle vengono da data-etichetta, e i
+   titoli dei due blocchi da data-presenti e data-integrano della riga — le
+   parole stanno nel template, il foglio decide solo dove. */
+@media (max-width: 40rem) {
+  .coorti-scorri { overflow: visible; }
+  .coorti-lettura, .coorti-lettura tbody { display: block; }
+  .coorti-lettura caption { display: block; }
+  .coorti-lettura thead { position: absolute; width: 1px; height: 1px; overflow: hidden;
+                          clip: rect(0 0 0 0); clip-path: inset(50%); }
+  .coorti-lettura tr { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+                       gap: .3rem .6rem; border: 1px solid var(--riga); border-radius: .5rem;
+                       padding: .75rem .85rem; margin-bottom: .6rem; }
+  .coorti-lettura th, .coorti-lettura td { border: none; padding: 0; min-width: 0; }
+  .coorti-lettura tbody th { grid-column: 1 / 5; grid-row: 1; font-size: .98rem; }
+  .coorti-lettura td.persone { grid-column: 5 / 7; grid-row: 1; padding: 0; }
+  .coorti-lettura td.persone::after { content: " " attr(data-etichetta); }
+  .coorte--leggibile::before { content: attr(data-presenti); grid-column: 1 / -1; grid-row: 2;
+                               font-size: .78rem; font-weight: 600; margin-top: .45rem; }
+  .coorte--leggibile::after { content: attr(data-integrano); grid-column: 1 / -1; grid-row: 4;
+                              font-size: .78rem; font-weight: 600; margin-top: .55rem; }
+  .coorti-lettura td.cella-presenti { grid-row: 3; grid-column: span 2; }
+  .coorti-lettura td.cella-integra { grid-row: 5; grid-column: span 3; }
+  .coorti-lettura td.cella-presenti::before, .coorti-lettura td.cella-integra::before {
+    content: attr(data-etichetta); display: block; color: var(--tenue);
+    font-size: .72rem; margin-bottom: .15rem; }
+  .coorti-lettura .inizio { border-left: none; }
+  .coorti-lettura td.coorte__frase { grid-column: 1 / -1; grid-row: 2; }
+  .coorte--in_osservazione, .coorte--sotto_soglia, .coorte--non_osservata,
+  .coorte--discorde { background: var(--grigio-fondo); padding-block: .6rem; }
+}
 
 /* --- vista Stato, pagina Domande, pagina Dettagli tecnici ---------------- */
 /* Tre pagine che parlano all'amministratore invece che a chi gestisce il
