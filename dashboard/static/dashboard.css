@@ -152,34 +152,6 @@ a:hover { color: var(--testo); }
    da bordo a bordo, perche' erano dentro alla colonna invece che dietro. */
 .contenitore { max-width: 62rem; margin: 0 auto; padding: 0 1.25rem; }
 
-/* Le pagine pubbliche (accesso, accesso negato) hanno una colonna larga quanto
-   il loro testo, non 62rem. Non hanno altro che paragrafi ed elenco, e quelli
-   si fermano a 62ch (piu' sotto, main:not(.vista) p): a 16px su Segoe UI sono
-   534,75px dentro una colonna da 952, e i 417px vuoti a destra si leggevano come
-   una pagina spinta a sinistra o troncata — piu' larghi a ogni schermo piu'
-   largo. Misurati, non stimati: il centraggio era giusto a 1280, 1440 e 1920.
-   Il 62ch resta 62ch; a stringersi e' la colonna.
-
-   Testata, contenuto e piede insieme, non il solo <main>: il bordo sinistro del
-   testo cade dove cade il marchio (base.html), e un main piu' stretto sotto una
-   testata da 62rem lo sposterebbe di 208px.
-
-   La misura sta in una proprieta' registrata come <length>, e non e' una
-   complicazione: un `ch` si risolve sul corpo dell'elemento che lo usa, e il
-   piede sta a .88rem — lo stesso 62ch li' dentro darebbe una colonna del 12% piu'
-   stretta. Registrata, si calcola una volta sola sul body (16px, il corpo dei
-   paragrafi) e scende in pixel. Senza supporto a @property il piede si
-   stringerebbe di quel 12%, niente di piu'.
-
-   La condizione e' nav.servizio nella testata, cioe' _testata_pubblica.html: il
-   fatto "questa pagina si vede da fuori" ha gia' un posto solo, e un test
-   (test_dashboard_cornice.py) vincola quel nav alle sole pagine pubbliche.
-   Sotto i 62ch piu' respiro la colonna e' gia' la viewport e questo tetto non
-   agisce: sotto i 34rem vale solo quello che c'era. */
-@property --colonna-pubblica { syntax: "<length>"; inherits: true; initial-value: 0px; }
-body:has(header.sito nav.servizio) { --colonna-pubblica: calc(62ch + 2.5rem); }
-body:has(header.sito nav.servizio) .contenitore { max-width: var(--colonna-pubblica); }
-
 /* Le quattro viste restano a 15px/1.5. Le tabelle (ventisei colonne nelle
    coorti) e i grafici hanno larghezze e soglie di a-capo tarate su quel corpo:
    portarle a 16 e' un lavoro a se', che si misura sulle viste e non qui.
@@ -333,6 +305,18 @@ a:focus-visible, button:focus-visible, summary:focus-visible {
    ragione. Le viste no: li' il testo sta in celle e colonne, che una larghezza
    massima romperebbe. */
 main:not(.vista) p, main:not(.vista) li { max-width: 62ch; }
+
+/* Tranne sulle due pagine pubbliche (accesso, accesso negato): li' non c'e'
+   altro che un paragrafo e un elenco, e a 62ch — 534,75px a 16px su Segoe UI,
+   dentro una colonna utile da 952 — i 417px vuoti a destra si leggevano come
+   una pagina spinta a sinistra o troncata. Il testo prende la colonna; la
+   colonna resta quella di tutta la cornice, cosi' il testo resta sotto il
+   marchio e finisce dove finiscono i link di servizio.
+   La condizione e' nav.servizio nella testata, cioe' _testata_pubblica.html:
+   il fatto "questa pagina si vede da fuori" ha gia' un posto solo, e un test
+   (test_dashboard_cornice.py) vincola quel nav alle sole pagine pubbliche. */
+body:has(header.sito nav.servizio) main p,
+body:has(header.sito nav.servizio) main li { max-width: none; }
 
 /* I fatti della pagina d'accesso: un termine e una frase per voce, al posto del
    paragrafo unico che stava in fondo alla pagina in grigio. Sono il consenso
