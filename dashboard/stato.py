@@ -27,6 +27,7 @@ Tre cose che questo modulo fa e nessun altro modulo di vista fa:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from statistics import median
@@ -230,7 +231,11 @@ def cadenza_osservata(runs: Sequence[RunRow]) -> Optional[timedelta]:
     delle 04:15 invece che di mezzanotte — le run scritte prima dell'ancoraggio
     al lunedi' (``modello-grafo.md`` §5.1) — e un solo intervallo anomalo in
     mezzo a intervalli regolari sposterebbe la previsione di ore o di giorni.
-    Sulle distanze, la mediana ignora l'anomalia; la media no.
+    Sulle distanze, la mediana ignora l'anomalia; la media no. **Ma non con due
+    intervalli soli**, dove la mediana E' la media: in produzione, il 27/09/2026,
+    6,82 e 7 giorni davano 6,9114, e la previsione cadeva la domenica sera. Per
+    questo nessuna previsione usa questo valore cosi' com'e': passa da
+    ``cadenza_in_giorni``, che lo arrotonda.
 
     **Con una run sola la cadenza non esiste**, e la funzione torna ``None``: un
     intervallo si misura fra due punti. Il ripiego qui sarebbe di nuovo un numero
@@ -244,6 +249,62 @@ def cadenza_osservata(runs: Sequence[RunRow]) -> Optional[timedelta]:
     if not intervalli:
         return None
     return timedelta(seconds=median(intervalli))
+
+
+# --- il prossimo calcolo: un punto solo, per Stato e Coorti -------------------
+#
+# Fino al 28/09/2026 Stato e Coorti sommavano all'as_of la cadenza osservata
+# cosi' com'era, 6,9114 giorni in produzione: la previsione cadeva domenica
+# 27/09 alle 21:53 UTC, Stato diceva "in ritardo" dalla mezzanotte di Roma e
+# Coorti prometteva letture "dal calcolo di domenica". Due errori insieme: una
+# cadenza non intera, e "in ritardo" deciso sul giorno, senza contare che il job
+# gira ore dopo l'as_of che scrive.
+
+
+def cadenza_in_giorni(runs: Sequence[RunRow]) -> Optional[int]:
+    """La cadenza osservata arrotondata a giorni interi (mezzo giorno in su), o
+    ``None`` se non c'e'. Mai meno di un giorno.
+
+    Giorni interi perche' gli ``as_of`` sono confini di giorno (il lunedi' 00:00
+    UTC): una cadenza con le ore dentro porta la previsione fuori dal confine, e
+    l'etichetta sul giorno sbagliato.
+    """
+    cadenza = cadenza_osservata(runs)
+    if cadenza is None:
+        return None
+    return max(1, math.floor(cadenza / timedelta(days=1) + 0.5))
+
+
+def as_of_previsto(as_of: datetime, cadenza_giorni: int, passi: int = 1) -> datetime:
+    """L'``as_of`` che il calcolo scrivera' fra ``passi`` cadenze."""
+    return as_of + timedelta(days=cadenza_giorni * passi)
+
+
+# L'ora a cui il job parte, come distanza dall'as_of che scrive: ops/kindling.cron
+# lo lancia il lunedi' alle 04:15 e l'as_of e' il lunedi' 00:00 (UTC entrambi,
+# runbook-droplet.md, "Il fuso del cron e' quello della droplet").
+#
+# Dichiarata, non osservata, al contrario della cadenza — e per una ragione
+# misurata: l'alternativa era la mediana di created_at - as_of sulle run, ma
+# created_at si riscrive a ogni rilancio (job/db.py, ON CONFLICT ... created_at =
+# now()). In produzione le run 11 e 12 portano il 15/09 09:52, il giorno del
+# ricalcolo delle metriche, e la mediana verrebbe circa un giorno e mezzo: un
+# job fermo sembrerebbe puntuale fino al martedi' pomeriggio, senza nessun
+# segnale. Un orario dichiarato che diverge dal cron sbaglia invece nel verso
+# rumoroso — "in ritardo" troppo presto — e non puo' divergere in silenzio:
+# tests/test_orari.py lo confronta con la riga di ops/kindling.cron.
+ORARIO_DEL_JOB = timedelta(hours=4, minutes=15)
+# Quanto si aspetta oltre l'orario del job prima di dire "in ritardo". Il job
+# dura minuti (le durate sono in metric_runs.stats); quattro ore coprono un avvio
+# lento, un lock di flock ancora preso, un rilancio a mano la mattina stessa, e
+# fanno scattare il ritardo lunedi' alle 08:15 UTC — le 10:15 a Roma d'estate —
+# non il giorno dopo.
+MARGINE_DEL_JOB = timedelta(hours=4)
+
+
+def in_ritardo(atteso: datetime, ora: datetime) -> bool:
+    """Il calcolo con ``as_of`` = ``atteso`` avrebbe dovuto esserci, a ``ora``?"""
+    return con_fuso(ora) > con_fuso(atteso) + ORARIO_DEL_JOB + MARGINE_DEL_JOB
 
 
 # --- i tre fatti in cima ------------------------------------------------------
@@ -737,7 +798,7 @@ def costruisci(
         )
     ]
 
-    cadenza = cadenza_osservata(runs)
+    cadenza = cadenza_in_giorni(runs)
     prossimo: Optional[date] = None
     if ultima is not None:
         calcolo = settimana(ultima.as_of)
@@ -748,22 +809,23 @@ def costruisci(
     # quanto il calcolo si ripeta, e il riquadro non compare invece di mostrare
     # una data ricavata da un numero che nessuno ha misurato.
     #
-    # La somma si fa sull'ISTANTE e non sul giorno: il job ancora ``as_of`` al
-    # lunedi' 00:00 UTC, ma lo storico contiene anche ``as_of`` delle 04:15, e
-    # sommare giorni interi a quelli porterebbe la previsione a cadere sul giorno
-    # sbagliato per quattro ore di scarto.
+    # La previsione e il ritardo vengono da as_of_previsto e in_ritardo, le
+    # stesse che usa Coorti: giorni interi di cadenza, e il ritardo misurato
+    # sull'istante, dopo l'orario del job piu' il margine — non sul giorno.
     if ultima is not None and cadenza is not None:
-        prossimo = settimana(ultima.as_of + cadenza)
+        atteso = as_of_previsto(ultima.as_of, cadenza)
+        prossimo = settimana(atteso)
+        ritardo = in_ritardo(atteso, ora or adesso())
         # "in ritardo" e non "ieri": sotto l'etichetta "Prossimo aggiornamento"
         # una forma relativa al passato si legge come un errore di rendering,
         # mentre il fatto da riferire e' che il calcolo atteso non e' arrivato.
         fatti.append(
             Fatto(
                 "Prossimo aggiornamento",
-                relativo(prossimo, oggi) if prossimo >= oggi else "in ritardo",
-                f"previsto {con_preposizione('il', breve(prossimo))}"
-                if prossimo >= oggi
-                else f"era previsto {con_preposizione('il', breve(prossimo))}",
+                "in ritardo" if ritardo else relativo(prossimo, oggi),
+                f"era previsto {con_preposizione('il', breve(prossimo))}"
+                if ritardo
+                else f"previsto {con_preposizione('il', breve(prossimo))}",
             )
         )
 

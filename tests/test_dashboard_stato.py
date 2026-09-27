@@ -231,10 +231,12 @@ def test_i_tre_fatti_con_le_date_di_roma(dashboard):
     # 14 set piu' la cadenza OSSERVATA, che qui e' 6 giorni e 19h45m: lo
     # snapshot 11 ha as_of alle 04:15, scritto prima dell'ancoraggio al lunedi'
     # (modello-grafo.md 5.1), e con due sole run quell'intervallo E' la mediana.
-    # La previsione cade quindi di domenica 20 e non di lunedi' 21 — ed e'
-    # corretta: la pagina descrive quello che e' successo su questo server, non
-    # quello che il cron promette.
-    assert "tra 4 giorni" in fatti and "previsto il 20 set" in fatti
+    # Fino al 28/09/2026 questo test la sommava cosi' com'era e dichiarava
+    # "corretta" la previsione di domenica 20: era il difetto visto in
+    # produzione il 27/09 ("in ritardo, era previsto il 27 set"). La cadenza
+    # arrotondata a giorni interi (stato.cadenza_in_giorni) fa 7, e la
+    # previsione e' il lunedi' 21, cioe' l'as_of che il job scrivera'.
+    assert "tra 5 giorni" in fatti and "previsto il 21 set" in fatti
     assert "era previsto" not in fatti
 
 

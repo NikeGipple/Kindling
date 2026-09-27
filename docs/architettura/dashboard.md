@@ -686,15 +686,47 @@ esiste e il fatto non compare**: un intervallo si misura fra due punti, e il
 ripiego sarebbe di nuovo un numero inventato con l'aria di essere misurato.
 
 Il significato cambia con la sorgente, e va detto: **la pagina descrive quello
-che è successo su questo server, non quello che il cron promette.** Su una guild
-con due sole run, una delle quali pre-ancoraggio, la cadenza osservata è di 6,8
-giorni e la previsione cade di domenica invece che di lunedì — non è un errore,
-è il fatto. La stessa cadenza osservata alimenta la risposta «ogni quanto si
-aggiornano i dati» nelle Domande, che per questo dice «finora» e non «sempre».
+che è successo su questo server, non quello che il cron promette.** La stessa
+cadenza osservata alimenta la risposta «ogni quanto si aggiornano i dati» nelle
+Domande, che per questo dice «finora» e non «sempre».
+
+**La previsione usa la cadenza in giorni interi, e il ritardo guarda l'ora del
+job (28/09/2026).** Fino ad allora questa sezione diceva che una previsione di
+domenica, su una guild con una run pre-ancoraggio, «non è un errore, è il fatto».
+Era un errore, e si è visto in produzione domenica 27/09 alle 22:35 UTC: con tre
+run (as_of del 7/09 alle 04:15, poi 14 e 21/09 a mezzanotte) gli intervalli sono
+due, 6,82 e 7 giorni, e con due intervalli **la mediana è la media**: 6,9114.
+Sommata all'ultimo `as_of`, la previsione cadeva domenica 27 alle 21:53 UTC;
+«in ritardo» si decideva sul giorno, e dalla mezzanotte di Roma Stato diceva «in
+ritardo, era previsto il 27 set», mentre Coorti prometteva letture «dal calcolo di
+domenica 27 settembre». Due cause, corrette in un punto solo di `stato.py` che
+Stato e Coorti (`coorti.calcolo_che_vede`) usano entrambi:
+
+1. **`cadenza_in_giorni`**: la cadenza osservata arrotondata a giorni interi
+   (mezzo giorno in su, mai meno di uno), e **`as_of_previsto`** = ultimo `as_of`
+   + k × quei giorni. Gli `as_of` sono confini di giorno, e una cadenza con le ore
+   dentro porta la previsione fuori dal confine. Con la cadenza settimanale
+   l'etichetta è il giorno dell'`as_of` previsto, cioè un lunedì.
+2. **`in_ritardo`**: solo dopo `as_of` previsto + **`ORARIO_DEL_JOB`** (4h15, la
+   riga di `ops/kindling.cron`) + **`MARGINE_DEL_JOB`** (4 ore), cioè lunedì alle
+   08:15 UTC. Prima di allora il fatto dice «oggi», «previsto il 28 set».
+
+**Perché l'orario del cron, dichiarato, e non il ritardo osservato** (la mediana
+di `created_at − as_of` sulle run), al contrario della cadenza. `created_at` si
+riscrive a ogni rilancio (`ON CONFLICT … created_at = now()` in `job/db.py`): in
+produzione le run 11 e 12 portano il 15/09 09:52, il giorno del ricalcolo delle
+metriche, e la mediana verrebbe circa un giorno e mezzo. Un job fermo
+sembrerebbe puntuale fino al martedì pomeriggio, e l'errore starebbe dalla parte
+silenziosa. Un orario dichiarato che diverge dal cron sbaglia invece dalla parte
+rumorosa — «in ritardo» troppo presto — e non può divergere senza che nessuno se
+ne accorga: `tests/test_orari.py` lo confronta con la riga di `ops/kindling.cron`
+(ora, minuto, lunedì). Il margine di 4 ore: il job dura minuti (le durate sono in
+`metric_runs.stats`), e quattro ore coprono un avvio lento, un lock ancora preso
+o un rilancio a mano la mattina stessa, senza rimandare il segnale al giorno dopo.
 
 Per questo il fatto è etichettato **«previsto»** e non «programmato»: dice dove
 cadrebbe il prossimo calcolo se la cadenza finora osservata continuasse, non che
-qualcuno lo eseguirà. Se quella data è già passata — il cron non ha girato — il
+qualcuno lo eseguirà. Se il calcolo è in ritardo — il cron non ha girato — il
 fatto dice **«in ritardo»** e la
 riga sotto diventa «era previsto il …»: la sola forma relativa direbbe «3 giorni
 fa» sotto l'etichetta «Prossimo aggiornamento», che si legge come un errore di
@@ -1523,7 +1555,10 @@ osservata, `/guilds/{id}/cohorts?limit=1` per le righe. L'ancora è
 `GuildRow.first_seen_at`, lo stesso campo che Stato mostra come «arrivo del
 bot»: non esiste una funzione della dashboard che la ricavi, Stato legge il
 campo e basta, e questa vista fa lo stesso. La cadenza è
-`stato.cadenza_osservata`, la stessa funzione del «Prossimo aggiornamento».
+`stato.cadenza_in_giorni` e la data di «leggibile dal calcolo di» viene da
+`stato.as_of_previsto`, le stesse funzioni del «Prossimo aggiornamento» (§4, la
+vista Stato: giorni interi dal 28/09/2026, quando la cadenza di 6,9114 giorni
+faceva cadere le letture di domenica).
 
 **Solo coorti posteriori all'arrivo del bot.** Di chi è entrato prima, Kindling
 vede solo chi è rimasto: quei numeri non rispondono alla domanda, e restano nei

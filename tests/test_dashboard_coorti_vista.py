@@ -264,7 +264,7 @@ def test_la_data_di_leggibilita_viene_da_as_of_e_dalla_cadenza_osservata():
 def test_le_date_della_produzione_del_21_settembre():
     """I tre casi letti in produzione (snapshot 13), rifatti con la funzione della vista."""
     as_of = datetime(2026, 9, 21, tzinfo=UTC)
-    settimana = timedelta(days=7)
+    settimana = 7  # giorni interi: stato.cadenza_in_giorni
     assert coorti.calcolo_che_vede(as_of, 14 - 0, settimana).date() == date(2026, 10, 5)
     assert coorti.calcolo_che_vede(as_of, 14 - 8, settimana).date() == date(2026, 9, 28)
     # La retention a 28 giorni del 31/08, quattordici giorni osservati.
@@ -478,8 +478,12 @@ def _avviso(html: str):
 def test_zero_coorti_leggibili_dice_la_data_della_prima():
     html = _rendi(_pagina(_ultimo(GUILD_TODAY), GUILD_TODAY), GUILD_TODAY)
     # …001: la cadenza osservata e' 6 giorni e 19h45m (lo snapshot 11 ha as_of
-    # alle 04:15), quindi i calcoli previsti cadono di domenica — come in Stato.
-    assert _avviso(html) == "La prima coorte sarà leggibile dal calcolo di domenica 27 settembre."
+    # alle 04:15). Fino al 28/09/2026 la si sommava cosi' com'era: i calcoli
+    # previsti cadevano di domenica, e per coprire sette giorni ne servivano due
+    # (2 x 6,82 = 13,6 giorni, "domenica 27"). Arrotondata a 7 giorni interi
+    # (stato.cadenza_in_giorni) ne basta uno: il lunedi' 21, l'as_of che il job
+    # scrivera'.
+    assert _avviso(html) == "La prima coorte sarà leggibile dal calcolo di lunedì 21 settembre."
 
 
 def test_una_coorte_leggibile():

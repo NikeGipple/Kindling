@@ -39,7 +39,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 import api.models as modelli
-from dashboard import main, stato
+from dashboard import coorti, main, stato
 from dashboard.main import TEMPLATES_DIR
 from tests.sessione_dashboard import (
     app_di_test,
@@ -446,3 +446,77 @@ def test_nessuna_preposizione_scritta_a_mano_davanti_a_una_data():
     assert _PREPOSIZIONE_A_MANO.search('f"dal {_stato.data_estesa(x)}"')
     assert _PREPOSIZIONE_A_MANO.search('f"al {data_breve(x, riferimento=r)}"')
     assert _PREPOSIZIONE_A_MANO.search('f"del {data(g, oggi)}"')
+
+
+# --- 7. il prossimo calcolo, e quando e' in ritardo -------------------------------
+#
+# Il caso di produzione del 27/09/2026: tre run, la prima con as_of alle 04:15
+# (prima dell'ancoraggio al lunedi'), poi due lunedi' a mezzanotte. Due
+# intervalli, 6,82 e 7 giorni: la mediana e' la loro media, 6,9114.
+
+RUN_PRODUZIONE = [
+    modelli.RunRow(snapshot_id=11, as_of=datetime(2026, 9, 7, 4, 15, 6, tzinfo=U), params={}, stats={}),
+    modelli.RunRow(snapshot_id=12, as_of=datetime(2026, 9, 14, tzinfo=U), params={}, stats={}),
+    modelli.RunRow(snapshot_id=13, as_of=datetime(2026, 9, 21, tzinfo=U), params={}, stats={}),
+]
+GUILD_PRODUZIONE = modelli.GuildRow(guild_id=5, first_seen_at=datetime(2026, 8, 28, 15, 28, tzinfo=U))
+
+
+def _prossimo(ora: datetime) -> Any:
+    vista = stato.costruisci(GUILD_PRODUZIONE, RUN_PRODUZIONE, [], [], [], ora=ora)
+    return {f.etichetta: f for f in vista.fatti}["Prossimo aggiornamento"]
+
+
+def test_la_cadenza_non_intera_da_comunque_un_lunedi():
+    cadenza = stato.cadenza_osservata(RUN_PRODUZIONE)
+    assert abs(cadenza / timedelta(days=1) - 6.9114) < 0.001  # il valore di produzione
+    assert stato.cadenza_in_giorni(RUN_PRODUZIONE) == 7
+    atteso = stato.as_of_previsto(RUN_PRODUZIONE[-1].as_of, stato.cadenza_in_giorni(RUN_PRODUZIONE))
+    assert atteso == datetime(2026, 9, 28, tzinfo=U)
+    assert stato.settimana(atteso).weekday() == 0
+    # Coorti passa dalla stessa funzione: anche due e tre passi cadono di lunedi'.
+    for giorni in (1, 7, 8, 14, 20):
+        istante = coorti.calcolo_che_vede(RUN_PRODUZIONE[-1].as_of, giorni, 7)
+        assert stato.settimana(istante).weekday() == 0, giorni
+
+
+def test_domenica_sera_il_prossimo_e_lunedi_e_non_e_in_ritardo():
+    """L'ora esatta del difetto: domenica 27/09 alle 22:35 UTC, gia' lunedi' a Roma."""
+    f = _prossimo(datetime(2026, 9, 27, 22, 35, tzinfo=U))
+    assert f.valore == "oggi"
+    assert f.dettaglio == "previsto il 28 set"
+
+
+def test_lunedi_alle_2_utc_non_e_in_ritardo():
+    """Il job parte alle 04:15: alle 02:00 non puo' esserci ancora."""
+    ora = datetime(2026, 9, 28, 2, 0, tzinfo=U)
+    assert not stato.in_ritardo(datetime(2026, 9, 28, tzinfo=U), ora)
+    f = _prossimo(ora)
+    assert f.valore == "oggi" and f.dettaglio == "previsto il 28 set"
+
+
+def test_lunedi_a_mezzogiorno_senza_run_e_in_ritardo():
+    ora = datetime(2026, 9, 28, 12, 0, tzinfo=U)
+    assert stato.in_ritardo(datetime(2026, 9, 28, tzinfo=U), ora)
+    f = _prossimo(ora)
+    assert f.valore == "in ritardo" and f.dettaglio == "era previsto il 28 set"
+
+
+def test_il_ritardo_scatta_dopo_orario_del_job_piu_margine_e_non_prima():
+    atteso = datetime(2026, 9, 28, tzinfo=U)
+    soglia = atteso + stato.ORARIO_DEL_JOB + stato.MARGINE_DEL_JOB
+    assert not stato.in_ritardo(atteso, soglia)
+    assert stato.in_ritardo(atteso, soglia + timedelta(minutes=1))
+
+
+def test_l_orario_del_job_e_quello_della_riga_di_cron():
+    """ORARIO_DEL_JOB e' dichiarato, non osservato (stato.py dice perche'): che non
+    diverga in silenzio da ops/kindling.cron lo garantisce questo test. Il cron
+    deve girare di lunedi', il giorno dell'as_of, a quell'ora."""
+    cron = (Path(main.__file__).parent.parent / "ops" / "kindling.cron").read_text(encoding="utf-8")
+    righe = [r.split() for r in cron.splitlines() if r.strip() and not r.lstrip().startswith("#")
+             and "=" not in r.split()[0]]
+    assert len(righe) == 1, righe
+    minuto, ora, giorno_mese, mese, giorno_settimana = righe[0][:5]
+    assert (giorno_mese, mese, giorno_settimana) == ("*", "*", "1")
+    assert timedelta(hours=int(ora), minutes=int(minuto)) == stato.ORARIO_DEL_JOB

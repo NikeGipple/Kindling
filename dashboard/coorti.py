@@ -49,7 +49,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Any, Mapping, Optional, Sequence
 
 from api.models import (
@@ -564,25 +564,28 @@ def gruppi_visibili(gruppi: Sequence[CohortGroup], ancora: datetime) -> list[Gru
 
 
 def calcolo_che_vede(
-    as_of: datetime, giorni: int, cadenza: Optional[timedelta]
+    as_of: datetime, giorni: int, cadenza_giorni: Optional[int]
 ) -> Optional[datetime]:
     """Il primo calcolo, con la cadenza osservata, che cade ``giorni`` dopo ``as_of``.
 
-    ``as_of + m * cadenza`` con ``m`` il piu' piccolo intero che ci arriva. Con la
-    cadenza settimanale e' esatto: ``observation_days`` e' troncato, il valore
-    vero sta in ``[obs, obs + 1)``, e un multiplo intero di sette giorni supera la
-    soglia sul valore vero se e solo se la supera su ``obs`` (dashboard.md 4).
+    ``as_of + m * cadenza`` con ``m`` il piu' piccolo intero che ci arriva, dalla
+    stessa ``stato.as_of_previsto`` del "Prossimo aggiornamento" di Stato. La
+    cadenza e' in giorni INTERI (``stato.cadenza_in_giorni``): fino al 28/09/2026
+    era quella osservata cosi' com'era, 6,9114 giorni in produzione, e la
+    lettura cadeva "dal calcolo di domenica". Con giorni interi e' esatto:
+    ``observation_days`` e' troncato, il valore vero sta in ``[obs, obs + 1)``, e
+    un multiplo intero di giorni supera la soglia sul valore vero se e solo se la
+    supera su ``obs`` (dashboard.md 4).
 
     ``None`` senza cadenza — con una run sola un intervallo non si misura, e la
     data sarebbe inventata — e ``None`` se lo scarto non e' positivo: una data
     uguale o anteriore a ``as_of`` direbbe che il calcolo c'e' gia' stato, e le
     righe che arrivano qui sono quelle per cui non c'e' stato.
     """
-    if cadenza is None or cadenza <= timedelta(0) or giorni <= 0:
+    if cadenza_giorni is None or cadenza_giorni <= 0 or giorni <= 0:
         return None
-    scarto = timedelta(days=giorni)
-    passi = -((-scarto) // cadenza)
-    return as_of + passi * cadenza
+    passi = -(-giorni // cadenza_giorni)
+    return _stato.as_of_previsto(as_of, cadenza_giorni, passi)
 
 
 def orizzonti_integrazione() -> tuple[int, ...]:
@@ -628,7 +631,7 @@ def _frase_osservazione(giorni_maturita: Optional[int]) -> Optional[str]:
 
 
 def _cella_presenti(
-    gruppo: Gruppo, orizzonte: int, as_of: datetime, cadenza: Optional[timedelta]
+    gruppo: Gruppo, orizzonte: int, as_of: datetime, cadenza: Optional[int]
 ) -> CellaVista:
     etichetta = f"dopo {orizzonte} gg"
     riga = gruppo.retention.get(orizzonte)
@@ -687,7 +690,7 @@ def _riga(
     gruppo: Gruppo,
     *,
     as_of: datetime,
-    cadenza: Optional[timedelta],
+    cadenza: Optional[int],
     giorni_maturita: Optional[int],
     soglia: Optional[int],
     orizzonti_presenti: Sequence[int],
@@ -787,7 +790,7 @@ def pagina(
     params = run.params if run is not None else {}
     giorni_maturita = _intero(params, "min_observation_days")
     soglia = _intero(params, "min_cardinality")
-    cadenza = _stato.cadenza_osservata(runs)
+    cadenza = _stato.cadenza_in_giorni(runs)
     as_of = tecnica_.snapshot.as_of
     # L'anno delle date della pagina si confronta con questo as_of, il piu'
     # recente (stato.data_breve).
