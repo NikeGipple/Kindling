@@ -435,6 +435,19 @@ lettura — = nessuna sessione; una guild fuori dall'insieme autorizzato = nessu
 sessione. `completa_callback`, e quindi anche il ricontrollo dei 15 minuti, la
 scrive insieme a `guilds` e `nomi`.
 
+**Dopo il deploy, per un quarto d'ora: monogrammi al posto delle icone. È
+voluto.** Le sessioni aperte prima del deploy hanno un cookie firmato senza la
+chiave `icone`: ricadono nel primo caso (mappa vuota, sessione valida), e
+l'elenco mostra i monogrammi. Al primo ricontrollo silenzioso — al più 15 minuti
+dopo l'ultimo, `auth.TTL_RICONTROLLO_SECONDI` — `completa_callback` riscrive la
+sessione con le icone, e da lì compaiono da sole. Non è un difetto da correggere
+con un cambio di formato che invalidi le sessioni: sloggerebbe tutti per una
+decorazione, mentre così nessuno deve rientrare e il ripiego è quello che la
+pagina ha comunque per un server senza icona. È la stessa scelta già fatta per i
+nomi (dove, nel frattempo, la testata mostra l'ID). Chi dopo il deploy vede i
+monogrammi e non le icone non deve cercare il guasto nel CDN né nella CSP: prima
+aspetta un ricontrollo, o esce e rientra.
+
 **Il budget del cookie.** Il budget di `BUDGET_JSON_SESSIONE_BYTE` (2800 byte di
 JSON) ora ha tre gradini, interi, nell'ordine: nomi e icone; solo nomi; niente.
 Le icone cadono per prime perché valgono meno, e non restano mai senza nomi.
