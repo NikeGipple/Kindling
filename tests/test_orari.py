@@ -520,3 +520,15 @@ def test_l_orario_del_job_e_quello_della_riga_di_cron():
     minuto, ora, giorno_mese, mese, giorno_settimana = righe[0][:5]
     assert (giorno_mese, mese, giorno_settimana) == ("*", "*", "1")
     assert timedelta(hours=int(ora), minutes=int(minuto)) == stato.ORARIO_DEL_JOB
+
+
+def test_domande_dice_la_stessa_cadenza_di_stato():
+    """Dalla rotta, non dalla funzione: cosi' il test prende anche il collegamento
+    in main.py. …001 ha due run a 6 giorni e 19h45m di distanza: Stato prevede il
+    lunedi' dopo, sette giorni, e Domande deve dire 7 — fino al 28/09/2026 diceva
+    "circa ogni 6,8 giorni"."""
+    with client_autenticato(app_di_test(), follow_redirects=False) as c:
+        html = c.get(f"/guilds/{GUILD_TODAY}/domande").text
+    testo = " ".join(_testo(html).fuori)
+    assert "circa ogni 7 giorni" in testo
+    assert not re.search(r"circa ogni \d+[.,]\d", testo)

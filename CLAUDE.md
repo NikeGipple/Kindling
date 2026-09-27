@@ -497,3 +497,25 @@ coorti qualificate come osservate per intero senza esserlo.
 È una decisione di modello, non di dashboard. Il fixture
 (`tools/fixture_api.py`, scenario `…003`) segue il codice com'è: la coorte di soli
 sopravvissuti è anteriore a `first_seen_at`, non al rientro.
+
+### `created_at` di `graph_snapshots` e `metric_runs` non è la data di creazione
+
+Trovato il 28/09/2026 correggendo la previsione del prossimo calcolo in Stato.
+
+L'`ON CONFLICT` di `write_snapshot` e della scrittura di `metric_runs`
+(`job/db.py`) fa `created_at = now()`: un ricalcolo sovrascrive la data. Il nome
+promette «quando è stata creata la riga», il valore è «quando è stata scritta
+l'ultima volta». In produzione le run 11 e 12 portano il 15/09 09:52, il giorno
+del ricalcolo delle metriche, non il 7 e il 14. Chi usa `created_at` per sapere
+quando il job è partito (la mediana di `created_at − as_of`, per esempio) ottiene
+un numero sbagliato, e nessun errore.
+
+Oggi è gestito dove morde: i Dettagli tecnici dicono cosa significa davvero
+(`dashboard.md` §4, «La pagina Dettagli tecnici»), e Stato non ricava da lì
+l'orario del job (`stato.ORARIO_DEL_JOB`, dichiarato e confrontato da un test con
+`ops/kindling.cron`).
+
+**Fix NON fatto qui**: rinominare la colonna (per esempio `written_at`) o
+aggiungerne una che non si sovrascrive. Tocca lo schema, `job/db.py`, l'API e il
+contratto di `api.md`: va deciso a parte, non innestato su una correzione di
+testo.

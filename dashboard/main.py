@@ -597,7 +597,7 @@ def crea_app(
                 guild_id,
                 ultima.params if ultima is not None else None,
                 privacy_url=SITO_PUBBLICO["privacy"],
-                cadenza=stato.cadenza_osservata(runs),
+                cadenza_giorni=stato.cadenza_in_giorni(runs),
             ),
             vista_corrente="domande",
         )

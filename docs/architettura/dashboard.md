@@ -688,7 +688,9 @@ ripiego sarebbe di nuovo un numero inventato con l'aria di essere misurato.
 Il significato cambia con la sorgente, e va detto: **la pagina descrive quello
 che è successo su questo server, non quello che il cron promette.** La stessa
 cadenza osservata alimenta la risposta «ogni quanto si aggiornano i dati» nelle
-Domande, che per questo dice «finora» e non «sempre».
+Domande, che per questo dice «finora» e non «sempre». Dal 28/09/2026 anche lì in
+giorni interi, da `stato.cadenza_in_giorni` come la previsione qui sotto: prima
+Domande diceva «circa ogni 6,9 giorni» mentre Stato prevedeva il lunedì dopo.
 
 **La previsione usa la cadenza in giorni interi, e il ritardo guarda l'ora del
 job (28/09/2026).** Fino ad allora questa sezione diceva che una previsione di
@@ -978,6 +980,16 @@ spiega lo statuto (`api.md` §3: diagnostica, non contratto). Qui i timestamp so
 completi e in UTC, perché qui la domanda è «quale codice ha prodotto questo
 numero, e quando» — e la risposta a quella domanda si confronta con i log, che
 sono in UTC.
+
+**`created_at` non è l'ora in cui il job è partito** per la prima volta su
+quella run: è l'ora dell'**ultimo** calcolo, perché un ricalcolo la sovrascrive
+(`ON CONFLICT … created_at = now()` in `job/db.py`). In produzione le run 11 e 12
+mostrano il 15/09, il giorno del ricalcolo delle metriche, non il 7 e il 14. La
+pagina lo dice sotto il titolo: «`created_at` è l'ora dell'ultimo calcolo di
+quella run: un ricalcolo la sovrascrive.» Fino al 28/09/2026 diceva «l'ora in cui
+il job è partito, di solito qualche ora dopo», falso proprio sulle righe che
+qualcuno ha rifatto. Il nome della colonna è ingannevole, ed è un follow-up aperto
+in `CLAUDE.md`.
 
 **«Coorti — numeri esatti dell'ultimo calcolo» (26/09/2026).** La tabella che
 fino al 26/09 era la vista Coorti, completa e senza tagli: tutte le coorti

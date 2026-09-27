@@ -25,7 +25,6 @@ falso: il bot registra ``author_id`` pseudonimizzati, e l'invariante di
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import Any, Mapping, Optional
 
 from .regole import plurale
@@ -87,24 +86,26 @@ def costruisci(
     params: Optional[Mapping[str, Any]],
     *,
     privacy_url: str,
-    cadenza: Optional[timedelta] = None,
+    cadenza_giorni: Optional[int] = None,
 ) -> tuple[Domanda, ...]:
     """Le domande, con le soglie che i dati della run consentono di citare.
 
-    ``cadenza`` e' quella OSSERVATA fra le run (``stato.cadenza_osservata``), non
-    un valore preso da ``job/config.py``: la risposta "ogni quanto si aggiornano
-    i dati" descrive cio' che e' successo su questo server, e con una run sola —
-    quando la cadenza non esiste — la frase che la nominava semplicemente non
-    compare.
+    ``cadenza_giorni`` e' quella OSSERVATA fra le run, non un valore preso da
+    ``job/config.py``: la risposta "ogni quanto si aggiornano i dati" descrive
+    cio' che e' successo su questo server, e con una run sola — quando la
+    cadenza non esiste — la frase che la nominava semplicemente non compare.
+
+    In giorni interi, da ``stato.cadenza_in_giorni``, la stessa della previsione
+    di Stato: fino al 28/09/2026 qui c'era la mediana grezza con un decimale, e
+    in produzione la pagina diceva "circa ogni 6,9 giorni" mentre Stato
+    prevedeva il lunedi' successivo, sette giorni dopo.
     """
     p = params or {}
     cardinalita = _soglia(p, "min_cardinality")
     nodi = _soglia(p, "min_nodes_structural")
     maturita = _soglia(p, "min_observation_days")
     k = _soglia(p, "k_connections")
-    giorni_cadenza = (
-        round(cadenza.total_seconds() / 86400, 1) if cadenza is not None else None
-    )
+    giorni_cadenza = cadenza_giorni
 
     def con(*paragrafi: Optional[str]) -> tuple[str, ...]:
         return tuple(testo for testo in paragrafi if testo)
