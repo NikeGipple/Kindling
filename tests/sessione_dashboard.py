@@ -25,7 +25,14 @@ from fastapi.testclient import TestClient
 from dashboard import auth, config
 from dashboard.config import OAuthConfig
 from dashboard.main import crea_app
-from tools.fixture_api import GUILD_EDGE, GUILD_MATURE, GUILD_SCALE, GUILD_TODAY
+from tools.fixture_api import (
+    GUILD_EDGE,
+    GUILD_LEFT,
+    GUILD_MATURE,
+    GUILD_NEW,
+    GUILD_SCALE,
+    GUILD_TODAY,
+)
 from tools.fixture_api import app as fixture_app
 
 OAUTH_DI_TEST = OAuthConfig(
@@ -35,12 +42,14 @@ OAUTH_DI_TEST = OAuthConfig(
     redirect_uri="http://localhost:8000/oauth/callback",
 )
 
-# Le quattro guild del fixture, piu' gli id che i test delle viste usano con un
+# Le sei guild del fixture, piu' gli id che i test delle viste usano con un
 # transport finto (1, 5) o per provare il 404 dell'API (123, 123456789): per
 # arrivare fino all'API quegli id devono essere DENTRO l'insieme autorizzato,
 # altrimenti la guardia risponde prima e il test proverebbe la guardia invece
 # della vista.
-GUILD_DI_TEST = (GUILD_TODAY, GUILD_MATURE, GUILD_EDGE, GUILD_SCALE, 1, 5, 123, 123456789)
+GUILD_DI_TEST = (
+    GUILD_TODAY, GUILD_MATURE, GUILD_EDGE, GUILD_SCALE, GUILD_LEFT, GUILD_NEW, 1, 5, 123, 123456789
+)
 
 
 class _SignerAllIstante(itsdangerous.TimestampSigner):

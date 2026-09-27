@@ -2711,7 +2711,7 @@ test — e il valore anomalo di `previous_gap_days` lo dimostra: è successo, e 
 rerun lo ha già cancellato. Un percorso di rendering mai eseguito non è codice
 che funziona: è codice di cui non si sa niente.
 
-**Quattro guild, quattro scenari**, perché scegliere la guild è già il gesto che
+**Sei guild, sei scenari**, perché scegliere la guild è già il gesto che
 il flusso di autorizzazione richiede:
 
 | Guild | Scenario |
@@ -2720,6 +2720,8 @@ il flusso di autorizzazione richiede:
 | `900000000000000002` | Dodici settimane di serie e stabilità calcolata. Tre layer grandi e significativi; `voice` è il layer a basso traffico — assente in due snapshot, sotto soglia in un altro — ed è quello che esercita l'interruzione della linea e il caso misto |
 | `900000000000000003` | I casi che mordono: soppressione, `targeted_excess` negativo, baseline degenere, `node_overlap` sotto soglia, mediana non raggiunta, buco di osservazione, `code_version` assente |
 | `900000000000000004` | La **scala** delle coorti (aggiunta il 16/09/2026 con la vista Coorti): 25 `cohort_start` su un solo snapshot, nelle stesse proporzioni della produzione — 6 soppresse, 17 anteriori all'ancora, 2 immature — più le significative che la produzione non ha, e due buchi negli snapshot di grafo che spengono la copertura di due coorti. Un secondo run, undici giorni dopo l'ancora, porta l'unica combinazione che non può coesistere con una coorte significativa (§4, punto 2). Per la vista Coorti del 26/09/2026 esercita da solo **i quattro stati di riga** posteriori all'ancora — tre leggibili, due in osservazione, due sotto la soglia, e il caso difensivo senza copertura (03/08) — verificato prima di scrivere la vista, non costruito per lei. Le sue due run distano 49 giorni: le date «leggibile dal» che ne escono cadono al 2 novembre, e non è un difetto — è la cadenza osservata, la stessa di Stato |
+| `900000000000000005` | Il **bot uscito** (aggiunta il 27/09/2026 con l'elenco dei server): `left_at` il 12/09, `rejoined_at` nullo — la coppia che scrive `bot/db.py` all'uscita. Le date dei calcoli non sono scelte: quattro lunedì dal primo dopo l'arrivo del bot all'ultimo dopo la sua uscita, la regola del job (`as_of` al lunedì, guild scelte dai `raw_events` della finestra) |
+| `900000000000000006` | Il **bot appena arrivato** (27/09/2026): la guild c'è, nessuna run, `latest_metrics_as_of` nullo, le quattro serie vuote. È anche l'unico scenario in cui Stato dà *in raccolta* |
 
 **Si costruisce contro `…003`**, che è il caso peggiore, si verifica la scala su
 `…004`, e si controlla su `…001` e `…002`.
@@ -2737,7 +2739,10 @@ provati in `tests/test_dashboard_stato.py` con un transport finto e su
 d'ufficio: aggiungere una guild «tutta soppressa» significherebbe inventare uno
 scenario per far verde un test, quando i due stati sono già riproducibili a costo
 zero. È però il genere di cosa che va riletta quando si tocca l'ammissione degli
-archi (CLAUDE.md §7, il caso di `tools/fixture_api.py`).
+archi (CLAUDE.md §7, il caso di `tools/fixture_api.py`). *(27/09/2026: *in
+raccolta* ora c'è, sulla guild `…006`, perché «nessun calcolo ancora» serviva
+all'elenco dei server; *sotto la soglia* resta fuori per la ragione scritta
+qui.)*
 
 **Perché il fixture non può divergere dal contratto.** Non descrive la forma
 delle risposte: istanzia i modelli di `api/models.py`, gli stessi che l'API usa

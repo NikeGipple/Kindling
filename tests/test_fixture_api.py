@@ -15,7 +15,7 @@ verificano due cose distinte:
 from __future__ import annotations
 
 import copy
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -490,3 +490,46 @@ def test_coglie_una_coorte_oltre_i_180_giorni():
     gruppi = scenari[GUILD_EDGE]["cohorts"]
     gruppi[0] = gruppi[0].model_copy(update={"cohort_start": date(2026, 2, 9)})
     assert any("cohort_max_age_days" in p for p in problemi_di_contenuto(scenari))
+
+
+# --- gli scenari dell'elenco dei server (27/09/2026) -------------------------
+
+
+def test_lo_scenario_uscito_ha_la_coppia_che_scrive_il_bot():
+    # _MARK_GUILD_LEFT: left_at all'uscita, rejoined_at rimesso a NULL.
+    guild = SCENARIOS[fixture_api.GUILD_LEFT]["guild"]
+    assert guild.left_at is not None
+    assert guild.rejoined_at is None
+
+
+def test_lo_scenario_uscito_calcola_fino_al_lunedi_dopo_l_uscita_e_non_oltre():
+    # Le date le decide il job: un calcolo ogni lunedi' 00:00 UTC la cui
+    # finestra di sette giorni contiene giorni osservati. Il primo e' il lunedi'
+    # dopo l'arrivo del bot, l'ultimo il lunedi' dopo la sua uscita.
+    scenario = SCENARIOS[fixture_api.GUILD_LEFT]
+    guild = scenario["guild"]
+    calcoli = sorted(r.as_of for r in scenario["runs"])
+
+    assert calcoli[0] == datetime(2026, 8, 24, tzinfo=timezone.utc)
+    assert calcoli[-1] == datetime(2026, 9, 14, tzinfo=timezone.utc)
+    assert guild.latest_metrics_as_of == calcoli[-1]
+    assert all(q.weekday() == 0 and q.time() == datetime.min.time() for q in calcoli)
+    # La finestra dell'ultimo contiene l'uscita; quella di uno successivo no.
+    assert calcoli[-1] - timedelta(days=7) <= guild.left_at < calcoli[-1]
+    assert all(b - a == timedelta(weeks=1) for a, b in zip(calcoli, calcoli[1:]))
+
+
+def test_lo_scenario_nuovo_non_ha_nessun_calcolo():
+    scenario = SCENARIOS[fixture_api.GUILD_NEW]
+    assert scenario["guild"].latest_metrics_as_of is None
+    assert scenario["runs"] == [] and scenario["cohorts"] == []
+
+
+def test_la_rotta_guilds_del_fixture_serve_left_at_e_rejoined_at_per_ogni_guild():
+    corpo = TestClient(fixture_api.app).get("/guilds").json()
+
+    assert len(corpo) == len(SCENARIOS)
+    for g in corpo:
+        assert "left_at" in g and "rejoined_at" in g, g["guild_id"]
+    uscite = {g["guild_id"] for g in corpo if g["left_at"] and not g["rejoined_at"]}
+    assert uscite == {fixture_api.GUILD_LEFT}

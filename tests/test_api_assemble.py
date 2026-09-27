@@ -386,6 +386,48 @@ def test_lancora_e_i_buchi_di_osservazione_arrivano_nella_risposta():
     assert riga.left_at is not None and riga.rejoined_at is not None
 
 
+def test_la_rotta_guilds_serve_left_at_e_rejoined_at_per_ogni_guild(monkeypatch):
+    """Il campo c'e' nella risposta di ``GET /guilds`` anche quando e' nullo.
+
+    L'elenco dei server della dashboard (dashboard.md 4) decide la nota "il bot
+    non e' piu' nel server" su questi due campi, riga per riga: se la rotta li
+    omettesse sui null, o li perdesse per una guild, la nota sparirebbe senza
+    nessun errore. Dalla rotta vera, con la query sostituita dalle righe che
+    ``db.fetch_guilds`` restituisce (le colonne sono quelle del suo SELECT).
+    """
+    from fastapi.testclient import TestClient
+
+    from api import db, main
+
+    righe = [
+        {"guild_id": 1, "first_seen_at": T0, "backfilled_at": None,
+         "left_at": None, "rejoined_at": None, "latest_metrics_as_of": None},
+        {"guild_id": 2, "first_seen_at": T0, "backfilled_at": T0,
+         "left_at": datetime(2026, 9, 12, 16, 40, tzinfo=timezone.utc),
+         "rejoined_at": None, "latest_metrics_as_of": T0},
+        {"guild_id": 3, "first_seen_at": T0, "backfilled_at": T0,
+         "left_at": datetime(2026, 7, 1, tzinfo=timezone.utc),
+         "rejoined_at": datetime(2026, 7, 10, tzinfo=timezone.utc),
+         "latest_metrics_as_of": T0},
+    ]
+
+    async def finta():
+        return righe
+
+    monkeypatch.setattr(db, "fetch_guilds", finta)
+    # Senza "with": il lifespan aprirebbe il pool verso Postgres.
+    risposta = TestClient(main.app).get("/guilds")
+
+    assert risposta.status_code == 200
+    corpo = risposta.json()
+    assert [g["guild_id"] for g in corpo] == [1, 2, 3]
+    for g in corpo:
+        assert "left_at" in g and "rejoined_at" in g, g
+    assert corpo[0]["left_at"] is None and corpo[0]["rejoined_at"] is None
+    assert corpo[1]["left_at"] is not None and corpo[1]["rejoined_at"] is None
+    assert corpo[2]["left_at"] is not None and corpo[2]["rejoined_at"] is not None
+
+
 def test_guild_senza_metriche_resta_nellelenco():
     riga = assemble.guild(
         {"guild_id": 222, "first_seen_at": T0, "latest_metrics_as_of": None}

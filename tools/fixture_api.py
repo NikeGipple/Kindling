@@ -48,7 +48,7 @@ Uso::
     python -m tools.fixture_api --check      # valida e basta, exit 1 se rotto
     uvicorn tools.fixture_api:app --port 8899
 
-Quattro guild, quattro scenari — si cambia scenario scegliendo la guild, che
+Sei guild, sei scenari — si cambia scenario scegliendo la guild, che
 esercita anche il selettore multi-guild del flusso di autorizzazione:
 
 ===================  =========================================================
@@ -62,6 +62,9 @@ esercita anche il selettore multi-guild del flusso di autorizzazione:
 ``...004`` scala     venticinque coorti su un solo snapshot, il numero della
                      produzione: il muro di "solo sopravvissuti" (17 su 25) e
                      le combinazioni di motivi che gli altri non esercitano
+``...005`` uscito    il bot e' stato tolto il 12/09 e non e' rientrato; quattro
+                     calcoli, l'ultimo il lunedi' dopo l'uscita (dal job)
+``...006`` nuovo     il bot e' appena arrivato: nessun calcolo, serie vuote
 ===================  =========================================================
 """
 
@@ -73,7 +76,7 @@ import math
 import pathlib
 import sys
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Query
@@ -105,7 +108,13 @@ from api.models import (
 # job.config, niente igraph ne' leidenalg. Per le coorti il fixture quindi non
 # riproduce le regole del job: CHIAMA il job (compute_cohort, compute_retention,
 # split_cohorts) sui membri sintetici, e ne ritira l'intera classe di divergenza.
-from job.cohorts import CohortMember, compute_cohort, compute_retention, split_cohorts
+from job.cohorts import (
+    CohortMember,
+    cohort_start_of,
+    compute_cohort,
+    compute_retention,
+    split_cohorts,
+)
 from job.config import ALL_LAYERS, DEFAULT_PARAMS, MetricParams
 
 # --- compatibilita' pydantic v1/v2 ----------------------------------------
@@ -183,6 +192,8 @@ GUILD_TODAY = 900000000000000001
 GUILD_MATURE = 900000000000000002
 GUILD_EDGE = 900000000000000003
 GUILD_SCALE = 900000000000000004
+GUILD_LEFT = 900000000000000005
+GUILD_NEW = 900000000000000006
 
 MONDAY = datetime(2026, 9, 7, 0, 0, tzinfo=timezone.utc)
 
@@ -1444,11 +1455,135 @@ def _scenario_scala() -> dict[str, Any]:
     }
 
 
+def _scenario_uscito() -> dict[str, Any]:
+    """Il bot e' stato tolto dal server e non e' rientrato: ``left_at`` senza ``rejoined_at``.
+
+    Aggiunto il 27/09/2026 con l'elenco dei server v2 (dashboard.md 4), che deve
+    mostrare questo stato e prima non aveva un fixture che lo esercitasse: gli
+    altri quattro scenari hanno ``left_at`` nullo, o valorizzato insieme a
+    ``rejoined_at`` (``...003``).
+
+    **La coppia ``left_at``/``rejoined_at`` e' quella che scrive il bot**
+    (``bot/db.py``, ``_MARK_GUILD_LEFT``: ``left_at`` all'uscita e
+    ``rejoined_at`` rimesso a NULL). **Le date dei calcoli le decide il job**, non
+    questo file: il job gira ogni lunedi' con ``as_of`` al lunedi' 00:00 UTC
+    (``job.main._week_aligned_now``, cioe' ``cohort_start_of``) sulla finestra
+    dei sette giorni prima, e sceglie le guild dai ``raw_events`` di quella
+    finestra (``job.db.list_guilds``). Quindi il primo calcolo e' il lunedi' dopo
+    l'arrivo del bot e l'ultimo e' il lunedi' dopo la sua uscita — la finestra
+    che contiene gli ultimi giorni osservati —, e da li' non ne arrivano altri.
+    Senza una di queste due regole, ``latest_metrics_as_of`` sarebbe una data
+    plausibile scelta a mano.
+    """
+    u = timezone.utc
+    ancora = datetime(2026, 8, 18, 15, 10, tzinfo=u)
+    uscita = datetime(2026, 9, 12, 16, 40, tzinfo=u)
+
+    def lunedi_dopo(istante: datetime) -> datetime:
+        return datetime.combine(cohort_start_of(istante) + timedelta(days=7), time.min, tzinfo=u)
+
+    calcoli = []
+    quando = lunedi_dopo(ancora)
+    while quando <= lunedi_dopo(uscita):
+        calcoli.append(quando)
+        quando += timedelta(weeks=1)
+    sid_di = {q: 501 + k for k, q in enumerate(calcoli)}
+
+    # Due coorti piccole, entrambe posteriori all'ancora: il punto dello
+    # scenario e' l'uscita del bot, non le coorti.
+    membri = (
+        _membri_generati(date(2026, 8, 17), 9, snapshot_as_of=calcoli, seme=51)
+        + _membri_generati(date(2026, 8, 31), 7, snapshot_as_of=calcoli, seme=52)
+    )
+
+    robustness: list[RobustnessRow] = []
+    communities: list[CommunityRow] = []
+    cohorts: list[CohortGroup] = []
+    # I grafi crescono finche' il bot c'e'. voice resta sotto la soglia di
+    # pubblicazione: soppresso, come in un server piccolo.
+    nodi = {"reply": (16, 19, 21, 22), "mention": (14, 15, 17, 18),
+            "reaction": (12, 14, 15, 15), "voice": (6, 7, 7, 8)}
+    z = {"reply": 1.9, "mention": 1.7, "reaction": 1.3, "voice": 0.8}
+    for k, quando in enumerate(calcoli):
+        sid = sid_di[quando]
+        precedente = _Precedente(sid - 1, quando - timedelta(weeks=1)) if k else None
+        for layer in LAYERS:
+            n = nodi[layer][k]
+            robustness += _robustness_layer(
+                sid, quando, layer, n=n,
+                excess={rf: round(0.05 + rf * 0.6, 3) for rf in REMOVAL_FRACTIONS},
+            )
+            riga = _community_layer(
+                sid, quando, layer, n=n, dimensioni=_partizione(n), modularity_z=z[layer],
+                precedente=precedente,
+                overlap=0.84 if precedente else None,
+                stability=0.7 if precedente else None,
+            )
+            if riga is not None:
+                communities.append(riga)
+        cohorts += _coorti(sid, quando, membri, ancora=ancora, snapshot_as_of=calcoli)
+
+    params = PARAMS.as_run_params()
+    return {
+        "guild": GuildRow(
+            guild_id=GUILD_LEFT,
+            first_seen_at=ancora,
+            backfilled_at=ancora + timedelta(minutes=3),
+            left_at=uscita,
+            rejoined_at=None,
+            latest_metrics_as_of=calcoli[-1],
+        ),
+        "runs": [
+            RunRow(
+                snapshot_id=sid_di[quando], as_of=quando, params=params,
+                graph_params=graph_params(),
+                stats={"durations_ms": {"cohorts_ms": 2.1, "robustness_ms": 88.0,
+                                        "communities_ms": 301.5},
+                       "snapshots_used": k + 1, "snapshots_skipped_params": 0,
+                       "snapshot_gaps": None},
+                code_version="dfc1696",
+                created_at=quando + timedelta(hours=4, minutes=15),
+            )
+            for k, quando in enumerate(calcoli)
+        ],
+        "robustness": robustness,
+        "communities": communities,
+        "cohorts": cohorts,
+    }
+
+
+def _scenario_nuovo() -> dict[str, Any]:
+    """Il bot e' appena arrivato: la guild c'e', nessun calcolo ancora.
+
+    Aggiunto il 27/09/2026 con l'elenco dei server v2. E' lo stato di ogni guild
+    fra l'arrivo del bot e il primo lunedi' successivo, ed e' una risposta che
+    l'API produce davvero: la riga di ``guilds`` la scrive il bot all'arrivo
+    (``register_guild``), ``latest_metrics_as_of`` e' NULL perche' non esiste
+    nessuna ``metric_runs``, e le quattro serie sono vuote. Esercita anche lo
+    stato «in raccolta» di Stato, che nessuno degli altri scenari ha (§7).
+    """
+    ancora = datetime(2026, 9, 15, 10, 20, tzinfo=timezone.utc)
+    return {
+        "guild": GuildRow(
+            guild_id=GUILD_NEW,
+            first_seen_at=ancora,
+            backfilled_at=ancora + timedelta(minutes=4),
+            left_at=None, rejoined_at=None, latest_metrics_as_of=None,
+        ),
+        "runs": [],
+        "robustness": [],
+        "communities": [],
+        "cohorts": [],
+    }
+
+
 SCENARIOS: dict[int, dict[str, Any]] = {
     GUILD_TODAY: _scenario_today(),
     GUILD_MATURE: _scenario_mature(),
     GUILD_EDGE: _scenario_edge(),
     GUILD_SCALE: _scenario_scala(),
+    GUILD_LEFT: _scenario_uscito(),
+    GUILD_NEW: _scenario_nuovo(),
 }
 
 # --- le sette rotte --------------------------------------------------------
