@@ -489,14 +489,14 @@ def test_zero_coorti_leggibili_dice_la_data_della_prima():
 def test_una_coorte_leggibile():
     vista = _pagina(_ultimo(GUILD_EDGE), GUILD_EDGE)
     assert vista.leggibili == 1
-    assert _avviso(_rendi(vista, GUILD_EDGE)).startswith("Per ora una sola settimana è leggibile.")
+    assert _avviso(_rendi(vista, GUILD_EDGE)).startswith("Per ora una sola coorte è leggibile.")
 
 
 def test_due_coorti_leggibili():
     senza_una = [g for g in _ultimo(GUILD_SCALE) if g.cohort_start != date(2026, 7, 27)]
     vista = _pagina(senza_una, GUILD_SCALE)
     assert vista.leggibili == 2
-    assert _avviso(_rendi(vista)).startswith("Per ora due settimane sono leggibili.")
+    assert _avviso(_rendi(vista)).startswith("Per ora due coorti sono leggibili.")
 
 
 def test_tre_coorti_leggibili_nessun_avviso():

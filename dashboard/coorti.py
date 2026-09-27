@@ -754,15 +754,15 @@ def _avviso(righe: Sequence[Riga], *, riferimento: date) -> Optional[Avviso]:
     leggibili = sum(1 for r in righe if r.stato == LEGGIBILE)
     if leggibili == 1:
         return Avviso(
-            "Per ora una sola settimana è leggibile.",
-            "Dice com'è andata a quel gruppo, non ancora come va di solito: il "
-            "confronto fra settimane diventa possibile con più coorti.",
+            "Per ora una sola coorte è leggibile.",
+            "Mostra com'è andata ai nuovi arrivati di quella settimana, ma non è "
+            "ancora una tendenza: per confrontare le coorti serve più tempo.",
         )
     if leggibili == 2:
         return Avviso(
-            "Per ora due settimane sono leggibili.",
-            "Dicono com'è andata a quei due gruppi, non ancora come va di solito: il "
-            "confronto fra settimane diventa possibile con più coorti.",
+            "Per ora due coorti sono leggibili.",
+            "Mostrano com'è andata ai nuovi arrivati di quelle due settimane, ma "
+            "non sono ancora una tendenza: per confrontare le coorti serve più tempo.",
         )
     if leggibili == 0:
         prossime = [r.leggibile_dal for r in righe if r.leggibile_dal is not None]

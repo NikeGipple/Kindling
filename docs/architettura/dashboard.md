@@ -1719,9 +1719,9 @@ un'eccezione di misura zero — una coorte in cui tutti entrano il lunedì alle
 
 Poi l'avviso giallo, **solo con una o due coorti leggibili** fra tutte le
 posteriori all'ancora (non solo fra le dodici visibili): «Per ora una sola
-settimana è leggibile» / «Per ora due settimane sono leggibili», con la
-precisazione che dicono com'è andata a quel gruppo e non ancora come va di
-solito. Con **zero**: «La prima coorte sarà leggibile dal calcolo di
+coorte è leggibile» / «Per ora due coorti sono leggibili», con la
+precisazione che mostrano com'è andata ai nuovi arrivati di quelle settimane ma
+non sono ancora una tendenza. Con **zero**: «La prima coorte sarà leggibile dal calcolo di
 &lt;data&gt;», la più vicina fra quelle delle coorti in osservazione; senza data,
 niente. Da tre in su, niente. Poi la tabella, con la didascalia «dati aggiornati
 a &lt;data&gt;», e la nota «Le barre mostrano una proporzione approssimata; i
