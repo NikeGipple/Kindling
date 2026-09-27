@@ -172,6 +172,28 @@ def data_estesa(
     return _con_anno(testo, g, riferimento)
 
 
+def con_preposizione(preposizione: str, testo_data: str) -> str:
+    """``il 12 set``, ma ``l'8 set`` e ``l'11 set``; ``dal``/``dall'``,
+    ``al``/``all'``, ``del``/``dell'``.
+
+    Davanti a «otto» e «undici» l'articolo si elide, come si dice; davanti a
+    «uno» no («il 1°», letto «il primo»). ``preposizione`` e' la forma davanti a
+    consonante, anche maiuscola a inizio frase (``Dal`` -> ``Dall'``).
+
+    Stava in elenco.py fino al 28/09/2026, e Stato scriveva "previsto il 11
+    gen": una regola in un modulo solo e' una regola che gli altri non sanno di
+    dover seguire. Una data con il giorno della settimana davanti ("di lunedì
+    5 ottobre") non passa di qui: la preposizione cade sul nome del giorno.
+    """
+    if testo_data.split(" ", 1)[0] not in ("8", "11"):
+        return f"{preposizione} {testo_data}"
+    if preposizione == "il":
+        return f"l'{testo_data}"
+    if preposizione == "Il":
+        return f"L'{testo_data}"
+    return f"{preposizione}l'{testo_data}"
+
+
 def relativo(quando: date, oggi: date) -> str:
     """"oggi", "ieri", "domani", "tra N giorni", "N giorni fa".
 
@@ -426,7 +448,7 @@ def _calendario(
     punti = tuple(
         Punto(
             x,
-            f"calcolo del {breve(c)}",
+            f"calcolo {con_preposizione('del', breve(c))}",
             breve(c),
             _ancoraggio(x),
             scrivi,
@@ -443,12 +465,12 @@ def _calendario(
     )
 
     descrizione = (
-        f"Linea del tempo: arrivo del bot il {breve(arrivo)}, "
+        f"Linea del tempo: arrivo del bot {con_preposizione('il', breve(arrivo))}, "
         f"{_regole.plurale(len(punti), 'calcolo', 'calcoli')} "
-        f"fino al {breve(max(calcoli))}, oggi {breve(oggi)}"
+        f"fino {con_preposizione('al', breve(max(calcoli)))}, oggi {breve(oggi)}"
     )
     if prossimo:
-        descrizione += f", prossimo calcolo previsto il {breve(prossimo)}"
+        descrizione += f", prossimo calcolo previsto {con_preposizione('il', breve(prossimo))}"
     return Calendario(x_oggi, punti, pietra_arrivo, pietra_oggi, pietra_prossimo,
                       descrizione + ".")
 
@@ -637,7 +659,8 @@ def _avvisi(
         avvisi.append(
             Avviso(
                 "buco",
-                f"Dal {breve(giorno(guild.left_at))} al {breve(giorno(guild.rejoined_at))} il bot "
+                f"{con_preposizione('Dal', breve(giorno(guild.left_at)))} "
+                f"{con_preposizione('al', breve(giorno(guild.rejoined_at)))} il bot "
                 "non era sul server: chi se n'è andato in quei giorni non ha lasciato traccia.",
             )
         )
@@ -645,7 +668,7 @@ def _avvisi(
         avvisi.append(
             Avviso(
                 "uscito",
-                f"Il bot ha lasciato il server il {breve(giorno(guild.left_at))} e non è "
+                f"Il bot ha lasciato il server {con_preposizione('il', breve(giorno(guild.left_at)))} e non è "
                 "rientrato: da quella data non c'è osservazione.",
             )
         )
@@ -653,7 +676,7 @@ def _avvisi(
         avvisi.append(
             Avviso(
                 "rientro",
-                f"Risulta un rientro del bot il {breve(giorno(guild.rejoined_at))} senza una data "
+                f"Risulta un rientro del bot {con_preposizione('il', breve(giorno(guild.rejoined_at)))} senza una data "
                 "di uscita: non si sa per quanto tempo il bot sia stato assente.",
             )
         )
@@ -662,7 +685,7 @@ def _avvisi(
         avvisi.append(
             Avviso(
                 "parametri",
-                f"Metodo di calcolo aggiornato il {breve(settimana(cambio))}: confronta i numeri "
+                f"Metodo di calcolo aggiornato {con_preposizione('il', breve(settimana(cambio)))}: confronta i numeri "
                 "solo da quella data.",
             )
         )
@@ -710,7 +733,7 @@ def costruisci(
         Fatto(
             "In osservazione da",
             _giorni((oggi - inizio).days),
-            f"dal {breve(inizio)}",
+            con_preposizione("dal", breve(inizio)),
         )
     ]
 
@@ -738,9 +761,9 @@ def costruisci(
             Fatto(
                 "Prossimo aggiornamento",
                 relativo(prossimo, oggi) if prossimo >= oggi else "in ritardo",
-                f"previsto il {breve(prossimo)}"
+                f"previsto {con_preposizione('il', breve(prossimo))}"
                 if prossimo >= oggi
-                else f"era previsto il {breve(prossimo)}",
+                else f"era previsto {con_preposizione('il', breve(prossimo))}",
             )
         )
 

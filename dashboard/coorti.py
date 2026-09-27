@@ -648,7 +648,10 @@ def _cella_presenti(
             else None
         )
         testo = (
-            f"dal {_stato.data_estesa(_stato.settimana(quando), riferimento=_stato.settimana(as_of))}"
+            _stato.con_preposizione(
+                "dal",
+                _stato.data_estesa(_stato.settimana(quando), riferimento=_stato.settimana(as_of)),
+            )
             if quando
             else "non ancora"
         )

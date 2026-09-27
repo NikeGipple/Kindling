@@ -264,10 +264,14 @@ attraverso il cambio dell'ora legale.
 **Il confine della settimana si spiega una volta sola**, nella pagina Domande
 (`q-date`, «Che cosa indicano le date?») e nei Dettagli tecnici, non su ogni
 vista. Stato porta in fondo una riga sola: «Le date sono giorni, secondo l'ora
-italiana. Ogni aggiornamento comprende i dati fino alla mezzanotte del lunedì
-indicato.» `q-date` è anche l'unico posto fuori dai Dettagli tecnici in cui
-«UTC» compare a video, spiegata alla prima occorrenza («in tempo universale
-(UTC)»); il test la ammette dentro quell'id e da nessun'altra parte.
+italiana. Ogni aggiornamento comprende i dati fino all'inizio del lunedì
+indicato.» «All'inizio» e non «alla mezzanotte del lunedì» (28/09/2026): in
+italiano la mezzanotte di un giorno può esserne la fine, e un'ora scritta in
+una frase che dice «secondo l'ora italiana» si leggerebbe in ora italiana,
+mentre è in UTC. L'ora esatta sta in `q-date`, che è anche l'unico posto fuori
+dai Dettagli tecnici in cui «UTC» compare a video, spiegata alla prima
+occorrenza («in tempo universale (UTC)»); il test la ammette dentro quell'id e
+da nessun'altra parte.
 
 **«Comprende i dati fino a», mai «copre una settimana».** Verificato il
 27/09/2026 prima di scrivere i testi: la finestra del **grafo** è di sette giorni
@@ -923,7 +927,7 @@ pseudonimizzati, e l'invariante è su cosa **esce** da qui, non su cosa esiste.
 
 **`q-date`, «Che cosa indicano le date?» (27/09/2026)**, dopo `q-aggiorna`. Dice
 che le date sono giorni secondo l'ora italiana, e dove sta il confine di un
-aggiornamento: la mezzanotte di lunedì in tempo universale (UTC), cioè le 2 in
+aggiornamento: le 00:00 di lunedì in tempo universale (UTC), cioè le 2 in
 Italia d'estate e l'una d'inverno, con la conseguenza per le coorti (chi entra in
 quelle ore sta nel gruppo della settimana prima). È la spiegazione unica di
 §4, «Quale fuso per cosa», e l'unico posto fuori dai Dettagli tecnici in cui

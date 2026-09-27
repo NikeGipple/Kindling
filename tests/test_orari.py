@@ -380,8 +380,8 @@ def test_la_serie_di_stato_a_cavallo_di_capodanno():
     fatti = {f.etichetta: f for f in vista.fatti}
     assert fatti["In osservazione da"].dettaglio == "dal 9 dic 2026"
     assert fatti["Dati aggiornati a"].dettaglio == "4 gen"
-    # Solo la data: "il 11" invece di "l'11" e' un difetto a parte, gia' c'era.
-    assert fatti["Prossimo aggiornamento"].dettaglio.endswith(" 11 gen")
+    # "l'11", non "il 11": fino al 28/09/2026 Stato scriveva la seconda.
+    assert fatti["Prossimo aggiornamento"].dettaglio == "previsto l'11 gen"
 
     cal = vista.calendario
     assert cal.arrivo.data == "9 dic 2026"
@@ -406,3 +406,43 @@ def test_senza_date_di_un_altro_anno_la_soglia_resta_quella_stretta():
     vista = stato.costruisci(guild, runs, [], [], [], ora=datetime(2026, 9, 30, tzinfo=U))
     assert all(not p.data.endswith("2026") for p in vista.calendario.punti)
     assert vista.calendario.arrivo.data == "2 set"
+
+
+# --- 6. l'articolo davanti alla data ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "preposizione,giorno,atteso",
+    [
+        ("il", "1", "il 1 set"), ("il", "8", "l'8 set"), ("il", "11", "l'11 set"),
+        ("dal", "1", "dal 1 set"), ("dal", "8", "dall'8 set"), ("dal", "11", "dall'11 set"),
+        ("al", "1", "al 1 set"), ("al", "8", "all'8 set"), ("al", "11", "all'11 set"),
+        ("del", "1", "del 1 set"), ("del", "8", "dell'8 set"), ("del", "11", "dell'11 set"),
+        # A inizio frase.
+        ("Il", "8", "L'8 set"), ("Dal", "11", "Dall'11 set"),
+        # Non basta che il numero COMINCI per 8 o 1: 18 e 12 non si elidono.
+        ("il", "18", "il 18 set"), ("dal", "12", "dal 12 set"),
+    ],
+)
+def test_l_articolo_si_elide_davanti_a_otto_e_undici(preposizione, giorno, atteso):
+    assert stato.con_preposizione(preposizione, f"{giorno} set") == atteso
+
+
+# Una preposizione articolata scritta a mano davanti a una data composta da una
+# delle funzioni di data: e' la forma che aveva "previsto il 11 gen". Le date
+# passano da con_preposizione, e questa guardia fallisce se una ricompare.
+_PREPOSIZIONE_A_MANO = re.compile(
+    r"\b(?:il|Il|dal|Dal|al|del)\s+\{\s*(?:_?stato\.)?(?:breve|data\w*)\("
+)
+
+
+def test_nessuna_preposizione_scritta_a_mano_davanti_a_una_data():
+    for sorgente in DASHBOARD_DIR.glob("*.py"):
+        testo = sorgente.read_text(encoding="utf-8")
+        trovate = _PREPOSIZIONE_A_MANO.findall(testo)
+        assert not trovate, (sorgente.name, trovate)
+    # E la guardia vede davvero la forma che deve vietare.
+    assert _PREPOSIZIONE_A_MANO.search('f"previsto il {breve(prossimo)}"')
+    assert _PREPOSIZIONE_A_MANO.search('f"dal {_stato.data_estesa(x)}"')
+    assert _PREPOSIZIONE_A_MANO.search('f"al {data_breve(x, riferimento=r)}"')
+    assert _PREPOSIZIONE_A_MANO.search('f"del {data(g, oggi)}"')

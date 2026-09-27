@@ -128,17 +128,6 @@ def data_estesa(giorno: date, oggi: date) -> str:
     return stato.data_estesa(giorno, riferimento=oggi)
 
 
-def _con_preposizione(preposizione: str, testo_data: str) -> str:
-    """``dal 12 settembre``, ma ``dall'8 settembre`` e ``dall'11 settembre``.
-
-    ``preposizione`` e' la forma articolata davanti a consonante (``dal``,
-    ``al``): davanti a «otto» e «undici» si elide, come si dice.
-    """
-    if testo_data.split(" ", 1)[0] in ("8", "11"):
-        return f"{preposizione}l'{testo_data}"
-    return f"{preposizione} {testo_data}"
-
-
 def durata(dal_giorno: date, oggi: date) -> str:
     """Da quanto, in giorni di CALENDARIO a Roma, con l'unita' che si legge meglio.
 
@@ -202,7 +191,7 @@ def riga(guild: GuildRow, nome: Optional[str], hash_icona: Optional[str], oggi: 
     osserva = Fatto(
         data(stato.giorno(guild.first_seen_at), oggi),
         # "fino al 12 set", e "fino all'8 set".
-        "fino " + _con_preposizione("al", data(stato.giorno(guild.left_at), oggi)) if fuori
+        "fino " + stato.con_preposizione("al", data(stato.giorno(guild.left_at), oggi)) if fuori
         else durata(stato.giorno(guild.first_seen_at), oggi),
     )
 
@@ -222,7 +211,7 @@ def riga(guild: GuildRow, nome: Optional[str], hash_icona: Optional[str], oggi: 
     nota = None
     if fuori:
         nota = (
-            f"Il bot non è più nel server {_con_preposizione('dal', data_estesa(stato.giorno(guild.left_at), oggi))}: "
+            f"Il bot non è più nel server {stato.con_preposizione('dal', data_estesa(stato.giorno(guild.left_at), oggi))}: "
             "i dati si fermano a quel giorno."
         )
 

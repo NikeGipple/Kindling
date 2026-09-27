@@ -265,7 +265,7 @@ def costruisci(
                 "Indicano giorni, non orari: il giorno in cui il bot è arrivato o è "
                 "uscito dal server, e quello di ogni aggiornamento. I giorni seguono "
                 "l'ora italiana.",
-                "Ogni aggiornamento comprende i dati fino alla mezzanotte di lunedì in "
+                "Ogni aggiornamento comprende i dati fino alle 00:00 di lunedì in "
                 "tempo universale (UTC), cioè le 2 di notte in Italia d'estate e l'una "
                 "d'inverno: quello che succede il lunedì prima di quell'ora entra "
                 "nell'aggiornamento di quel lunedì, quello che succede dopo nel "
