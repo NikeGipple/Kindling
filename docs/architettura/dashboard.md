@@ -188,6 +188,28 @@ Client id, client secret e chiave di firma della sessione in `.env`, mai in git.
 significa scrivere il `code` in chiaro dentro `journalctl`. Va disattivato su
 quella rotta **prima** del primo login reale, non dopo.
 
+### Difetto noto: da 139 server autorizzati il login non si completa
+
+**Voce aperta, trovata il 27/09/2026 e non corretta.** Il cookie di sessione
+contiene l'elenco degli id delle guild autorizzate, e il budget del cookie
+(`auth.BUDGET_JSON_SESSIONE_BYTE`) governa solo nomi e icone, non quell'elenco.
+Misurato sull'intestazione `Set-Cookie` vera del callback, con id da 19 cifre e
+senza nomi né icone: 4080 byte a 138 guild, **4108 byte a 139**, 5816 a 200 —
+oltre i ~4096 byte che un browser accetta per un cookie. Da 139 guild il browser
+scarta il cookie, la sessione non arriva alla richiesta successiva, e **il login
+non si completa**: il giro su Discord riesce e si torna alla pagina d'accesso,
+senza nessun messaggio che dica perché. (La misura è eseguita; il ritorno
+all'accesso è dedotto dalla guardia — senza cookie, `AccessoRichiesto("/login")` —
+e non provato in un browser.)
+
+È un difetto, non un comportamento previsto: nessuna regola dice che chi
+amministra 139 server osservati da Kindling non debba poter entrare. Oggi non
+morde — servono 139 server osservati e amministrati dalla stessa persona — ed è
+scritto qui perché il giorno che succede non si cerchi il guasto in Discord. La
+correzione cambia cosa sta in sessione (per esempio: niente elenco, o un limite
+dichiarato con il suo messaggio), quindi è una decisione di modello, da prendere
+a parte.
+
 **Fase 2: vedi `dashboard-fase2.md`.** Estende questa sezione con quello che
 qui manca o si è rivelato impreciso implementandola: come si ricontrolla il
 permesso senza il token (3-quinquies), la scadenza delle 8 ore che deve essere
@@ -429,12 +451,10 @@ Misurato il 27/09/2026 sull'intestazione `Set-Cookie` vera del callback (id da
 
 Il caso peggiore con le icone è **3588 byte su ~4096**, e il più grande in
 assoluto resta quello di prima (solo nomi, 3784): il budget tiene, le icone non
-lo spostano. Un'icona costa circa 60 byte di JSON a guild. **Un limite
-preesistente, non toccato**: il budget governa nomi e icone, non l'elenco degli
-id, che da solo supera i 4096 byte a **139 guild autorizzate** (4108 byte, senza
-nomi né icone). Oltre, il browser scarta il cookie e il login non si chiude.
-Richiede di amministrare 139 server osservati da Kindling; è scritto qui perché
-non si scopra il giorno in cui succede.
+lo spostano. Un'icona costa circa 60 byte di JSON a guild. Il budget governa
+nomi e icone, non l'elenco degli id: da 139 guild autorizzate il cookie non sta
+più nei 4096 byte comunque, ed è un **difetto noto** (§3, «Difetto noto: da 139
+server autorizzati il login non si completa»).
 
 **L'URL si compone in Python**, in `dashboard/elenco.py`, solo da un `int` (l'ID
 della guild) e da un hash che ha passato l'espressione:
@@ -451,16 +471,39 @@ della guild) e da un hash che ha passato l'espressione:
   statico (un solo fotogramma, nessun blocco `ANMF`), con il parametro uno
   animato. Lo stesso URL vale quindi per tutti gli hash.
 
-**Il markup, senza script.** Il monogramma (la prima lettera o cifra del nome,
-maiuscola; `#` senza nome) sta **sempre** sotto; l'`<img>` si sovrappone solo se
-l'icona c'è, con `alt=""` (il nome è già scritto accanto: l'icona è
-decorazione), `width`/`height` a 40, `loading="lazy"`, `decoding="async"` e
+**Il markup.** Il monogramma (la prima lettera o cifra del nome, maiuscola; `#`
+senza nome) sta **sempre** sotto; l'`<img>` si sovrappone solo se l'icona c'è,
+con `alt=""` (il nome è già scritto accanto: l'icona è decorazione),
+`width`/`height` a 40, `loading="lazy"`, `decoding="async"` e
 `referrerpolicy="no-referrer"` — il CDN non riceve l'indirizzo della pagina da
-cui l'immagine è chiesta. Con il CDN irraggiungibile, un `<img alt="">` rotto non
-deve disegnare niente e il monogramma deve restare visibile: è un comportamento
-dei browser, non una garanzia dello standard, e si verifica in Chromium e
-Firefox prima di darlo per buono. Nessuno `style="..."`: il test di
-`tests/test_dashboard_statici.py` resta invariato.
+cui l'immagine è chiesta. Nessuno `style="..."`.
+
+**L'immagine rotta, e l'unico script della dashboard.** Con il CDN
+irraggiungibile, o con un hash che il CDN non ha (404), un `<img alt="">` rotto
+dovrebbe non disegnare niente e lasciare il monogramma. È un comportamento dei
+browser, non una garanzia dello standard, e verificato il 27/09/2026 (catture
+headless con il CDN bloccato, ingrandite a 400%) **non vale per Chromium**:
+Firefox non disegna niente, Chromium disegna il glifo dell'immagine rotta e una
+cornice di 1 px sopra il monogramma. Provato prima in CSS: un `::after` sull'`<img>`
+rotto (che, a differenza di uno caricato, ha pseudo-elementi) ridisegna il
+monogramma e copre il glifo, e un `clip-path: inset(1px round .6rem)` taglia la
+cornice — ma a 400% resta un filo chiaro sul bordo superiore, con il CDN bloccato
+e con il 404. **Il CSS non riesce a nascondere per bene un'immagine rotta in
+Chromium**, ed è il motivo dello script.
+
+`/static/icone.js`, caricato con `defer` e con l'impronta del contenuto
+nell'URL come il foglio (`impronta_statico`), **dall'elenco soltanto** (il blocco
+`script` di `base.html`). Fa due cose: ascolta `error` su `document` **in fase di
+cattura** — l'evento di un'immagine non risale — e toglie l'`<img>`; e al
+caricamento toglie anche gli `<img>` già falliti (`complete && naturalWidth ===
+0`), perché l'errore può arrivare prima dello script. Una lazy non ancora
+caricata ha `complete` falso e la prende l'ascoltatore. Niente `onerror="..."`
+nel markup: la CSP (senza `'unsafe-inline'`) lo bloccherebbe senza dire niente.
+Verificato con lo script, alle stesse condizioni: Chromium con il CDN bloccato,
+Chromium con un hash 404 accanto a un'icona vera, Firefox con il CDN bloccato —
+tutti e tre puliti, e nel DOM di Chromium le `<img>` fallite non ci sono più.
+**Senza JavaScript la pagina resta com'è**: l'unica differenza è il glifo in
+Chromium.
 
 **La CSP si allarga di un dominio, e solo per le immagini:**
 `img-src 'self' https://cdn.discordapp.com`. È un'**eccezione con il suo motivo**,
@@ -835,6 +878,14 @@ quindi raggiungibile da tastiera e attivabile al tocco); le domande sono
 `<details>`, che apre e chiude da solo. Il test che vieta `<script` e `style="`
 su tutte le pagine (`tests/test_dashboard_statici.py`) resta invariato: è
 l'unico posto che se ne accorgerebbe.
+
+**Un'eccezione, dal 27/09/2026: `/static/icone.js` sull'elenco dei server** (§4,
+«L'elenco dei server»). Il motivo è uno solo: il CSS non riesce a nascondere per
+bene un'immagine rotta in Chromium. La pagina funziona identica senza, a parte
+quel glifo. Il test non vieta più ogni `<script`: ammette solo la forma
+`<script src="/static/….js?v=<impronta>" defer></script>`, con il corpo vuoto, e
+vieta in più i gestori di evento in linea (`onerror="..."` e simili), che la CSP
+bloccherebbe in silenzio. Un secondo script richiede un secondo motivo scritto.
 
 ### La vista Robustezza, in dettaglio
 

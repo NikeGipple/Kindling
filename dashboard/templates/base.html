@@ -28,6 +28,10 @@
     impronte, ed e' la ragione per cui impronta_statico() prende un nome invece
     di essere una variabile sola (CLAUDE.md 7). -#}
 <link rel="icon" type="image/svg+xml" href="/static/marchio.svg?v={{ impronta_statico('marchio.svg') }}">
+{#- Gli script di una pagina, se ne ha: file di /static/ con l'impronta, come il
+    foglio, e mai righe in linea (la CSP non ha 'unsafe-inline'). Oggi ne ha uno
+    solo l'elenco dei server. -#}
+{% block script %}{% endblock %}
 </head>
 <body>
 {#- La cornice ha la geometria della landing (public/index.html): il filo della

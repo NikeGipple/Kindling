@@ -300,13 +300,47 @@ PAGINE_CON_GRAFICI = (
     (GUILD_TODAY, "coorti"),
 )
 
-IN_LINEA = ("<style", 'style="', "<script")
+IN_LINEA = ("<style", 'style="')
+
+# Dal 27/09/2026 un <script> puo' esserci (l'elenco dei server carica
+# /static/icone.js, dashboard.md 4), ma solo in questa forma: un file di questa
+# origine, con l'impronta del contenuto come il foglio, defer, corpo vuoto.
+# Qualunque altro <script> — in linea, da un'altra origine, senza impronta — e'
+# fuori forma.
+SCRIPT_AMMESSO = re.compile(
+    r'<script src="/static/[a-z_]+\.js\?v=[0-9a-f]{12}" defer></script>'
+)
+# I gestori di evento in linea (onerror="...", onclick="..."): la CSP li
+# bloccherebbe senza nessun errore fuori dalla console.
+GESTORE_IN_LINEA = re.compile(r"<[^>]*\son[a-z]+\s*=", re.IGNORECASE)
 
 
 def test_nessuna_delle_quindici_pagine_ha_stile_o_script_in_linea(pagine):
     for nome, (_, risposta) in pagine.items():
         for forma in IN_LINEA:
             assert forma not in risposta.text, f"{nome}: {forma}"
+        senza_ammessi = SCRIPT_AMMESSO.sub("", risposta.text)
+        assert "<script" not in senza_ammessi, f"{nome}: <script> fuori forma"
+        assert not GESTORE_IN_LINEA.search(risposta.text), f"{nome}: gestore di evento in linea"
+
+
+def test_lo_script_dell_elenco_ha_l_impronta_del_suo_contenuto(pagine):
+    _, elenco = pagine["elenco"]
+    atteso = f'<script src="/static/icone.js?v={impronta_statico("icone.js")}" defer></script>'
+    assert atteso in elenco.text
+    # E solo l'elenco lo carica: le altre pagine non hanno icone.
+    for nome, (_, risposta) in pagine.items():
+        if nome != "elenco":
+            assert "icone.js" not in risposta.text, nome
+
+
+def test_lo_script_e_servito_con_la_cache_lunga_e_senza_csp():
+    with TestClient(app_di_test()) as c:
+        risposta = c.get(f"{PREFISSO_STATICI}icone.js")
+    assert risposta.status_code == 200
+    assert "javascript" in risposta.headers["content-type"]
+    assert risposta.headers["cache-control"] == CACHE_STATICI
+    assert "content-security-policy" not in risposta.headers
 
 
 def test_nemmeno_le_pagine_con_i_grafici_svg():

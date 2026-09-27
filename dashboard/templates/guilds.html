@@ -1,30 +1,47 @@
 {% extends "base.html" %}
-{% block titolo %}Server osservati{% endblock %}
+{% block titolo %}I tuoi server{% endblock %}
+{#- Toglie gli <img> delle icone che non arrivano: Chromium disegnerebbe il
+    glifo dell'immagine rotta sopra il monogramma (dashboard.md 4). -#}
+{% block script %}<script src="/static/icone.js?v={{ impronta_statico('icone.js') }}" defer></script>{% endblock %}
 {% block contenuto %}
-<h1>Server osservati</h1>
-{% if guilds %}
-<div class="scorri">
-<table>
-  <thead><tr><th>Server</th><th>Osservato dal</th><th>Ultimo calcolo delle metriche</th></tr></thead>
-  <tbody>
-  {% for g in guilds %}
-    <tr>
-      {#- Il nome se la sessione ce l'ha, l'ID sotto in piccolo: e' quello che si
-          incolla in un comando o in un messaggio, e senza non si distinguono due
-          server chiamati uguale. Un cookie firmato prima del deploy dei nomi non
-          ne ha nessuno, e l'elenco torna com'era. -#}
-      <td>
-        <a href="/guilds/{{ g.guild_id }}">{{ nomi[g.guild_id] if g.guild_id in nomi else g.guild_id }}</a>
-        {% if g.guild_id in nomi %}<div class="nota"><code>{{ g.guild_id }}</code></div>{% endif %}
-      </td>
-      <td>{{ g.first_seen_at | data_ora }}</td>
-      <td>{% if g.latest_metrics_as_of %}{{ g.latest_metrics_as_of | data_ora }}{% else %}nessun calcolo ancora{% endif %}</td>
-    </tr>
+<h1>I tuoi server</h1>
+{#- Le righe arrivano gia' ordinate e gia' scritte da dashboard/elenco.py: ordine,
+    date e URL dell'icona sono decisioni, e qui non se ne prende nessuna.
+    Nessuno stato di salute per server, di proposito (dashboard.md 4). -#}
+{% if righe %}
+<p class="guida">Qui compaiono i server di cui sei amministratore e che Kindling osserva. Scegline uno per vedere cosa sta succedendo fra i suoi membri.</p>
+<ul class="server-elenco">
+  {% for r in righe %}
+  <li class="server">
+    {#- Il monogramma sta SEMPRE sotto; l'<img> si sovrappone solo se l'icona
+        c'e'. Con il CDN irraggiungibile un <img alt=""> rotto non disegna niente
+        e resta il monogramma: nessuno script. alt vuoto perche' il nome e' gia'
+        scritto accanto. -#}
+    <span class="avatar" aria-hidden="true"><span class="monogramma">{{ r.monogramma }}</span>
+      {%- if r.icona %}<img src="{{ r.icona }}" alt="" width="{{ lato_icona }}" height="{{ lato_icona }}" loading="lazy" decoding="async" referrerpolicy="no-referrer">{% endif -%}
+    </span>
+    {#- Il link porta il solo nome: il ::after del foglio lo stende su tutta la
+        riga, e il nome accessibile resta quello del server. Senza nome l'ID fa
+        da nome, dentro il link, e la riga dell'ID sotto non si ripete. -#}
+    <div class="server__nome">
+      {%- if r.nome %}<a href="/guilds/{{ r.guild_id }}">{{ r.nome }}</a><code class="server__id">{{ r.guild_id }}</code>
+      {%- else %}<a href="/guilds/{{ r.guild_id }}"><code>{{ r.guild_id }}</code></a>{% endif -%}
+    </div>
+    {%- for etichetta, f in (("Osserva da", r.osserva), ("Ultimo calcolo", r.calcolo)) %}
+    <dl class="fatto{% if f.in_attesa %} fatto--attesa{% endif %}"><dt>{{ etichetta }}</dt><dd>{{ f.valore }}{% if f.dettaglio %} <small>{{ f.dettaglio }}</small>{% endif %}</dd></dl>
+    {%- endfor %}
+    <span class="freccia" aria-hidden="true">→</span>
+    {%- if r.nota_uscita %}
+    <p class="server__avviso">{{ r.nota_uscita }}</p>
+    {%- endif %}
+  </li>
   {% endfor %}
-  </tbody>
-</table>
-</div>
+</ul>
+<p class="fuori-elenco">Manca un server? Compare qui solo se Kindling lo osserva e se su Discord hai il permesso Amministratore. L'elenco si aggiorna da solo ogni {{ minuti_ricontrollo }} minuti.</p>
 {% else %}
-<p>Kindling non osserva ancora nessun server.</p>
+<div class="vuoto">
+  <h2>Nessun server da mostrare</h2>
+  <p>Kindling non osserva nessun server di cui sei amministratore. Se hai appena aggiunto il bot, l'elenco si aggiorna da solo entro {{ minuti_ricontrollo }} minuti.</p>
+</div>
 {% endif %}
 {% endblock %}

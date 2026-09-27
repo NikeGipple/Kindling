@@ -43,7 +43,7 @@ from .client import (
     RispostaNonConforme,
     crea_http,
 )
-from . import community, coorti, domande, regole, robustezza, stato
+from . import community, coorti, domande, elenco, regole, robustezza, stato
 from .qualifica import cella
 
 logger = logging.getLogger(__name__)
@@ -78,9 +78,11 @@ CACHE_STATICI = "public, max-age=31536000, immutable"
 #   che lo tiene vero sulle quindici pagine sta in tests/test_dashboard_statici.py:
 #   senza, il primo style="" aggiunto per comodita' non si vedrebbe qui ma
 #   nella console di chi legge, con l'elemento senza stile.
-# - script-src 'self': oggi non c'e' nessuno script, e la direttiva dice che
-#   se un giorno ce ne sara' uno dovra' essere un file di questa origine, non
-#   una riga dentro la pagina.
+# - script-src 'self': un file di questa origine, mai una riga dentro la
+#   pagina ne' un onerror="...". Dal 27/09/2026 ce n'e' uno, /static/icone.js
+#   sull'elenco dei server, perche' il CSS non riesce a nascondere per bene
+#   un'immagine rotta in Chromium (dashboard.md 4); il test sugli elementi in
+#   linea ammette solo quella forma.
 # - img-src 'self' https://cdn.discordapp.com: le icone dei server nell'elenco
 #   (dashboard.md 4, «L'elenco dei server»), e nient'altro — il marchio e' un
 #   <svg> in linea, non un <img>. Il dominio di Discord e' un'ECCEZIONE, decisa
@@ -492,13 +494,23 @@ def crea_app(
 
     @app.get("/", response_class=HTMLResponse, dependencies=protetta)
     async def elenco_guild(request: Request):
+        """L'elenco dei server (dashboard.md 4). Resta un elenco anche con un server solo.
+
+        Una chiamata sola, ``guilds()``: niente dati per singolo server.
+        """
         # Solo i server dell'insieme autorizzato: l'elenco completo di quelli
         # osservati non e' affare di chi ne amministra uno.
         sessione = request.state.sessione
         guilds = [g for g in await request.app.state.api.guilds() if g.guild_id in sessione.guilds]
-        # I nomi viaggiano con l'elenco come ci viaggiano le righe: la rotta ha
-        # la sessione, il template non ce l'ha.
-        return pagina(request, "guilds.html", guilds=guilds, nomi=sessione.nomi)
+        # Nomi e icone viaggiano con l'elenco come ci viaggiano le righe: la
+        # rotta ha la sessione, il template non ce l'ha.
+        return pagina(
+            request,
+            "guilds.html",
+            righe=elenco.costruisci(guilds, sessione.nomi, sessione.icone),
+            minuti_ricontrollo=elenco.MINUTI_RICONTROLLO,
+            lato_icona=elenco.LATO_ICONA_PX,
+        )
 
     @app.get("/guilds/{guild_id}", response_class=HTMLResponse, dependencies=protetta)
     async def vista_stato(request: Request, guild_id: int):

@@ -738,3 +738,77 @@ p.avviso { max-width: 68ch; }
   .letture { grid-template-columns: 1fr auto; }
   .lettura p, .lettura .approfondisci { grid-column: 1 / -1; }
 }
+
+/* --- l'elenco dei server (dashboard.md 4) ---------------------------------- */
+/* Un elenco (<ul>), non una tabella: le righe sono poche e ognuna ha UNA azione,
+   entrare. Le "colonne" sono coppie etichetta/valore come i fatti di Stato,
+   cosi' su telefono non serve ricostruire intestazioni. Il margine sopra
+   collassa con quello di .guida: 1,5rem fra introduzione ed elenco. */
+.server-elenco { list-style: none; padding: 0; margin: 1.5rem 0 0;
+                 border-top: 1px solid var(--riga); }
+/* .server-elenco > .server e non .server: vince su "main:not(.vista) li", che
+   darebbe alla riga la misura di un paragrafo (62ch). */
+.server-elenco > .server { position: relative; display: grid; align-items: center;
+          column-gap: 1rem; row-gap: .6rem; max-width: none;
+          grid-template-columns: 2.5rem minmax(0, 1fr) 11rem 11rem 1.25rem;
+          padding: 1rem .75rem; margin: 0 -.75rem; border-bottom: 1px solid var(--riga);
+          border-radius: .5rem; }
+.server:hover { background: var(--coorti-hover); }
+.server:focus-within { outline: 2px solid var(--testo); outline-offset: -2px; }
+/* Il monogramma sta SOTTO l'immagine: senza icona non c'e' <img>, e se il CDN
+   non risponde l'<img> rotto lo toglie /static/icone.js e il monogramma resta.
+   Lo script serve perche' Chromium, a differenza di Firefox, disegna il glifo
+   dell'immagine rotta anche con alt="", e il CSS non riesce a nasconderlo per
+   bene: provato il 27/09/2026 con un ::after sull'<img> rotto e un clip-path
+   del primo pixel, a 400% resta un filo sul bordo (dashboard.md 4). Senza
+   script l'unica differenza e' quel glifo. */
+.avatar { position: relative; width: 2.5rem; height: 2.5rem; flex: none; }
+.avatar img { position: absolute; inset: 0; width: 100%; height: 100%;
+              border-radius: .6rem; object-fit: cover; }
+.monogramma { width: 100%; height: 100%; border-radius: .6rem; display: grid; place-items: center;
+              background: var(--grigio-fondo); color: var(--testo); font-weight: 650;
+              font-size: 1.05rem; }
+.server__nome { min-width: 0; }
+.server__nome a { color: var(--testo); text-decoration: none; font-weight: 620; font-size: 1.05rem; }
+/* Tutta la riga cliccabile, ma il nome accessibile del link resta il nome del
+   server: il link avvolge il nome, e il suo ::after copre la riga. Il contorno
+   del fuoco lo disegna la riga (:focus-within), non il link. */
+.server__nome a::after { content: ""; position: absolute; inset: 0; border-radius: .5rem; }
+.server__nome a:focus-visible { outline: none; }
+.server__id { display: block; color: var(--tenue); font-size: .78rem; margin-top: .05rem;
+              overflow: hidden; text-overflow: ellipsis; }
+.fatto { margin: 0; }
+.fatto dt { font-size: .75rem; color: var(--tenue); letter-spacing: .02em; margin: 0; }
+.fatto dd { margin: 0; font-weight: 560; font-variant-numeric: tabular-nums; }
+.fatto dd small { display: block; font-weight: 400; font-size: .82rem; color: var(--tenue); }
+/* Il calcolo che non c'e' ancora: e' l'assenza di un dato, non un dato. */
+.fatto--attesa dd { color: var(--tenue); font-weight: 400; font-style: italic; }
+.freccia { color: var(--tenue); justify-self: end; transition: transform .15s; }
+.server:hover .freccia { color: var(--testo); transform: translateX(2px); }
+@media (prefers-reduced-motion: reduce) { .freccia { transition: none; } }
+/* Il bot e' uscito: un fatto che cambia la lettura dei dati, quindi il colore
+   dell'avviso e non dell'errore (dashboard.md 5, regola 1). Doppia classe per
+   la stessa ragione della riga: "main:not(.vista) p" le darebbe 62ch. */
+.server-elenco .server__avviso { grid-column: 2 / -1; margin: 0; max-width: none;
+          font-size: .85rem; color: var(--avviso); background: var(--avviso-fondo);
+          border-left: 3px solid var(--avviso-bordo); padding: .35rem .7rem; }
+.fuori-elenco { color: var(--tenue); font-size: .88rem; margin: 1.25rem 0 0; }
+.vuoto { border: 1px dashed var(--riga); border-radius: .6rem; padding: 1.5rem;
+         max-width: 40rem; margin-top: 1.5rem; }
+.vuoto h2 { font-size: 1.05rem; margin: 0 0 .35rem; }
+.vuoto p { margin: 0; color: var(--tenue); }
+
+/* Telefono, alla soglia della cornice: icona e nome in alto con la freccia a
+   destra, i due fatti sotto il nome (valore e dettaglio in fila, separati da
+   " · "), la nota a tutta larghezza. */
+@media (max-width: 34rem) {
+  .server-elenco > .server { grid-template-columns: 2.5rem minmax(0, 1fr) 1.25rem; }
+  .server .freccia { grid-column: 3; grid-row: 1; }
+  .server .fatto { grid-column: 2 / 3; display: flex; gap: .5rem; align-items: baseline;
+                   flex-wrap: wrap; }
+  .server .fatto + .fatto { margin-top: -.2rem; }
+  .fatto dd { font-size: .95rem; }
+  .fatto dd small { display: inline; }
+  .fatto dd small::before { content: "· "; }
+  .server-elenco .server__avviso { grid-column: 1 / -1; }
+}

@@ -374,15 +374,17 @@ def test_l_elenco_dei_server_mostra_i_nomi_con_l_id_sotto():
         html = client.get("/").text
 
     for gid, nome in NOMI_DI_PROVA.items():
-        assert f'<a href="/guilds/{gid}">{nome}</a>' in html
-        assert f"<code>{gid}</code>" in html
+        assert f'<a href="/guilds/{gid}">{nome}</a><code class="server__id">{gid}</code>' in html
 
 
-def test_l_elenco_senza_nomi_resta_quello_di_prima():
+def test_l_elenco_senza_nomi_ripiega_sull_id_dentro_il_link():
+    # Dall'elenco v2 (27/09/2026) l'ID fa da nome dentro il link, in <code>, e
+    # la riga dell'ID sotto non si ripete.
     with client_autenticato(_app()) as client:
         html = client.get("/").text
 
-    assert f'<a href="/guilds/{GUILD_TODAY}">{GUILD_TODAY}</a>' in html
+    assert f'<a href="/guilds/{GUILD_TODAY}"><code>{GUILD_TODAY}</code></a>' in html
+    assert 'class="server__id"' not in html
 
 
 def test_un_nome_con_del_markup_non_lo_inietta():
