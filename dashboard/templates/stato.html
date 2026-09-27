@@ -141,5 +141,9 @@ Passa sopra una regola, o toccala, per sapere cosa significa.</p>
 <p class="avviso" role="note">{{ a.testo }}</p>
 {% endfor %}
 
-<p class="nota nota-fuso">Le date di questa pagina sono nel fuso di Roma.</p>
+{#- Dice due cose vere senza nominare un fuso che a chi legge non serve: che le
+    date sono giorni, e fin dove arriva un aggiornamento. "Comprende i dati fino
+    a" e non "copre una settimana": vale anche per le coorti, che risalgono di
+    mesi. Il confine preciso (mezzanotte UTC) sta in Domande, q-date. -#}
+<p class="nota nota-fuso">Le date sono giorni, secondo l'ora italiana. Ogni aggiornamento comprende i dati fino alla mezzanotte del lunedì indicato.</p>
 {% endblock %}

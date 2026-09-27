@@ -123,7 +123,7 @@ def test_il_giorno_e_quello_di_roma_anche_a_cavallo_della_mezzanotte_utc():
     istante = datetime(2026, 9, 21, 23, 30, tzinfo=timezone.utc)
 
     assert stato.giorno(istante) == date(2026, 9, 22)
-    assert stato.data_breve(stato.giorno(istante)) == "22 set"
+    assert stato.data_breve(stato.giorno(istante), riferimento=date(2026, 9, 21)) == "22 set"
     assert stato.settimana(istante) == date(2026, 9, 21)
     assert data_ora(istante) == "lunedì 21 settembre 2026, 23:30 UTC"
 
@@ -332,6 +332,12 @@ def test_la_soglia_di_diradamento_regge_il_conto_da_cui_viene():
     # Contro un estremo, che e' ancorato al bordo e sporge di una larghezza
     # intera invece che di mezza: e' il caso che fissa la soglia.
     assert disponibili >= 1.5 * stato.ETICHETTA_PIU_LARGA_PX + stato.SPAZIO_FRA_ETICHETTE_PX
+
+    # Lo stesso conto per le date con l'anno (dal 27/09/2026): etichette piu'
+    # larghe, soglia sua.
+    con_anno = stato.SCARTO_MINIMO_ETICHETTE_CON_ANNO / 100 * stato.LARGHEZZA_SVG_AL_BREAKPOINT_PX
+    assert con_anno >= stato.ETICHETTA_CON_ANNO_PX + stato.SPAZIO_FRA_ETICHETTE_PX
+    assert con_anno >= 1.5 * stato.ETICHETTA_CON_ANNO_PX + stato.SPAZIO_FRA_ETICHETTE_PX
 
 
 def test_il_diradamento_misura_dall_ultima_data_scritta():

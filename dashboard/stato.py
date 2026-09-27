@@ -132,27 +132,44 @@ def _solo_giorno(valore: Any) -> date:
     return valore
 
 
-def data_breve(valore: Optional[date]) -> str:
-    """``21 set``. Nomi dei mesi scritti qui e non presi dal locale: il container
-    gira con il locale C, e un rendering che cambia con la macchina e' una
-    differenza fra sviluppo e produzione che nessuno cerca (come ``data_ora``)."""
+# L'anno si scrive quando la data non e' nello stesso anno del ``riferimento``,
+# e il riferimento e' OBBLIGATORIO: nelle viste e' il giorno (``settimana``)
+# dell'``as_of`` piu' recente della pagina, e dove la pagina non ne ha nessuno,
+# oggi; nell'elenco dei server e' oggi. Fino al 27/09/2026 le viste non
+# scrivevano mai l'anno, "tanto mostrano dodici settimane": vero per Coorti, non
+# per le serie di Robustezza e Community, che risalgono al primo snapshot — e a
+# cavallo di capodanno "lunedì 28 dicembre" e "lunedì 4 gennaio" si sarebbero
+# messi in ordine solo a intuito. Obbligatorio perche' un default ("senza anno")
+# sarebbe proprio la strada per cui una vista nuova se ne dimentica.
+
+
+def _con_anno(testo: str, g: date, riferimento: date) -> str:
+    return testo if g.year == riferimento.year else f"{testo} {g.year}"
+
+
+def data_breve(valore: Optional[date], *, riferimento: date) -> str:
+    """``21 set``, o ``28 dic 2026`` fuori dall'anno del ``riferimento``.
+
+    Nomi dei mesi scritti qui e non presi dal locale: il container gira con il
+    locale C, e un rendering che cambia con la macchina e' una differenza fra
+    sviluppo e produzione che nessuno cerca (come ``data_ora``)."""
     if valore is None:
         return "—"
     g = _solo_giorno(valore)
-    return f"{g.day} {_MESI_BREVI[g.month - 1]}"
+    return _con_anno(f"{g.day} {_MESI_BREVI[g.month - 1]}", g, riferimento)
 
 
-def data_estesa(valore: Optional[date], *, con_giorno: bool = False) -> str:
-    """``21 settembre``, o ``lunedì 21 settembre`` con ``con_giorno``.
-
-    Senza anno, come la forma breve: le viste che la usano mostrano al massimo
-    dodici settimane.
-    """
+def data_estesa(
+    valore: Optional[date], *, riferimento: date, con_giorno: bool = False
+) -> str:
+    """``21 settembre``, o ``lunedì 21 settembre`` con ``con_giorno``; l'anno
+    alle stesse condizioni di ``data_breve``."""
     if valore is None:
         return "—"
     g = _solo_giorno(valore)
     testo = f"{g.day} {MESI[g.month - 1]}"
-    return f"{GIORNI[g.weekday()]} {testo}" if con_giorno else testo
+    testo = f"{GIORNI[g.weekday()]} {testo}" if con_giorno else testo
+    return _con_anno(testo, g, riferimento)
 
 
 def relativo(quando: date, oggi: date) -> str:
@@ -230,6 +247,10 @@ class Fatto:
 # questo formato di data possa produrre — provate tutte e dodici le abbreviazioni
 # di mese, le altre stanno fra 33,0 e 38,5.
 ETICHETTA_PIU_LARGA_PX = 40.8
+# La stessa misura con l'anno, "30 mag 2026", presa il 27/09/2026 nello stesso
+# modo (e "30 mag" ridava 40,8). Le cifre sono tabulari, quindi l'anno pesa uguale
+# per ogni anno; con gli altri undici mesi si sta fra 62,4 e 67,9.
+ETICHETTA_CON_ANNO_PX = 70.7
 # Lo spazio fra due etichette vicine perche' si leggano come due. Non un margine
 # di sicurezza sulla misura: quello e' l'arrotondamento della soglia.
 SPAZIO_FRA_ETICHETTE_PX = 8.0
@@ -253,6 +274,11 @@ LARGHEZZA_SVG_AL_BREAKPOINT_PX = 488.0
 # sta qui e non nel foglio: la collisione dipende dalla larghezza E dalla
 # spaziatura dei pallini, e il CSS la spaziatura non la conosce.
 SCARTO_MINIMO_ETICHETTE = 15.0
+# Lo stesso conto con l'anno: (1,5 x 70,7 + 8) / 488 = 23,4%, per eccesso 24.
+# Vale per TUTTO il calendario appena una delle date sopra l'asse porta l'anno:
+# una soglia per coppia di etichette sarebbe piu' fine, ma due soglie sulla
+# stessa linea sono una regola che nessuno rilegge.
+SCARTO_MINIMO_ETICHETTE_CON_ANNO = 24.0
 
 
 @dataclass(frozen=True)
@@ -315,11 +341,15 @@ def _percento(quando: date, inizio: date, fine: date) -> str:
 
 
 def etichette_da_scrivere(
-    posizioni: Sequence[float], *, con_prossimo: bool
+    posizioni: Sequence[float],
+    *,
+    con_prossimo: bool,
+    scarto: float = SCARTO_MINIMO_ETICHETTE,
 ) -> list[bool]:
     """Quali calcoli portano la propria data, date le loro posizioni in percento.
 
-    Un calcolo la porta se dista almeno ``SCARTO_MINIMO_ETICHETTE``:
+    Un calcolo la porta se dista almeno ``scarto`` — ``SCARTO_MINIMO_ETICHETTE``,
+    o ``SCARTO_MINIMO_ETICHETTE_CON_ANNO`` quando le date portano l'anno:
 
     - dall'arrivo del bot, che e' sempre allo 0% e sempre etichettato;
     - dalla data gia' scritta del calcolo precedente — non dal calcolo
@@ -336,8 +366,8 @@ def etichette_da_scrivere(
     ultima = 0.0  # l'arrivo del bot
     scritte: list[bool] = []
     for p in posizioni:
-        abbastanza_dopo = p - ultima >= SCARTO_MINIMO_ETICHETTE
-        abbastanza_prima = not con_prossimo or 100.0 - p >= SCARTO_MINIMO_ETICHETTE
+        abbastanza_dopo = p - ultima >= scarto
+        abbastanza_prima = not con_prossimo or 100.0 - p >= scarto
         scrivi = abbastanza_dopo and abbastanza_prima
         scritte.append(scrivi)
         if scrivi:
@@ -355,7 +385,12 @@ def _ancoraggio(x: str) -> str:
 
 
 def _calendario(
-    arrivo: date, calcoli: Sequence[date], oggi: date, prossimo: Optional[date]
+    arrivo: date,
+    calcoli: Sequence[date],
+    oggi: date,
+    prossimo: Optional[date],
+    *,
+    riferimento: date,
 ) -> Optional[Calendario]:
     """La linea del tempo, o None quando non c'e' niente da disegnare.
 
@@ -373,38 +408,47 @@ def _calendario(
     fine = max([oggi, *calcoli] + ([prossimo] if prossimo else []))
     inizio = min([arrivo, *calcoli])
 
+    def breve(g: date) -> str:
+        return data_breve(g, riferimento=riferimento)
+
     x_oggi = _percento(oggi, inizio, fine)
     ordinati = sorted(calcoli)
     ascisse = [_percento(c, inizio, fine) for c in ordinati]
+    # "Oggi" non entra: sta sotto l'asse e non tocca le date di sopra (vedi
+    # etichette_da_scrivere).
+    sopra = [arrivo, *calcoli] + ([prossimo] if prossimo else [])
+    con_anno = any(g.year != riferimento.year for g in sopra)
     scritte = etichette_da_scrivere(
-        [float(x.rstrip("%")) for x in ascisse], con_prossimo=prossimo is not None
+        [float(x.rstrip("%")) for x in ascisse],
+        con_prossimo=prossimo is not None,
+        scarto=SCARTO_MINIMO_ETICHETTE_CON_ANNO if con_anno else SCARTO_MINIMO_ETICHETTE,
     )
     punti = tuple(
         Punto(
             x,
-            f"calcolo del {data_breve(c)}",
-            data_breve(c),
+            f"calcolo del {breve(c)}",
+            breve(c),
             _ancoraggio(x),
             scrivi,
         )
         for c, x, scrivi in zip(ordinati, ascisse, scritte)
     )
-    pietra_arrivo = Pietra(_percento(inizio, inizio, fine), "start", data_breve(arrivo),
+    pietra_arrivo = Pietra(_percento(inizio, inizio, fine), "start", breve(arrivo),
                            "arrivo del bot")
-    pietra_oggi = Pietra(x_oggi, _ancoraggio(x_oggi), data_breve(oggi), "oggi")
+    pietra_oggi = Pietra(x_oggi, _ancoraggio(x_oggi), breve(oggi), "oggi")
     pietra_prossimo = (
-        Pietra(_percento(prossimo, inizio, fine), "end", data_breve(prossimo), "prossimo")
+        Pietra(_percento(prossimo, inizio, fine), "end", breve(prossimo), "prossimo")
         if prossimo
         else None
     )
 
     descrizione = (
-        f"Linea del tempo: arrivo del bot il {data_breve(arrivo)}, "
+        f"Linea del tempo: arrivo del bot il {breve(arrivo)}, "
         f"{_regole.plurale(len(punti), 'calcolo', 'calcoli')} "
-        f"fino al {data_breve(max(calcoli))}, oggi {data_breve(oggi)}"
+        f"fino al {breve(max(calcoli))}, oggi {breve(oggi)}"
     )
     if prossimo:
-        descrizione += f", prossimo calcolo previsto il {data_breve(prossimo)}"
+        descrizione += f", prossimo calcolo previsto il {breve(prossimo)}"
     return Calendario(x_oggi, punti, pietra_arrivo, pietra_oggi, pietra_prossimo,
                       descrizione + ".")
 
@@ -582,13 +626,18 @@ def cambio_di_parametri(runs: Sequence[RunRow]) -> Optional[datetime]:
     return None
 
 
-def _avvisi(guild: GuildRow, runs: Sequence[RunRow]) -> tuple[Avviso, ...]:
+def _avvisi(
+    guild: GuildRow, runs: Sequence[RunRow], *, riferimento: date
+) -> tuple[Avviso, ...]:
+    def breve(g: date) -> str:
+        return data_breve(g, riferimento=riferimento)
+
     avvisi: list[Avviso] = []
     if guild.left_at is not None and guild.rejoined_at is not None:
         avvisi.append(
             Avviso(
                 "buco",
-                f"Dal {data_breve(giorno(guild.left_at))} al {data_breve(giorno(guild.rejoined_at))} il bot "
+                f"Dal {breve(giorno(guild.left_at))} al {breve(giorno(guild.rejoined_at))} il bot "
                 "non era sul server: chi se n'è andato in quei giorni non ha lasciato traccia.",
             )
         )
@@ -596,7 +645,7 @@ def _avvisi(guild: GuildRow, runs: Sequence[RunRow]) -> tuple[Avviso, ...]:
         avvisi.append(
             Avviso(
                 "uscito",
-                f"Il bot ha lasciato il server il {data_breve(giorno(guild.left_at))} e non è "
+                f"Il bot ha lasciato il server il {breve(giorno(guild.left_at))} e non è "
                 "rientrato: da quella data non c'è osservazione.",
             )
         )
@@ -604,7 +653,7 @@ def _avvisi(guild: GuildRow, runs: Sequence[RunRow]) -> tuple[Avviso, ...]:
         avvisi.append(
             Avviso(
                 "rientro",
-                f"Risulta un rientro del bot il {data_breve(giorno(guild.rejoined_at))} senza una data "
+                f"Risulta un rientro del bot il {breve(giorno(guild.rejoined_at))} senza una data "
                 "di uscita: non si sa per quanto tempo il bot sia stato assente.",
             )
         )
@@ -613,7 +662,7 @@ def _avvisi(guild: GuildRow, runs: Sequence[RunRow]) -> tuple[Avviso, ...]:
         avvisi.append(
             Avviso(
                 "parametri",
-                f"Metodo di calcolo aggiornato il {data_breve(settimana(cambio))}: confronta i numeri "
+                f"Metodo di calcolo aggiornato il {breve(settimana(cambio))}: confronta i numeri "
                 "solo da quella data.",
             )
         )
@@ -646,24 +695,31 @@ def costruisci(
     oggi = giorno(ora or adesso())
     inizio = giorno(guild.first_seen_at)
 
-    fatti = [
-        Fatto(
-            "In osservazione da",
-            _giorni((oggi - inizio).days),
-            f"dal {data_breve(inizio)}",
-        )
-    ]
-
     # ``runs`` arriva dal piu' recente, ma la vista non si fida dell'ordine: la
     # run di riferimento e' quella con l'``as_of`` piu' alto, a parita' quella con
     # lo snapshot piu' alto (lo stesso tiebreaker di _ultimo_snapshot).
     ultima = max(runs, key=lambda r: (r.as_of, r.snapshot_id)) if runs else None
+    # L'anno delle date della pagina si confronta con l'as_of piu' recente, con
+    # oggi se non ce n'e' nessuno (data_breve).
+    riferimento = settimana(ultima.as_of) if ultima is not None else oggi
+
+    def breve(g: date) -> str:
+        return data_breve(g, riferimento=riferimento)
+
+    fatti = [
+        Fatto(
+            "In osservazione da",
+            _giorni((oggi - inizio).days),
+            f"dal {breve(inizio)}",
+        )
+    ]
+
     cadenza = cadenza_osservata(runs)
     prossimo: Optional[date] = None
     if ultima is not None:
         calcolo = settimana(ultima.as_of)
         fatti.append(
-            Fatto("Dati aggiornati a", relativo(calcolo, oggi), data_breve(calcolo))
+            Fatto("Dati aggiornati a", relativo(calcolo, oggi), breve(calcolo))
         )
     # Il fatto esiste solo se una cadenza c'e': con una run sola non si sa ogni
     # quanto il calcolo si ripeta, e il riquadro non compare invece di mostrare
@@ -682,9 +738,9 @@ def costruisci(
             Fatto(
                 "Prossimo aggiornamento",
                 relativo(prossimo, oggi) if prossimo >= oggi else "in ritardo",
-                f"previsto il {data_breve(prossimo)}"
+                f"previsto il {breve(prossimo)}"
                 if prossimo >= oggi
-                else f"era previsto il {data_breve(prossimo)}",
+                else f"era previsto il {breve(prossimo)}",
             )
         )
 
@@ -692,14 +748,15 @@ def costruisci(
         fatti=tuple(fatti),
         senza_run=ultima is None,
         calendario=_calendario(
-            inizio, [settimana(r.as_of) for r in runs], oggi, prossimo
+            inizio, [settimana(r.as_of) for r in runs], oggi, prossimo,
+            riferimento=riferimento,
         ),
         letture=_letture(guild.guild_id, guild.first_seen_at, robustness, communities, cohorts),
         regole=_regole.costruisci(
             ultima.params if ultima is not None else None,
             ultima.graph_params if ultima is not None else None,
         ),
-        avvisi=_avvisi(guild, runs),
+        avvisi=_avvisi(guild, runs, riferimento=riferimento),
     )
 
 

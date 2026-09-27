@@ -51,6 +51,11 @@ TITOLI = {
     "q-barre": "Perché barre e non numeri?",
     "q-leggibile": "Quando sarà leggibile Community?",
     "q-aggiorna": "Ogni quanto si aggiornano i dati?",
+    # L'unico posto fuori dai Dettagli tecnici in cui si scrive "UTC" a video
+    # (dashboard.md 4, "Quale fuso per cosa"): il confine della settimana si
+    # spiega qui una volta, non su ogni vista. tests/test_orari.py lo ammette
+    # dentro questo id e da nessun'altra parte.
+    "q-date": "Che cosa indicano le date?",
     "q-raccoglie": "Cosa raccoglie il bot, esattamente?",
     "q-tecnico": "Dove trovo i dettagli tecnici di un calcolo?",
 }
@@ -245,6 +250,28 @@ def costruisci(
                 "La data dell'ultimo aggiornamento, e quella del prossimo previsto "
                 "quando c'è abbastanza storia per stimarla, sono in cima a Stato "
                 "insieme al calendario di tutti i calcoli fatti.",
+            ),
+        ),
+        Domanda(
+            "q-date",
+            TITOLI["q-date"],
+            # "Comprende i dati fino a", e non "copre una settimana": la finestra
+            # del grafo e' di sette giorni (--window-days in
+            # ops/kindling-weekly.sh), ma le coorti risalgono fino a
+            # cohort_max_age_days di job/config.py, mesi e non giorni: per Coorti
+            # "una settimana" sarebbe falso. Il confine e' invece lo stesso per
+            # tutto: as_of (modello-grafo.md 5.1).
+            con(
+                "Indicano giorni, non orari: il giorno in cui il bot è arrivato o è "
+                "uscito dal server, e quello di ogni aggiornamento. I giorni seguono "
+                "l'ora italiana.",
+                "Ogni aggiornamento comprende i dati fino alla mezzanotte di lunedì in "
+                "tempo universale (UTC), cioè le 2 di notte in Italia d'estate e l'una "
+                "d'inverno: quello che succede il lunedì prima di quell'ora entra "
+                "nell'aggiornamento di quel lunedì, quello che succede dopo nel "
+                "successivo. Vale anche per le coorti: chi entra in quelle ore fa "
+                "parte del gruppo della settimana prima.",
+                "Gli orari esatti di ogni calcolo sono nei Dettagli tecnici.",
             ),
         ),
         Domanda(

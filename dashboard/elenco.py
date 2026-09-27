@@ -118,14 +118,14 @@ def data(giorno: date, oggi: date) -> str:
     Riceve un giorno e non un istante: il fuso lo sceglie chi chiama, con
     ``stato.giorno`` (Roma) o ``stato.settimana`` (``as_of``, UTC).
     """
-    testo = stato.data_breve(giorno)
-    return testo if giorno.year == oggi.year else f"{testo} {giorno.year}"
+    # L'elenco confronta l'anno con oggi e non con un as_of: e' una pagina di
+    # molti server, ciascuno con il proprio ultimo calcolo.
+    return stato.data_breve(giorno, riferimento=oggi)
 
 
 def data_estesa(giorno: date, oggi: date) -> str:
     """``12 settembre``, con l'anno alle stesse condizioni di ``data``."""
-    testo = stato.data_estesa(giorno)
-    return testo if giorno.year == oggi.year else f"{testo} {giorno.year}"
+    return stato.data_estesa(giorno, riferimento=oggi)
 
 
 def _con_preposizione(preposizione: str, testo_data: str) -> str:

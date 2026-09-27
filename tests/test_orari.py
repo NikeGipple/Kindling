@@ -16,7 +16,13 @@ continua a funzionare mentre smette di dire il vero:
 3. **Nessun template formatta una data da se'**: niente ``strftime``, tutto
    passa dai filtri di ``dashboard/main.py``.
 4. **L'orario con "UTC" sta solo nei Dettagli tecnici** (dashboard.md 4, "Quale
-   fuso per cosa"): le viste mostrano giorni.
+   fuso per cosa"): le viste mostrano giorni. L'unica altra pagina in cui la
+   sigla compare e' Domande, dentro ``q-date`` e da nessun'altra parte.
+
+Piu' una quinta, dal 27/09/2026: **l'anno compare quando serve**, cioe' quando
+la data non e' nello stesso anno dell'``as_of`` piu' recente della pagina — e
+si prova su una serie a cavallo di capodanno, l'unico caso in cui la sua
+assenza fa leggere male.
 """
 
 from __future__ import annotations
@@ -173,7 +179,21 @@ def test_ogni_istante_delle_risposte_finisce_con_la_z():
 # --- 2. la dashboard non indovina un fuso ---------------------------------------
 
 
-@pytest.mark.parametrize("funzione", [stato.giorno, stato.settimana, main.data_ora, main.settimana])
+CON_FUSO = datetime(2026, 9, 21, tzinfo=timezone.utc)
+RIFERIMENTO = date(2026, 9, 21)
+
+
+@pytest.mark.parametrize(
+    "funzione",
+    [
+        stato.giorno,
+        stato.settimana,
+        main.data_ora,
+        lambda v: main.settimana(v, CON_FUSO),
+        lambda v: main.settimana(CON_FUSO, v),
+    ],
+    ids=["giorno", "settimana", "data_ora", "filtro settimana", "filtro settimana, piu' recente"],
+)
 def test_un_datetime_senza_fuso_e_un_errore(funzione):
     with pytest.raises(ValueError, match="senza fuso"):
         funzione(NUDO)
@@ -181,11 +201,18 @@ def test_un_datetime_senza_fuso_e_un_errore(funzione):
 
 @pytest.mark.parametrize(
     "funzione",
-    [stato.data_breve, stato.data_estesa, main.data_numerica],
+    [
+        lambda v: stato.data_breve(v, riferimento=RIFERIMENTO),
+        lambda v: stato.data_estesa(v, riferimento=RIFERIMENTO),
+        main.data_numerica,
+    ],
+    ids=["data_breve", "data_estesa", "data_numerica"],
 )
 def test_chi_scrive_una_data_vuole_un_giorno_non_un_istante(funzione):
-    with pytest.raises(TypeError):
-        funzione(datetime(2026, 9, 21, tzinfo=timezone.utc))
+    # match: il TypeError deve essere il nostro, non quello di un argomento
+    # mancante — che farebbe passare il test per la ragione sbagliata.
+    with pytest.raises(TypeError, match="serve un date"):
+        funzione(CON_FUSO)
 
 
 def test_giorno_e_settimana_sono_due_fusi_diversi():
@@ -203,7 +230,8 @@ def test_as_of_del_lunedi_e_lunedi_prima_e_dopo_il_cambio_dell_ora():
     for as_of in (datetime(2026, 10, 19, tzinfo=timezone.utc), datetime(2026, 10, 26, tzinfo=timezone.utc)):
         assert stato.settimana(as_of).weekday() == 0
         assert stato.giorno(as_of) == stato.settimana(as_of)
-    assert main.settimana(datetime(2026, 10, 26, tzinfo=timezone.utc)) == "lunedì 26 ottobre"
+    lunedi = datetime(2026, 10, 26, tzinfo=timezone.utc)
+    assert main.settimana(lunedi, lunedi) == "lunedì 26 ottobre"
 
 
 def test_i_fusi_vivono_in_due_file():
@@ -238,27 +266,47 @@ def test_data_ora_si_usa_solo_nei_dettagli_tecnici():
 # --- 4. "UTC" a video, solo nei Dettagli tecnici ---------------------------------
 
 
+ECCEZIONE_DOMANDE = "q-date"
+
+
 class _Testo(HTMLParser):
-    """Il testo visibile: niente tag, niente attributi."""
+    """Il testo visibile, diviso in due: quello dentro l'elemento con
+    ``id=q-date`` e tutto il resto. L'elemento si riconosce dall'ID, non dal
+    testo: una frase riscritta non deve spostare l'eccezione."""
 
     def __init__(self):
         super().__init__()
-        self.parti: list[str] = []
+        self.fuori: list[str] = []
+        self.dentro: list[str] = []
+        self._tag: str | None = None
+        self._profondita = 0
+
+    def handle_starttag(self, tag, attrs):
+        if self._tag is None and dict(attrs).get("id") == ECCEZIONE_DOMANDE:
+            self._tag, self._profondita = tag, 1
+        elif tag == self._tag:
+            self._profondita += 1
+
+    def handle_endtag(self, tag):
+        if tag == self._tag:
+            self._profondita -= 1
+            if self._profondita == 0:
+                self._tag = None
 
     def handle_data(self, data):
-        self.parti.append(data)
+        (self.dentro if self._tag else self.fuori).append(data)
 
 
-def _visibile(html: str) -> str:
+def _testo(html: str) -> _Testo:
     p = _Testo()
     p.feed(html)
-    return " ".join(p.parti)
+    return p
 
 
 _ORARIO_UTC = re.compile(r"\d{1,2}:\d{2} UTC")
 
 
-def test_utc_compare_solo_nei_dettagli_tecnici():
+def test_utc_compare_solo_nei_dettagli_tecnici_e_in_q_date():
     with client_autenticato(app_di_test(), follow_redirects=False) as c:
         pagine = {"elenco": c.get("/")}
         for g in TUTTE_LE_GUILD:
@@ -268,9 +316,93 @@ def test_utc_compare_solo_nei_dettagli_tecnici():
 
     for nome, risposta in pagine.items():
         assert risposta.status_code == 200, nome
-        assert "UTC" not in _visibile(risposta.text), nome
+        testo = _testo(risposta.text)
+        assert "UTC" not in " ".join(testo.fuori), nome
+        if nome.endswith("/domande"):
+            # L'eccezione esiste davvero e spiega la sigla: se q-date sparisse
+            # o smettesse di dire UTC, l'eccezione ammetterebbe il niente.
+            assert "tempo universale (UTC)" in " ".join(testo.dentro), nome
+        else:
+            assert not testo.dentro, nome
 
     # E il verso opposto: se i Dettagli tecnici smettessero di mostrare l'orario
     # UTC, il test sopra passerebbe comunque.
     assert dettagli.status_code == 200
-    assert _ORARIO_UTC.search(_visibile(dettagli.text))
+    assert _ORARIO_UTC.search(" ".join(_testo(dettagli.text).fuori))
+
+
+def test_l_eccezione_si_trova_per_id_non_per_testo():
+    """La stessa frase fuori da q-date conta come fuori; dentro, con un id
+    qualunque diverso, pure."""
+    fuori = _testo('<details id="q-altro"><p>in tempo universale (UTC)</p></details>')
+    assert "UTC" in " ".join(fuori.fuori) and not fuori.dentro
+    dentro = _testo(
+        '<div><details id="q-date"><details><p>a</p></details><p>UTC</p></details>'
+        "<p>dopo</p></div>"
+    )
+    assert " ".join(dentro.dentro) == "a UTC"
+    assert " ".join(dentro.fuori) == "dopo"
+
+
+# --- 5. l'anno, a cavallo di capodanno ------------------------------------------
+
+
+U = timezone.utc
+# Una serie settimanale che attraversa capodanno: l'as_of piu' recente e' nel
+# 2027, gli altri nel 2026.
+SERIE = [datetime(2026, 12, 14, tzinfo=U), datetime(2026, 12, 21, tzinfo=U),
+         datetime(2026, 12, 28, tzinfo=U), datetime(2027, 1, 4, tzinfo=U)]
+
+
+def test_l_anno_compare_solo_fuori_dall_anno_dell_as_of_piu_recente():
+    piu_recente = max(SERIE)
+    assert [main.settimana(a, piu_recente) for a in SERIE] == [
+        "lunedì 14 dicembre 2026",
+        "lunedì 21 dicembre 2026",
+        "lunedì 28 dicembre 2026",
+        "lunedì 4 gennaio",
+    ]
+    rif = date(2027, 1, 4)
+    assert stato.data_breve(date(2026, 12, 28), riferimento=rif) == "28 dic 2026"
+    assert stato.data_breve(date(2027, 1, 4), riferimento=rif) == "4 gen"
+    assert stato.data_estesa(date(2026, 12, 28), riferimento=rif) == "28 dicembre 2026"
+
+
+def test_la_serie_di_stato_a_cavallo_di_capodanno():
+    """Stato, dall'inizio: fatti, calendario e soglia di diradamento."""
+    guild = modelli.GuildRow(guild_id=5, first_seen_at=datetime(2026, 12, 9, 15, tzinfo=U))
+    runs = [
+        modelli.RunRow(snapshot_id=i, as_of=a, params={}, stats={})
+        for i, a in enumerate(SERIE, start=1)
+    ]
+    vista = stato.costruisci(guild, runs, [], [], [], ora=datetime(2027, 1, 6, 10, tzinfo=U))
+
+    fatti = {f.etichetta: f for f in vista.fatti}
+    assert fatti["In osservazione da"].dettaglio == "dal 9 dic 2026"
+    assert fatti["Dati aggiornati a"].dettaglio == "4 gen"
+    # Solo la data: "il 11" invece di "l'11" e' un difetto a parte, gia' c'era.
+    assert fatti["Prossimo aggiornamento"].dettaglio.endswith(" 11 gen")
+
+    cal = vista.calendario
+    assert cal.arrivo.data == "9 dic 2026"
+    assert [p.data for p in cal.punti] == ["14 dic 2026", "21 dic 2026", "28 dic 2026", "4 gen"]
+    assert cal.oggi.data == "6 gen"
+    # Con l'anno sopra l'asse vale la soglia larga: nessuna coppia di date
+    # scritte (arrivo compreso, allo 0%) sta piu' vicina di 24 punti.
+    scritte = [0.0] + [float(p.x.rstrip("%")) for p in cal.punti if p.etichettata]
+    if cal.prossimo:
+        scritte.append(100.0)
+    assert all(b - a >= stato.SCARTO_MINIMO_ETICHETTE_CON_ANNO
+               for a, b in zip(scritte, scritte[1:])), scritte
+
+
+def test_senza_date_di_un_altro_anno_la_soglia_resta_quella_stretta():
+    """Il verso opposto: dentro un anno solo nessuna data porta l'anno, e il
+    calendario non si dirada piu' del necessario."""
+    serie = [datetime(2026, 9, 7, tzinfo=U) + timedelta(weeks=k) for k in range(4)]
+    guild = modelli.GuildRow(guild_id=5, first_seen_at=datetime(2026, 9, 2, tzinfo=U))
+    runs = [modelli.RunRow(snapshot_id=i, as_of=a, params={}, stats={})
+            for i, a in enumerate(serie, start=1)]
+    vista = stato.costruisci(guild, runs, [], [], [], ora=datetime(2026, 9, 30, tzinfo=U))
+    assert all(not p.data.endswith("2026") for p in vista.calendario.punti)
+    assert vista.calendario.arrivo.data == "2 set"

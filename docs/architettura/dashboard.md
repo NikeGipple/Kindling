@@ -261,8 +261,35 @@ l'ancora delle coorti su Roma, che è un cambio di modello con ricalcolo di tutt
 gli snapshot. Oggi `as_of` cade di lunedì in tutti e due i calendari, anche
 attraverso il cambio dell'ora legale.
 
-**Il confine della settimana si spiega una volta sola**, nella pagina Domande e
-nei Dettagli tecnici, non su ogni vista.
+**Il confine della settimana si spiega una volta sola**, nella pagina Domande
+(`q-date`, «Che cosa indicano le date?») e nei Dettagli tecnici, non su ogni
+vista. Stato porta in fondo una riga sola: «Le date sono giorni, secondo l'ora
+italiana. Ogni aggiornamento comprende i dati fino alla mezzanotte del lunedì
+indicato.» `q-date` è anche l'unico posto fuori dai Dettagli tecnici in cui
+«UTC» compare a video, spiegata alla prima occorrenza («in tempo universale
+(UTC)»); il test la ammette dentro quell'id e da nessun'altra parte.
+
+**«Comprende i dati fino a», mai «copre una settimana».** Verificato il
+27/09/2026 prima di scrivere i testi: la finestra del **grafo** è di sette giorni
+(`--window-days 7` in `ops/kindling-weekly.sh`, default `default_window_days =
+7.0` in `job/config.py`, `window_start = window_end − window_days` in
+`job/main.py::run_snapshot`), quindi per Robustezza e Community «una settimana»
+sarebbe vero. Ma le **coorti** leggono i membri entrati fino a
+`cohort_max_age_days` prima dell'`as_of` (`job/config.py`, mesi) e i loro eventi
+fino all'`as_of`: per Coorti sarebbe falso. Il confine, invece, è lo stesso per
+tutto: l'`as_of`.
+
+**L'anno compare quando la data non è nello stesso anno dell'`as_of` più
+recente della pagina** (dal 27/09/2026; prima non compariva mai nelle viste). Vale
+per Stato, Coorti, Robustezza e Community, con lo stesso helper: `data_breve` e
+`data_estesa` hanno un `riferimento` **obbligatorio** — il giorno dell'`as_of` più
+recente, e oggi dove la pagina non ne ha nessuno — perché un default «senza
+anno» sarebbe la strada per cui una vista nuova se ne dimentica. L'elenco dei
+server resta sulla sua regola (l'anno di oggi): è una pagina di molti server,
+ciascuno con il proprio ultimo calcolo. Nel calendario di Stato le date con
+l'anno sono più larghe (70,7 px contro 40,8, misurate nel browser il 27/09/2026),
+e quando ne compare anche una sola sopra l'asse la soglia di diradamento passa
+da 15% a 24% (`SCARTO_MINIMO_ETICHETTE_CON_ANNO`, con lo stesso conto).
 
 **Nel codice, ogni forma ha una funzione e il fuso lo sceglie chi chiama.**
 `stato.data_breve` e `stato.data_estesa` accettano solo un `date`: un `datetime`
@@ -273,8 +300,9 @@ presunto: lo schema è tutto `TIMESTAMPTZ` e l'API rifiuta gli istanti nudi
 (`api.md` §2, «Date e istanti»). Nei template le date passano da tre filtri
 (`settimana`, `data_ora`, `data_numerica`) o da valori già composti in Python;
 `tests/test_orari.py` fallisce se un template usa `strftime`, se `data_ora`
-compare fuori da `dettagli_tecnici.html` o se «UTC» compare a video fuori dai
-Dettagli tecnici.
+compare fuori da `dettagli_tecnici.html`, se «UTC» compare a video fuori dai
+Dettagli tecnici e da `q-date`, o se una serie a cavallo di capodanno perde
+l'anno.
 
 ### Inventario
 
@@ -892,6 +920,14 @@ La prima domanda — *posso vedere un singolo membro?* — nomina il destinatari
 «in questa dashboard gli amministratori vedono solo gruppi di almeno N membri».
 Non «Kindling non sa chi sei», che sarebbe falso: il bot registra `author_id`
 pseudonimizzati, e l'invariante è su cosa **esce** da qui, non su cosa esiste.
+
+**`q-date`, «Che cosa indicano le date?» (27/09/2026)**, dopo `q-aggiorna`. Dice
+che le date sono giorni secondo l'ora italiana, e dove sta il confine di un
+aggiornamento: la mezzanotte di lunedì in tempo universale (UTC), cioè le 2 in
+Italia d'estate e l'una d'inverno, con la conseguenza per le coorti (chi entra in
+quelle ore sta nel gruppo della settimana prima). È la spiegazione unica di
+§4, «Quale fuso per cosa», e l'unico posto fuori dai Dettagli tecnici in cui
+compare la sigla UTC.
 
 ### La pagina Dettagli tecnici
 

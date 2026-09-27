@@ -911,22 +911,40 @@ la supporta, una riga `CRON_TZ=UTC` è una variabile d'ambiente come le altre:
 passa al comando e non sposta l'orario, senza nessun avviso. Sarebbe una
 dichiarazione che sembra fare qualcosa e non lo fa (CLAUDE.md §7).
 
-Il controllo, dopo ogni installazione del file e dopo ogni cambio di macchina:
+**Il controllo che decide è uno solo**, dopo ogni installazione del file e dopo
+ogni cambio di macchina:
 
 ```bash
 timedatectl | grep -E 'Time zone|synchronized'
 ```
 
+Atteso: `Time zone: Etc/UTC (UTC, +0000)` e `System clock synchronized: yes`.
+**Con la droplet in UTC, `CRON_TZ` è irrilevante**: il fuso di sistema e quello
+voluto coincidono, e che cron supporti o no la variabile non sposta l'orario di
+nessuna riga. Tutto il resto di questa sezione serve solo se `timedatectl` non
+dice UTC.
+
+**Informativo, non decide niente**: quale cron gira, e se il suo manuale nomina
+`CRON_TZ`. Il manuale si cerca **prima** di leggerlo. Sulle immagini Ubuntu
+minimizzate — e le droplet spesso lo sono — le pagine di manuale sono rimosse, e
+`man 5 crontab | grep -c CRON_TZ` stampa `0` perché la pagina non c'è, non perché
+la variabile manchi: un «non supportata» falso, con l'aria di una risposta
+(CLAUDE.md §7). Fino al 27/09/2026 questo runbook proponeva proprio quel comando.
+
 ```bash
-dpkg -S "$(readlink -f /usr/sbin/cron)"; man 5 crontab | grep -c CRON_TZ
+dpkg -S "$(readlink -f /usr/sbin/cron)"
 ```
 
-Atteso: `Time zone: Etc/UTC (UTC, +0000)` e `System clock synchronized: yes`; il
-pacchetto è `cron` e il conteggio di `CRON_TZ` è `0`, cioè la variabile non è
-supportata e il fuso di sistema è l'unico che conta. Se il conteggio non fosse
-`0` (la macchina usa `cronie`), `CRON_TZ=UTC` diventerebbe possibile — ma il
-controllo di `timedatectl` resterebbe comunque, perché è quello che dice cosa sta
-succedendo davvero.
+```bash
+if [ -e /usr/share/man/man5/crontab.5.gz ]; then zgrep -c CRON_TZ /usr/share/man/man5/crontab.5.gz; else echo "pagina assente: non verificabile così"; fi
+```
+
+Atteso: il pacchetto è `cron`; poi `0` (pagina presente, la variabile non è
+documentata) oppure `pagina assente: non verificabile così`, che non è né un sì
+né un no e va riportato con queste parole, non come «0». Un numero maggiore di
+zero vuol dire che il cron installato la documenta (per esempio `cronie`): anche
+allora non si aggiunge niente a `ops/kindling.cron` finché `timedatectl` dice
+UTC.
 
 **Se la droplet non è in UTC:**
 

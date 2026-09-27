@@ -23,7 +23,9 @@
 <h1>Dettagli tecnici</h1>
 <p class="guida">Che cosa ha prodotto i numeri di questo server, e con quali parametri.
 Le date di questa pagina sono complete e in UTC, perché è la forma che si confronta
-con i log.</p>
+con i log. Ogni calcolo comprende i dati fino al suo <code>as_of</code>: il lunedì alle
+00:00 UTC, tranne i primi calcoli, che portano l'ora in cui sono partiti.
+<code>created_at</code> è l'ora in cui il job è partito, di solito qualche ora dopo.</p>
 
 {% if ultima %}
 <h2>Storico delle esecuzioni</h2>

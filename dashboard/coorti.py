@@ -647,7 +647,11 @@ def _cella_presenti(
             if osservati is not None
             else None
         )
-        testo = f"dal {_stato.data_estesa(_stato.settimana(quando))}" if quando else "non ancora"
+        testo = (
+            f"dal {_stato.data_estesa(_stato.settimana(quando), riferimento=_stato.settimana(as_of))}"
+            if quando
+            else "non ancora"
+        )
         return CellaVista("presenti", etichetta, testo=testo)
     # Un altro motivo su una coorte posteriore all'ancora non esiste (dashboard.md
     # 4): lo si dice, invece di inventare una barra.
@@ -687,7 +691,9 @@ def _riga(
     orizzonti_integra: Sequence[int],
     ambiti: Sequence[str],
 ) -> Riga:
-    settimana = _stato.data_estesa(gruppo.cohort_start)
+    # L'anno si confronta con l'as_of della pagina, il piu' recente (stato.data_breve).
+    riferimento = _stato.settimana(as_of)
+    settimana = _stato.data_estesa(gruppo.cohort_start, riferimento=riferimento)
     if gruppo.soppressa:
         frase = (
             f"meno di {soglia} ingressi: non mostrata"
@@ -714,7 +720,7 @@ def _riga(
             quando = _stato.settimana(istante) if istante else None
         frase = (
             "in osservazione · leggibile dal calcolo di "
-            f"{_stato.data_estesa(quando, con_giorno=True)}"
+            f"{_stato.data_estesa(quando, riferimento=riferimento, con_giorno=True)}"
             if quando
             else "in osservazione"
         )
@@ -737,7 +743,7 @@ def _riga(
     return Riga(gruppo.cohort_start, settimana, LEGGIBILE, persone=q.n_effective, celle=celle)
 
 
-def _avviso(righe: Sequence[Riga]) -> Optional[Avviso]:
+def _avviso(righe: Sequence[Riga], *, riferimento: date) -> Optional[Avviso]:
     """Con una o due coorti leggibili, un avviso; con zero, la data della prima."""
     leggibili = sum(1 for r in righe if r.stato == LEGGIBILE)
     if leggibili == 1:
@@ -757,7 +763,7 @@ def _avviso(righe: Sequence[Riga]) -> Optional[Avviso]:
         if prossime:
             return Avviso(
                 "La prima coorte sarà leggibile dal calcolo di "
-                f"{_stato.data_estesa(min(prossime), con_giorno=True)}."
+                f"{_stato.data_estesa(min(prossime), riferimento=riferimento, con_giorno=True)}."
             )
     return None
 
@@ -780,6 +786,9 @@ def pagina(
     soglia = _intero(params, "min_cardinality")
     cadenza = _stato.cadenza_osservata(runs)
     as_of = tecnica_.snapshot.as_of
+    # L'anno delle date della pagina si confronta con questo as_of, il piu'
+    # recente (stato.data_breve).
+    riferimento = _stato.settimana(as_of)
 
     dopo = posteriori(tecnica_, guild.first_seen_at)
     orizzonti_presenti = tuple(sorted({h for g in dopo for h in g.retention}))
@@ -797,11 +806,11 @@ def pagina(
     ]
     return Pagina(
         vuota=False,
-        arrivo=_stato.data_estesa(_stato.giorno(guild.first_seen_at)),
+        arrivo=_stato.data_estesa(_stato.giorno(guild.first_seen_at), riferimento=riferimento),
         k=_k(dopo),
         giorni_maturita=giorni_maturita,
         frase_osservazione=_frase_osservazione(giorni_maturita),
-        aggiornati_a=_stato.data_estesa(_stato.settimana(as_of), con_giorno=True),
+        aggiornati_a=_stato.data_estesa(riferimento, riferimento=riferimento, con_giorno=True),
         orizzonti_presenti=orizzonti_presenti,
         orizzonti_integra=orizzonti_integra,
         ambiti=ambiti,
@@ -809,7 +818,7 @@ def pagina(
         # Contate su TUTTE le posteriori, non sulle dodici visibili: l'avviso
         # dice quante settimane si possono leggere, non quante stanno in pagina.
         leggibili=sum(1 for r in tutte if r.stato == LEGGIBILE),
-        avviso=_avviso(tutte),
+        avviso=_avviso(tutte, riferimento=riferimento),
     )
 
 

@@ -240,16 +240,21 @@ def data_ora(valore: Optional[datetime]) -> str:
     return f"{_GIORNI[v.weekday()]} {v.day} {_MESI[v.month - 1]} {v.year}, {v:%H:%M} UTC"
 
 
-def settimana(as_of: Optional[datetime]) -> str:
-    """``as_of`` come etichetta di settimana: ``lunedì 21 settembre``.
+def settimana(as_of: Optional[datetime], piu_recente: datetime) -> str:
+    """``as_of`` come etichetta di settimana: ``lunedì 21 settembre``, con
+    l'anno se non e' quello di ``piu_recente`` (l'``as_of`` piu' recente della
+    pagina: stato.data_breve).
 
     Senza orario e senza fuso dichiarato, perche' non e' un istante da leggere
-    ma il lunedi' della settimana ISO in UTC che il calcolo copre. La stessa
-    forma di Stato e Coorti, dalle stesse funzioni.
+    ma il lunedi' 00:00 UTC fino a cui arrivano i dati del calcolo. La stessa
+    forma di Stato e Coorti, dalle stesse funzioni. ``piu_recente`` e'
+    obbligatorio per la stessa ragione del ``riferimento`` di data_breve.
     """
     if as_of is None:
         return "—"
-    return stato.data_estesa(stato.settimana(as_of), con_giorno=True)
+    return stato.data_estesa(
+        stato.settimana(as_of), riferimento=stato.settimana(piu_recente), con_giorno=True
+    )
 
 
 def data_numerica(valore: Optional[date]) -> str:
