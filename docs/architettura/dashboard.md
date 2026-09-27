@@ -250,6 +250,229 @@ raggruppate per `cohort_start`, come nella risposta dell'API. Servirle separate
 inviterebbe a leggerle separate, che è il modo di fallire contro cui la
 duplicazione di `n_effective`/`excluded_rejoins`/`is_survivors_only` esiste.
 
+### L'elenco dei server, in dettaglio
+
+**Riscritto il 27/09/2026** (mockup approvato: `kindling-elenco-server-v2.html`,
+fuori dal repo). La prima stesura era una tabella «Server osservati» con tre
+colonne e due timestamp completi in UTC: diceva cose vere, ma nella forma di un
+pannello di servizio, come la prima Stato. La pagina `/` ha lo stesso
+destinatario di tutto il resto — chi amministra i server — e deve fare una cosa
+sola: fargliene scegliere uno.
+
+**Un elenco, non una tabella.** Un `<ul>` di righe, una per server. Ogni riga
+ha: l'icona del server (o un monogramma, sotto), il nome con l'ID sotto in
+`<code>` — quello che si incolla in un comando, e senza il quale due server con
+lo stesso nome non si distinguono —, due fatti etichetta/valore («Osserva da»,
+«Ultimo calcolo») e una freccia. Le righe sono poche e ognuna ha un'azione
+sola, entrare: le intestazioni di colonna non servono, e su telefono una
+tabella andrebbe smontata e ricostruita. **Tutta la riga è cliccabile** grazie a
+un `::after` sul link del nome, che copre la riga: il nome accessibile del link
+resta **il solo nome del server**, non «Nome 6427… Osserva da 30 ago…», che è
+quello che si otterrebbe mettendo il link attorno alla riga intera. Senza nome
+in sessione (cookie di prima dei nomi, guild senza nome su Discord, ripiego per
+budget) l'ID in `<code>` fa da nome dentro il link, la riga dell'ID sotto non
+c'è, e il monogramma è `#`.
+
+**L'elenco resta anche con un solo server**: `/` non reindirizza a Stato. È la
+pagina a cui porta il marchio in testata e il «cambia» della riga di contesto,
+e una pagina che a volte c'è e a volte è un redirect cambia natura con il
+numero di server di chi guarda — cioè proprio il giorno in cui il secondo
+server arriva, senza che nessuno l'abbia deciso.
+
+#### Date: brevi, a Roma, con il dettaglio sotto
+
+Fuso Europe/Rome e forma breve (`30 ago`), con le funzioni che Stato usa già
+(`stato.data_breve`, `stato.adesso()`, i nomi dei mesi scritti a mano): stessa
+pagina, stesso modo di scrivere una data. L'anno compare **solo se è diverso da
+quello corrente** (`3 mar 2025`), l'anno corrente si capisce da sé.
+`main.data_ora` (UTC, completa) resta dov'è per le altre pagine.
+
+- **Osserva da**: il valore è la data di `first_seen_at`, il dettaglio è da
+  quanto: `oggi`; `1 giorno` / `N giorni` sotto la settimana; `1 settimana` /
+  `N settimane` sotto le 26; `N mesi` (mesi di calendario compiuti) sotto i 24;
+  `N anni` da lì. Giorni di calendario a Roma, non multipli di 24 ore, come
+  `stato.relativo`. Il mockup scriveva, per il bot arrivato oggi, `oggi` come
+  valore e la data sotto: qui il valore è **sempre** la data, in tutte le righe,
+  perché la colonna si legge scorrendo e un valore che cambia natura in una riga
+  sola si legge male. Il mockup mostrava anche l'anno su una data dell'anno
+  corrente (`3 mar 2026`): vale la regola scritta sopra, non l'esempio.
+- **Ultimo calcolo**: il valore è la data di `latest_metrics_as_of`, il
+  dettaglio è il giorno della settimana (`lunedì`), come nel mockup: con il
+  calcolo settimanale dice a colpo d'occhio se la cadenza è quella attesa.
+
+#### Ordine fisso, niente ordinamento né ricerca
+
+Ordine alfabetico sul nome, **deciso in Python** da una funzione pura e testata
+(`dashboard/elenco.py`, `ordina`), non nel template. La chiave, nell'ordine:
+
+1. le righe **senza nome vanno in fondo** — un numero in mezzo ai nomi non si
+   trova né per nome né per numero;
+2. il nome **senza accenti** e con `casefold()`: con `casefold()` da solo
+   «Élite» finirebbe dopo «Zefiro», perché `é` viene dopo `z` nella tabella
+   Unicode. Le iniziali minuscole contano come maiuscole («l'Ordine» sta fra le
+   «G» e le «R»);
+3. il nome con `casefold()` e basta, perché «Elite» ed «Élite» non pareggino;
+4. **l'ID**, sempre: due server con lo stesso nome devono avere un ordine
+   deciso, non quello in cui arrivano dall'API. È la lezione dell'`ORDER BY`
+   senza tiebreaker (CLAUDE.md §7): un ordine parziale non dà errori, dà due
+   pagine diverse per gli stessi dati. Per le righe senza nome è l'unica chiave.
+
+Nessun bottone di ordinamento e nessuna ricerca. **La soglia oltre la quale una
+ricerca varrebbe la pena è di circa 15 righe**: sotto, il nome si trova a colpo
+d'occhio in un elenco alfabetico, e Ctrl+F fa il resto. Il giorno che servirà si
+farà senza JavaScript, come il resto della dashboard: un `<form method="get">`
+con un campo `q`, che il server applica **prima** di rendere (sottostringa sul
+nome normalizzato come nella chiave 2, più l'ID esatto), con l'URL `/?q=…`
+condivisibile e il bottone indietro che funziona. Non è costruita.
+
+#### Due stati per riga, entrambi reali
+
+- **Nessun calcolo ancora** (`latest_metrics_as_of` è `None`): il valore è
+  «non ancora», il dettaglio «arriva con il primo calcolo settimanale». **Senza
+  data**: la data del prossimo calcolo richiede la cadenza, che si misura sulle
+  run (`stato.cadenza_osservata`), e l'elenco non le legge — il «lunedì 28 set»
+  del mockup è tolto.
+- **Bot uscito dal server** (`left_at` valorizzato, `rejoined_at` assente): il
+  dettaglio di «Osserva da» diventa «fino al 12 set», e sotto la riga compare
+  una nota nello stile di `.avviso`: *Il bot non è più nel server dal 12
+  settembre: i dati si fermano a quel giorno.* Colore dell'avviso, non
+  dell'errore (§5, regola 1): è un fatto che cambia la lettura dei dati, non un
+  guasto.
+- **I due insieme** (uscito, e nessun calcolo): «arriva con il primo calcolo
+  settimanale» potrebbe essere falso, quindi il valore è «nessuno», **senza
+  dettaglio** — la nota di uscita spiega già il perché. Precisazione verificata
+  sul job, non sull'elenco: dopo l'uscita arriva di norma **un** calcolo ancora,
+  il lunedì seguente, perché `job.db.list_guilds` sceglie le guild dai
+  `raw_events` della finestra appena chiusa, che contiene i giorni prima
+  dell'uscita; dal lunedì dopo, niente. «nessuno» descrive il momento e non
+  promette niente, quindi resta vero in entrambi i casi.
+- **Rientrato** (`left_at` e `rejoined_at` entrambi valorizzati): nessuna nota
+  in questa pagina. Il buco di osservazione lo dichiara Stato, e cosa fa alle
+  coorti è una voce aperta (CLAUDE.md, «L'ancora di osservabilità ignora il buco
+  di osservazione»), non una cosa da riassumere qui. Lo stesso per `rejoined_at`
+  senza `left_at`, che il bot non scrive (`bot/db.py`, `_REGISTER_GUILD`) e che
+  Stato tratta come ramo difensivo.
+
+#### Nessuno stato di salute per server
+
+Niente pillole, niente colori per server, niente «leggibile», niente conteggi
+presi dalle viste. Nell'elenco servirebbero a **confrontare i server fra loro**,
+cioè sarebbero un punteggio sintetico travestito — l'invariante 3, applicato
+fra server invece che fra layer. E niente chiamate all'API per singolo server:
+l'elenco resta **una sola chiamata**, `guilds()`, filtrata sull'insieme
+autorizzato della sessione.
+
+#### Testi
+
+Titolo «I tuoi server». Introduzione: *Qui compaiono i server di cui sei
+amministratore e che Kindling osserva. Scegline uno per vedere cosa sta
+succedendo fra i suoi membri.* Sotto l'elenco: *Manca un server? Compare qui
+solo se Kindling lo osserva e se su Discord hai il permesso Amministratore.
+L'elenco si aggiorna da solo ogni 15 minuti.* Con l'elenco vuoto, il riquadro
+«Nessun server da mostrare» del mockup (e non la frase sotto l'elenco, che
+parlerebbe di un elenco che non c'è). I «15 minuti» **non sono scritti a mano**:
+vengono da `auth.TTL_RICONTROLLO_SECONDI`, cioè dal ricontrollo silenzioso che
+riscrive insieme insieme autorizzato, nomi e icone — è quello, e nient'altro,
+che aggiorna l'elenco. Un numero ricopiato resterebbe vero fino al primo che
+cambia il TTL.
+
+L'elenco vuoto è raro, ma esiste: la guardia nega già una sessione senza server
+(`nessun_server`), quindi ci si arriva solo con una sessione valida i cui server
+l'API non elenca più.
+
+**Telefono.** Sotto `34rem`, la soglia che la cornice usa già, la riga si
+impila: icona e nome in alto con la freccia a destra, i due fatti sotto il nome
+su una riga ciascuno (valore e dettaglio affiancati, separati da « · »), la nota
+di uscita a tutta larghezza. Il mockup usa una container query solo per mostrare
+le due larghezze affiancate; il foglio usa `@media (max-width: 34rem)`.
+
+#### Le icone dei server, dal CDN di Discord
+
+**Da dove vengono.** L'hash dell'icona arriva da `GET /users/@me/guilds`, la
+stessa risposta che porta i nomi: il campo `icon` dell'oggetto guild parziale,
+`?string` per la documentazione di Discord (letta il 27/09/2026) — `null` è il
+server senza icona. Si raccoglie in `auth.guild_autorizzate` accanto al nome, con
+le stesse regole di `_nome_di_guild`: **l'icona non vota mai**. Assente, `null`,
+non stringa o fuori forma: la guild resta autorizzata e semplicemente non ha
+icona.
+
+**Si valida in scrittura**, con un'espressione esatta: `(a_)?[0-9a-f]{32}`,
+confrontata per intero (`fullmatch`). La documentazione **non definisce** la
+forma di un hash oltre al prefisso `a_` degli animati: l'espressione viene dai
+suoi esempi e da un hash reale letto lo stesso giorno. È stretta di proposito —
+non prevede cosa Discord manderà, delimita cosa accettiamo di mettere in un URL —
+e il suo errore possibile va nella direzione giusta: un formato nuovo darebbe il
+monogramma, non un URL costruito con dati che non capiamo. In sessione va
+**solo l'hash**, mai l'URL.
+
+**La sessione.** Una chiave nuova, `icone`, accanto a `nomi`, con gli stessi tre
+casi di `_nomi_di_sessione`: chiave assente = mappa vuota e sessione valida (il
+cookie firmato prima del deploy: monogrammi fino al ricontrollo); chiave fuori
+forma — compreso un valore che non passa l'espressione, che si ricontrolla in
+lettura — = nessuna sessione; una guild fuori dall'insieme autorizzato = nessuna
+sessione. `completa_callback`, e quindi anche il ricontrollo dei 15 minuti, la
+scrive insieme a `guilds` e `nomi`.
+
+**Il budget del cookie.** Il budget di `BUDGET_JSON_SESSIONE_BYTE` (2800 byte di
+JSON) ora ha tre gradini, interi, nell'ordine: nomi e icone; solo nomi; niente.
+Le icone cadono per prime perché valgono meno, e non restano mai senza nomi.
+Misurato il 27/09/2026 sull'intestazione `Set-Cookie` vera del callback (id da
+19 cifre, nomi di 100 caratteri, tutte le guild con un'icona animata `a_…`):
+
+| Nomi | Guild | Gradino | `Set-Cookie` |
+|---|---|---|---|
+| ASCII, 100 caratteri | 12 | nomi e icone (il massimo) | **3588 byte** |
+| ASCII, 100 caratteri | 13–18 | solo nomi | fino a 3784 byte |
+| ASCII, 100 caratteri | da 19 | niente | 748 byte a 19 |
+| non ASCII, 100 caratteri (`\uXXXX`, 6 byte l'uno) | 3 | nomi e icone (il massimo) | 3080 byte |
+| non ASCII, 100 caratteri | 4 | solo nomi | 3688 byte |
+
+Il caso peggiore con le icone è **3588 byte su ~4096**, e il più grande in
+assoluto resta quello di prima (solo nomi, 3784): il budget tiene, le icone non
+lo spostano. Un'icona costa circa 60 byte di JSON a guild. **Un limite
+preesistente, non toccato**: il budget governa nomi e icone, non l'elenco degli
+id, che da solo supera i 4096 byte a **139 guild autorizzate** (4108 byte, senza
+nomi né icone). Oltre, il browser scarta il cookie e il login non si chiude.
+Richiede di amministrare 139 server osservati da Kindling; è scritto qui perché
+non si scopra il giorno in cui succede.
+
+**L'URL si compone in Python**, in `dashboard/elenco.py`, solo da un `int` (l'ID
+della guild) e da un hash che ha passato l'espressione:
+`https://cdn.discordapp.com/icons/{guild_id}/{hash}.webp?size=128`.
+
+- **`size=128`, non 80.** L'immagine si mostra a 40 px, e 80 sarebbe il 2×
+  esatto, ma Discord documenta per `size` solo le potenze di due fra 16 e 4096.
+  Provato sul CDN il 27/09/2026: `size=80` oggi risponde 200 (80×80), `size=81`
+  risponde 400 — cioè 80 sta in una lista che la documentazione non dichiara.
+  128 è documentato, costa qualche centinaio di byte e il browser lo scala.
+- **Statica anche per gli hash animati.** Niente animazioni in un elenco. Per
+  la documentazione un WebP è animato solo con `?animated=true`; verificato
+  sullo stesso CDN con un hash `a_…` reale: senza il parametro arriva un WebP
+  statico (un solo fotogramma, nessun blocco `ANMF`), con il parametro uno
+  animato. Lo stesso URL vale quindi per tutti gli hash.
+
+**Il markup, senza script.** Il monogramma (la prima lettera o cifra del nome,
+maiuscola; `#` senza nome) sta **sempre** sotto; l'`<img>` si sovrappone solo se
+l'icona c'è, con `alt=""` (il nome è già scritto accanto: l'icona è
+decorazione), `width`/`height` a 40, `loading="lazy"`, `decoding="async"` e
+`referrerpolicy="no-referrer"` — il CDN non riceve l'indirizzo della pagina da
+cui l'immagine è chiesta. Con il CDN irraggiungibile, un `<img alt="">` rotto non
+deve disegnare niente e il monogramma deve restare visibile: è un comportamento
+dei browser, non una garanzia dello standard, e si verifica in Chromium e
+Firefox prima di darlo per buono. Nessuno `style="..."`: il test di
+`tests/test_dashboard_statici.py` resta invariato.
+
+**La CSP si allarga di un dominio, e solo per le immagini:**
+`img-src 'self' https://cdn.discordapp.com`. È un'**eccezione con il suo motivo**,
+non una regola allentata (vedi anche «origini altrui», più sotto nella vista
+Robustezza, e il commento sopra `CSP` in `dashboard/main.py`). La regola
+«nessuna risorsa da terzi» esiste perché un sito esterno non sappia chi apre la
+dashboard e quando. Qui il terzo è Discord, che è **già il fornitore d'identità**
+di chi entra e sa già che quella persona amministra quel server: la richiesta
+dell'icona non gli dice niente che il login non gli abbia già detto. Un'immagine,
+inoltre, non esegue codice. Resta vietato tutto il resto: CDN di script o stili,
+font remoti, analytics, widget, e **anche altri domini per le immagini**.
+
 ### La vista Stato, in dettaglio
 
 **Riscritta il 22/09/2026.** La prima stesura era un pannello di servizio: due
@@ -737,6 +960,16 @@ servirebbe CSS nuovo con template vecchi. Il divieto che resta intero riguarda
 le **origini altrui**: niente CDN, font remoti, analytics o widget, e la CSP
 delle risposte (`default-src 'none'`, senza `'unsafe-inline'`) lo impone invece
 di raccomandarlo.
+
+**Un'eccezione, dal 27/09/2026: le icone dei server da
+`https://cdn.discordapp.com`**, e solo in `img-src` (§4, «L'elenco dei server»).
+Non è la regola allentata: il divieto serve a non far sapere a un sito esterno
+chi apre la dashboard e quando, e Discord lo sa già — è il fornitore d'identità
+del login, e sa che chi entra amministra quei server. Un'immagine non esegue
+codice. Tutto il resto del divieto resta intero, compresi altri domini per le
+immagini; e i grafici restano SVG generati qui, perché la ragione scritta sopra
+— una pagina che non deve dipendere da internet per rendersi — per loro vale
+ancora: un'icona che non arriva lascia il monogramma, un grafico no.
 
 **Regola 6 sulla legenda.** Una serie è fatta di righe con `nodes_removed`
 diversi, quindi la coppia "stessa riga" non è applicabile alla legenda. La voce
