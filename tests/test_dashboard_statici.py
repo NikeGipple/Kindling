@@ -226,6 +226,40 @@ def test_la_csp_parte_da_default_src_none():
         assert direttive[nome] == "'self'", nome
 
 
+# La CSP servita, scritta per intero e non importata: un test che confronta
+# l'intestazione con la costante che la produce resta verde qualunque cosa ci
+# sia dentro. Questa e' la stringa decisa il 27/09/2026 (dashboard.md 4,
+# «L'elenco dei server»): un solo dominio in piu', e solo in img-src.
+CSP_ATTESA = (
+    "default-src 'none'; style-src 'self'; script-src 'self'; "
+    "img-src 'self' https://cdn.discordapp.com; base-uri 'none'; "
+    "frame-ancestors 'none'; form-action 'self' https://discord.com"
+)
+
+
+def test_la_csp_servita_e_esattamente_quella_decisa(pagine):
+    # Una pagina protetta e la pagina d'accesso, che sono i due lati della guardia.
+    for nome in ("elenco", "accesso"):
+        _, risposta = pagine[nome]
+        assert risposta.headers["content-security-policy"] == CSP_ATTESA, nome
+
+
+def test_l_unica_origine_altrui_per_le_immagini_e_il_cdn_di_discord():
+    direttive = dict(d.split(" ", 1) for d in CSP.split("; ") if " " in d)
+    assert direttive["img-src"].split() == ["'self'", "https://cdn.discordapp.com"]
+    # E da nessun'altra parte: l'eccezione vale per le immagini, non per il resto.
+    altre = {k: v for k, v in direttive.items() if k != "img-src"}
+    assert not any("cdn.discordapp.com" in v for v in altre.values())
+
+
+def test_la_pagina_d_accesso_non_chiede_immagini_a_nessuno(pagine):
+    # Prima del login non c'e' nessun server da mostrare, quindi nessuna icona:
+    # la pagina che si vede da fuori non deve toccare il CDN di nessuno.
+    _, risposta = pagine["accesso"]
+    assert "<img" not in risposta.text
+    assert "cdn.discordapp.com" not in risposta.text
+
+
 def test_form_action_nomina_l_host_verso_cui_il_login_risponde_davvero():
     """``POST /login`` risponde 303 verso Discord, e ``form-action`` vale anche
     sulla destinazione del redirect.

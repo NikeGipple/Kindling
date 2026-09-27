@@ -81,8 +81,16 @@ CACHE_STATICI = "public, max-age=31536000, immutable"
 # - script-src 'self': oggi non c'e' nessuno script, e la direttiva dice che
 #   se un giorno ce ne sara' uno dovra' essere un file di questa origine, non
 #   una riga dentro la pagina.
-# - img-src 'self': nessuna immagine oggi (il marchio e' un <svg> in linea, non
-#   un <img>). "data:" stava nella bozza ed e' stato tolto perche' niente lo
+# - img-src 'self' https://cdn.discordapp.com: le icone dei server nell'elenco
+#   (dashboard.md 4, «L'elenco dei server»), e nient'altro — il marchio e' un
+#   <svg> in linea, non un <img>. Il dominio di Discord e' un'ECCEZIONE, decisa
+#   il 27/09/2026, non la regola allentata. «Nessuna risorsa da terzi» serve a
+#   non far sapere a un sito esterno chi apre la dashboard e quando; qui il terzo
+#   e' Discord, che e' gia' il fornitore d'identita' di chi entra e sa gia' che
+#   quella persona amministra quel server, quindi l'icona non gli dice niente di
+#   nuovo. E un'immagine non esegue codice. Resta vietato tutto il resto: CDN di
+#   script o stili, font remoti, analytics, widget, e anche ALTRI domini per le
+#   immagini. "data:" stava nella bozza ed e' stato tolto perche' niente lo
 #   usa; rimetterlo e' una riga, e la sua mancanza si vede subito — immagine
 #   rotta e violazione in console — non in silenzio.
 # - form-action 'self' https://discord.com: i due form della dashboard postano
@@ -106,7 +114,7 @@ CSP = "; ".join(
         "default-src 'none'",
         "style-src 'self'",
         "script-src 'self'",
-        "img-src 'self'",
+        "img-src 'self' https://cdn.discordapp.com",
         "base-uri 'none'",
         "frame-ancestors 'none'",
         "form-action 'self' https://discord.com",
