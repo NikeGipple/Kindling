@@ -865,7 +865,8 @@ provarlo senza modificarlo.
 #### Due modi in cui `/etc/cron.d` sbaglia in silenzio
 
 Questo file, a differenza di un `crontab -e`, non protesta: se è malformato cron
-scarta la riga e non lo dice a nessuno. Due trappole, entrambe già viste:
+scarta la riga e non lo dice a nessuno. Due trappole, entrambe già viste, più una
+terza sull'orario (sotto, «Il fuso del cron è quello della droplet»):
 
 1. **Il campo utente è obbligatorio.** In `/etc/cron.d` le colonne sono **sei**:
    `m h dom mon dow utente comando`. Un file copiato da un crontab personale ha
@@ -889,6 +890,55 @@ l'ultima: dopo il comando c'è la pipe a `logger` — deve esistere:
 ```bash
 ls -l "$(awk '$1 !~ /^#/ && NF >= 7 {print $7}' /etc/cron.d/kindling)"
 ```
+
+#### Il fuso del cron è quello della droplet
+
+`15 4 * * 1` vuol dire lunedì alle 04:15 **nel fuso di sistema della droplet**,
+non in UTC per definizione. `ops/kindling.cron` dice «04:15 UTC», ed è vero solo
+finché la droplet è in UTC — cosa che nessun passo di questo runbook verificava.
+Se non lo fosse, il job girerebbe comunque ogni lunedì e scriverebbe lo stesso
+`as_of` (il lunedì 00:00 UTC lo calcola il job, non il cron): nessun errore e
+nessun dato diverso, solo un'ora diversa da quella dichiarata, e con l'ora legale
+di un fuso europeo un'ora che si sposta due volte l'anno. Il prossimo cambio è
+domenica 25/10/2026.
+
+**`CRON_TZ=UTC` nel file non è la soluzione**, e non c'è di proposito. Il cron
+di Ubuntu è il pacchetto `cron` (Vixie cron 3.0pl1 con le patch Debian: su noble
+`3.0pl1-184ubuntu2`), e il suo `crontab(5)` non documenta `CRON_TZ` — lo
+documenta `cronie`, un altro pacchetto (verificato il 27/09/2026 su
+manpages.debian.org e packages.ubuntu.com, non sulla droplet). In un cron che non
+la supporta, una riga `CRON_TZ=UTC` è una variabile d'ambiente come le altre:
+passa al comando e non sposta l'orario, senza nessun avviso. Sarebbe una
+dichiarazione che sembra fare qualcosa e non lo fa (CLAUDE.md §7).
+
+Il controllo, dopo ogni installazione del file e dopo ogni cambio di macchina:
+
+```bash
+timedatectl | grep -E 'Time zone|synchronized'
+```
+
+```bash
+dpkg -S "$(readlink -f /usr/sbin/cron)"; man 5 crontab | grep -c CRON_TZ
+```
+
+Atteso: `Time zone: Etc/UTC (UTC, +0000)` e `System clock synchronized: yes`; il
+pacchetto è `cron` e il conteggio di `CRON_TZ` è `0`, cioè la variabile non è
+supportata e il fuso di sistema è l'unico che conta. Se il conteggio non fosse
+`0` (la macchina usa `cronie`), `CRON_TZ=UTC` diventerebbe possibile — ma il
+controllo di `timedatectl` resterebbe comunque, perché è quello che dice cosa sta
+succedendo davvero.
+
+**Se la droplet non è in UTC:**
+
+```bash
+timedatectl set-timezone Etc/UTC && systemctl restart cron
+```
+
+Il riavvio serve perché cron legge il fuso all'avvio. Poi si ripete il
+`timedatectl`, e il lunedì successivo si guarda l'ora vera dell'esecuzione in
+`journalctl -t kindling-cron` (le righe del journal si leggono nel fuso della
+macchina: dopo il cambio, UTC). I container non cambiano: non montano il fuso
+dell'host, e il job non ne dipende.
 
 ### Verifica: eseguire a mano una volta, non aspettare lunedì
 

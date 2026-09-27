@@ -30,6 +30,14 @@ MAILTO=""
 
 # Lunedi' 04:15 UTC.
 #
+# UTC perche' la droplet e' in UTC, non per qualcosa scritto qui: i campi orari
+# di /etc/cron.d si leggono nel fuso di SISTEMA. Niente CRON_TZ=UTC, di
+# proposito: il cron di Ubuntu (pacchetto `cron`, Vixie 3.0pl1) non la
+# documenta — la supporta cronie — e dove non e' supportata diventa una
+# variabile d'ambiente come le altre, che non sposta l'orario e non lo dice. Il
+# controllo vero e' `timedatectl` (runbook-droplet.md, "Il fuso del cron e'
+# quello della droplet").
+#
 # L'allineamento delle finestre alle settimane ISO usate dalle coorti
 # (modello-metriche.md 5.1) NON lo fa questa riga: lo fa il job, che ancora
 # as_of al lunedi' 00:00 UTC (modello-grafo.md 5.1). Qui si decide solo QUANDO
