@@ -72,6 +72,7 @@ def dati_di_sessione(
     login_at: Optional[float] = None,
     checked_at: Optional[float] = None,
     nomi: Optional[Mapping[int, str]] = None,
+    icone: Optional[Mapping[int, str]] = None,
 ) -> dict:
     """Il contenuto di una sessione firmata.
 
@@ -90,6 +91,9 @@ def dati_di_sessione(
     if nomi is not None:
         # Le chiavi di un oggetto JSON sono stringhe, come le scrive auth.py.
         dati["nomi"] = {str(gid): nome for gid, nome in sorted(nomi.items())}
+    if icone is not None:
+        # Stessa regola per le icone: senza, la sessione ha la forma di prima.
+        dati["icone"] = {str(gid): icona for gid, icona in sorted(icone.items())}
     return dati
 
 

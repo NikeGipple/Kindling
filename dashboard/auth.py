@@ -18,8 +18,8 @@ ore, ``state`` monouso, token Discord scartato appena usato. Le due aggiunte di
   continuo — o il ricontrollo stesso, ogni 15 minuti — terrebbe vivo per sempre.
   Il signer resta come seconda difesa, non come la difesa.
 
-Nella sessione stanno le guild autorizzate, i loro nomi, ``checked_at`` e
-``login_at`` — piu' ``state`` e destinazione, solo fino al callback. Nessun token,
+Nella sessione stanno le guild autorizzate, i loro nomi e gli hash delle loro
+icone, ``checked_at`` e ``login_at`` — piu' ``state`` e destinazione, solo fino al callback. Nessun token,
 nessuno username, nessun id Discord di chi si collega (dashboard.md 3): il cookie
 e' firmato, non cifrato, e quello che ci finisce dentro e' leggibile da chi ce
 l'ha. Il nome di un server non e' un'identita' di chi si collega: e' il nome di
@@ -30,12 +30,18 @@ I nomi vengono da ``GET /users/@me/guilds``, non dal database
 lo manda gia' a ogni login e a ogni ricontrollo. **Il nome non decide mai niente**
 — l'autorizzazione si gioca sugli id, e se i nomi sparissero del tutto chi entra e
 chi no non cambierebbe di una riga.
+
+Le icone seguono la stessa strada e la stessa regola (dashboard.md 4, «L'elenco
+dei server»): arrivano nella stessa risposta, non votano, e in sessione va solo
+l'hash validato — mai un URL, che si compone in rendering da un intero e da un
+hash che ha gia' passato ``HASH_ICONA``.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 import secrets
 import time
 from dataclasses import dataclass
@@ -84,8 +90,20 @@ LUNGHEZZA_MASSIMA_NOME = 100
 # sbaglia dalla parte prudente.
 BUDGET_JSON_SESSIONE_BYTE = 2800
 
+# L'hash dell'icona di una guild: 32 cifre esadecimali minuscole, con ``a_``
+# davanti se l'icona e' animata. La documentazione di Discord (Image Formatting,
+# https://docs.discord.com/developers/reference, letta il 27/09/2026) documenta il
+# prefisso ``a_`` ma NON la forma del resto: questa espressione viene dai suoi
+# esempi (``8342729096ea3675442027381ff50dfe``, ``a_1269e74af4df7417b13759eae50c83dc``)
+# e da un hash vero letto lo stesso giorno. E' stretta di proposito: non e' una
+# previsione di cosa Discord mandera', e' l'insieme di stringhe che accettiamo di
+# mettere in un URL. Un hash che non ci sta non nega niente: la guild resta
+# senza icona e l'elenco mostra il monogramma.
+HASH_ICONA = re.compile(r"(a_)?[0-9a-f]{32}")
+
 _K_GUILDS = "guilds"
 _K_NOMI = "nomi"
+_K_ICONE = "icone"
 _K_CHECKED_AT = "checked_at"
 _K_LOGIN_AT = "login_at"
 _K_FLUSSO = "oauth_flusso"
@@ -149,14 +167,16 @@ def e_amministratore(guild: Mapping[str, Any]) -> bool:
 
 @dataclass(frozen=True)
 class Autorizzazione:
-    """Chi entra, e come si chiamano i server. Due campi, una sola decisione.
+    """Chi entra, come si chiamano i server e che icona hanno. Una sola decisione.
 
-    ``guilds`` e' l'autorizzazione. ``nomi`` la accompagna: contiene solo guild
-    che stanno gia' in ``guilds``, e solo quelle che un nome ce l'hanno.
+    ``guilds`` e' l'autorizzazione. ``nomi`` e ``icone`` la accompagnano:
+    contengono solo guild che stanno gia' in ``guilds``, e solo quelle che un
+    nome (un'icona valida) ce l'hanno.
     """
 
     guilds: frozenset[int]
     nomi: Mapping[int, str]
+    icone: Mapping[int, str]
 
     def __bool__(self) -> bool:
         # Prima di questo commit la funzione restituiva un insieme, e
@@ -188,6 +208,22 @@ def _nome_di_guild(guild: Mapping[str, Any]) -> Optional[str]:
     return nome or None
 
 
+def _icona_di_guild(guild: Mapping[str, Any]) -> Optional[str]:
+    """L'hash dell'icona, se c'e' ed e' nella forma di ``HASH_ICONA``. Mai un motivo per negare.
+
+    Le stesse regole di ``_nome_di_guild``. ``icon`` e' ``?string`` per Discord,
+    e ``null`` e' il server senza icona: assente, ``null``, non stringa o fuori
+    forma valgono tutti "nessuna icona", e la guild resta autorizzata.
+
+    Si valida in SCRITTURA: in sessione entra solo cio' che si puo' mettere in un
+    URL cosi' com'e'.
+    """
+    icona = guild.get("icon")
+    if not isinstance(icona, str) or not HASH_ICONA.fullmatch(icona):
+        return None
+    return icona
+
+
 def guild_autorizzate(risposta_discord: Any, osservate: Iterable[int]) -> Autorizzazione:
     """Le guild osservate da Kindling su cui l'utente e' amministratore, e i loro nomi.
 
@@ -195,9 +231,9 @@ def guild_autorizzate(risposta_discord: Any, osservate: Iterable[int]) -> Autori
     fidato: qualunque voce fuori forma fa alzare, e un'eccezione qui e' un
     accesso negato. Mai un "salto la voce strana e tengo le altre".
 
-    "Fuori forma" riguarda ``id`` e ``permissions``, non ``name``: vedi
-    ``_nome_di_guild``. I nomi si raccolgono per le guild gia' autorizzate, dopo
-    che la decisione e' presa.
+    "Fuori forma" riguarda ``id`` e ``permissions``, non ``name`` ne' ``icon``:
+    vedi ``_nome_di_guild`` e ``_icona_di_guild``. Nomi e icone si raccolgono per
+    le guild gia' autorizzate, dopo che la decisione e' presa.
 
     Discord restituisce al massimo 200 guild per pagina e qui se ne legge una:
     chi e' in piu' di 200 server puo' non vedere quelli oltre la prima pagina.
@@ -208,6 +244,7 @@ def guild_autorizzate(risposta_discord: Any, osservate: Iterable[int]) -> Autori
     osservate = frozenset(osservate)
     autorizzate = set()
     nomi: dict[int, str] = {}
+    icone: dict[int, str] = {}
     for guild in risposta_discord:
         if not isinstance(guild, dict):
             raise RispostaDiscordNonValida("una guild non e' un oggetto")
@@ -219,7 +256,10 @@ def guild_autorizzate(risposta_discord: Any, osservate: Iterable[int]) -> Autori
             nome = _nome_di_guild(guild)
             if nome is not None:
                 nomi[int(gid)] = nome
-    return Autorizzazione(guilds=frozenset(autorizzate), nomi=nomi)
+            icona = _icona_di_guild(guild)
+            if icona is not None:
+                icone[int(gid)] = icona
+    return Autorizzazione(guilds=frozenset(autorizzate), nomi=nomi, icone=icone)
 
 
 # --- sessione ----------------------------------------------------------------
@@ -233,6 +273,35 @@ class Sessione:
     # I nomi dei server autorizzati che ne hanno uno in sessione. Le chiavi
     # stanno sempre dentro ``guilds``: lo impone ``_nomi_di_sessione``.
     nomi: Mapping[int, str]
+    # Gli hash delle icone, con la stessa regola; ogni valore ha passato
+    # ``HASH_ICONA`` anche in lettura (``_icone_di_sessione``).
+    icone: Mapping[int, str]
+
+
+def _mappa_di_sessione(
+    dati: Mapping[str, Any],
+    chiave: str,
+    guilds: frozenset[int],
+    valido: Callable[[Any], bool],
+) -> Optional[dict[int, str]]:
+    """Una mappa guild -> stringa scritta in sessione, con i tre casi di ``_nomi_di_sessione``."""
+    if chiave not in dati:
+        return {}
+    grezzi = dati[chiave]
+    if not isinstance(grezzi, dict):
+        return None
+    mappa: dict[int, str] = {}
+    for k, valore in grezzi.items():
+        # Le chiavi di un oggetto JSON sono stringhe: l'id torna intero qui.
+        if not isinstance(k, str) or not (k.isascii() and k.isdigit()):
+            return None
+        if not valido(valore):
+            return None
+        gid = int(k)
+        if gid not in guilds:
+            return None
+        mappa[gid] = valore
+    return mappa
 
 
 def _nomi_di_sessione(dati: Mapping[str, Any], guilds: frozenset[int]) -> Optional[dict[int, str]]:
@@ -258,23 +327,22 @@ def _nomi_di_sessione(dati: Mapping[str, Any], guilds: frozenset[int]) -> Option
        sessioni gia' vive, che ricadono nel caso 1, e rende rumoroso un futuro
        scrittore che sbagli l'invariante invece di lasciarlo passare.
     """
-    if _K_NOMI not in dati:
-        return {}
-    grezzi = dati[_K_NOMI]
-    if not isinstance(grezzi, dict):
-        return None
-    nomi: dict[int, str] = {}
-    for chiave, valore in grezzi.items():
-        # Le chiavi di un oggetto JSON sono stringhe: l'id torna intero qui.
-        if not isinstance(chiave, str) or not (chiave.isascii() and chiave.isdigit()):
-            return None
-        if not isinstance(valore, str):
-            return None
-        gid = int(chiave)
-        if gid not in guilds:
-            return None
-        nomi[gid] = valore
-    return nomi
+    return _mappa_di_sessione(dati, _K_NOMI, guilds, lambda v: isinstance(v, str))
+
+
+def _icone_di_sessione(dati: Mapping[str, Any], guilds: frozenset[int]) -> Optional[dict[int, str]]:
+    """Gli hash delle icone scritti in sessione: gli stessi tre casi dei nomi.
+
+    Chiave assente = mappa vuota e sessione valida (il cookie firmato prima del
+    deploy delle icone: l'elenco mostra i monogrammi fino al ricontrollo). Chiave
+    fuori forma, o una guild fuori dall'insieme autorizzato = nessuna sessione.
+    "Fuori forma" comprende un valore che non passa ``HASH_ICONA``: il controllo
+    fatto in scrittura si ripete in lettura, perche' e' questo valore che finisce
+    in un URL, e un cookie non e' un posto da cui prendere un URL sulla parola.
+    """
+    return _mappa_di_sessione(
+        dati, _K_ICONE, guilds, lambda v: isinstance(v, str) and HASH_ICONA.fullmatch(v) is not None
+    )
 
 
 def leggi_sessione(dati: Mapping[str, Any]) -> Optional[Sessione]:
@@ -298,11 +366,15 @@ def leggi_sessione(dati: Mapping[str, Any]) -> Optional[Sessione]:
     nomi = _nomi_di_sessione(dati, frozenset(guilds))
     if nomi is None:
         return None
+    icone = _icone_di_sessione(dati, frozenset(guilds))
+    if icone is None:
+        return None
     return Sessione(
         guilds=frozenset(guilds),
         login_at=float(login_at),
         checked_at=float(checked_at),
         nomi=nomi,
+        icone=icone,
     )
 
 
@@ -514,33 +586,49 @@ async def completa_callback(
     dati[_K_GUILDS] = sorted(autorizzate.guilds)
     dati[_K_LOGIN_AT] = login_at
     dati[_K_CHECKED_AT] = adesso()
-    # I nomi passano di qui a ogni login E a ogni ricontrollo silenzioso, cioe'
-    # almeno ogni 15 minuti: un server rinominato prende il nome nuovo da solo,
-    # e l'invalidazione della cache che qualcuno cerchera' altrove e' questa riga.
-    _scrivi_nomi(dati, autorizzate.nomi)
+    # Nomi e icone passano di qui a ogni login E a ogni ricontrollo silenzioso,
+    # cioe' almeno ogni 15 minuti: un server rinominato (o con un'icona nuova) si
+    # aggiorna da solo, e l'invalidazione della cache che qualcuno cerchera'
+    # altrove e' questa riga.
+    _scrivi_nomi_e_icone(dati, autorizzate.nomi, autorizzate.icone)
     return destinazione_sicura(flusso.get("dopo"))
 
 
-def _scrivi_nomi(dati: MutableMapping[str, Any], nomi: Mapping[int, str]) -> None:
-    """Scrive in sessione tutti i nomi, o nessuno.
+def _scrivi_nomi_e_icone(
+    dati: MutableMapping[str, Any], nomi: Mapping[int, str], icone: Mapping[int, str]
+) -> None:
+    """Scrive in sessione tutti i nomi e tutte le icone, o meno — mai "qualcuno".
 
-    Mai qualcuno: un elenco in cui tre server hanno il nome e due il numero
-    sembra un difetto, mentre un ripiego totale sugli ID e' leggibile e si spiega
-    da se'. Con un server osservato non scattera' mai — esiste perche' il giorno
-    in cui scattera' nessuno stara' guardando.
+    Tre gradini, nell'ordine: nomi e icone; solo i nomi; niente. Si scrive il
+    primo che sta nel budget, e ogni gradino e' intero: un elenco in cui tre
+    server hanno il nome e due il numero sembra un difetto, mentre un ripiego
+    totale si spiega da se'. Le icone cadono per prime perche' valgono meno —
+    senza, resta il monogramma e il nome dice ancora quale server e' — e non
+    restano mai senza i nomi: un'icona accanto a un numero riconosce un server
+    che la riga non sa nominare. Con un server osservato non scattera' mai —
+    esiste perche' il giorno in cui scattera' nessuno stara' guardando.
     """
-    if not nomi:
-        return
-    candidata = dict(dati)
     # Le chiavi di un oggetto JSON sono stringhe: gli id ci vanno come tali.
-    candidata[_K_NOMI] = {str(gid): nome for gid, nome in sorted(nomi.items())}
-    if len(json.dumps(candidata).encode("utf-8")) <= BUDGET_JSON_SESSIONE_BYTE:
-        dati[_K_NOMI] = candidata[_K_NOMI]
-    else:
-        logger.info(
-            "Sessione oltre il budget del cookie (%d guild): nessun nome in sessione",
-            len(nomi),
-        )
+    mappa_nomi = {str(gid): nome for gid, nome in sorted(nomi.items())}
+    mappa_icone = {str(gid): icona for gid, icona in sorted(icone.items())}
+    if not mappa_nomi:
+        return
+    gradini = [{_K_NOMI: mappa_nomi}]
+    if mappa_icone:
+        gradini.insert(0, {_K_NOMI: mappa_nomi, _K_ICONE: mappa_icone})
+    for gradino in gradini:
+        if len(json.dumps({**dati, **gradino}).encode("utf-8")) <= BUDGET_JSON_SESSIONE_BYTE:
+            dati.update(gradino)
+            if mappa_icone and _K_ICONE not in gradino:
+                logger.info(
+                    "Sessione oltre il budget del cookie (%d guild): nomi senza icone",
+                    len(nomi),
+                )
+            return
+    logger.info(
+        "Sessione oltre il budget del cookie (%d guild): nessun nome in sessione",
+        len(nomi),
+    )
 
 
 def crea_discord_http(*, transport: Optional[httpx.AsyncBaseTransport] = None) -> httpx.AsyncClient:
