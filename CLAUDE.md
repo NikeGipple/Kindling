@@ -385,6 +385,22 @@ Non usare mai "guild" da solo per riferirsi alla gilda GW2 nel codice o nello
 schema: nel contesto Discord/discord.py "guild" è già un termine riservato
 con un significato preciso (= server).
 
+## Date e fusi
+
+**Nessun datetime naive oltre il confine del DB; i fusi a video sono tre, e sono
+elencati in `docs/architettura/dashboard.md` §4, «Quale fuso per cosa».**
+
+- Lo schema è tutto `TIMESTAMPTZ` (istanti) e `DATE` (giorni di calendario). Nel
+  codice, `datetime.now(timezone.utc)`, mai `utcnow()` o `now()` senza fuso.
+- L'API espone gli istanti come `api.models.Istante` (ISO 8601 UTC con `Z`),
+  mai come `datetime` semplice (`api.md` §2, «Date e istanti»).
+- Nella dashboard un datetime senza fuso è un errore, non un UTC presunto, e il
+  fuso di una data mostrata lo sceglie chi chiama (`stato.giorno` per Roma,
+  `stato.settimana` per `as_of`). Niente `strftime` nei template.
+- `tests/test_orari.py` fallisce sulle ultime due (API e dashboard); la prima
+  oggi è vera per censimento (27/09/2026), non per un test. Se un test lì dentro
+  diventa scomodo, è la regola da discutere, non il test da allentare.
+
 ## Migrazioni: `schema_migrations` e autoregistrazione
 
 `schema_migrations (filename, applied_at)` (migration `0012`) è il ledger di

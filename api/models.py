@@ -30,16 +30,37 @@ Cio' che rende difficile perdere i flag:
 
 from __future__ import annotations
 
-from datetime import date, datetime
-from typing import Any, Optional
+from datetime import date, datetime, timezone
+from typing import Annotated, Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, AwareDatetime, BaseModel, Field
 
-# Nessuna forward reference e nessuna API specifica di pydantic v2: i modelli
-# sono definiti in ordine di dipendenza, cosi' non serve model_rebuild() (v2) ne'
-# update_forward_refs() (v1). requirements.txt pinna la v2, ma un modello che
-# gira su entrambe evita che una differenza di versione tra ambiente di sviluppo
-# e droplet si manifesti come una risposta di forma diversa.
+# Nessuna forward reference: i modelli sono definiti in ordine di dipendenza,
+# cosi' non serve model_rebuild(). Fino al 27/09/2026 qui si evitava ogni API
+# specifica di pydantic v2, per girare anche sulla v1; ``Istante`` qui sotto ne
+# usa due (AwareDatetime, AfterValidator), e il vincolo che protegge vale piu'
+# della compatibilita' con una versione che requirements.txt esclude gia'
+# (``pydantic>=2.7,<3``).
+
+
+def _in_utc(valore: datetime) -> datetime:
+    return valore.astimezone(timezone.utc)
+
+
+# Ogni istante del contratto (api.md, "Date e istanti"). Due vincoli, e servono
+# tutti e due:
+#
+# - AwareDatetime: un datetime SENZA fuso e' un errore di validazione, in
+#   costruzione come nel parsing. Con ``datetime`` semplice passava, e usciva
+#   serializzato senza offset ("2026-09-07T00:00:00"), che chi legge non sa se
+#   e' UTC o ora locale — nessun errore, una risposta di forma diversa;
+# - la conversione in UTC: AwareDatetime da solo accetta "+02:00" e lo
+#   serializza cosi' com'e'. In UTC pydantic scrive "Z", che e' la forma
+#   promessa da api.md.
+#
+# asyncpg restituisce gia' i TIMESTAMPTZ in UTC e con il fuso: in produzione
+# il vincolo non cambia niente, e deve fallire il giorno in cui qualcosa cambia.
+Istante = Annotated[AwareDatetime, AfterValidator(_in_utc)]
 
 
 class Quality(BaseModel):
@@ -104,7 +125,7 @@ class RobustnessValues(BaseModel):
 
 class RobustnessRow(MetricRow):
     snapshot_id: int
-    as_of: datetime
+    as_of: Istante
     layer: str
     removal_fraction: float
     values: RobustnessValues
@@ -164,7 +185,7 @@ class CommunityValues(BaseModel):
 
 class CommunityRow(MetricRow):
     snapshot_id: int
-    as_of: datetime
+    as_of: Istante
     layer: str
     previous_snapshot_id: Optional[int] = Field(
         default=None,
@@ -256,7 +277,7 @@ class CohortGroup(BaseModel):
     """
 
     snapshot_id: int
-    as_of: datetime
+    as_of: Istante
     cohort_start: date
     onboarding: list[OnboardingRow] = Field(default_factory=list)
     retention: list[RetentionRow] = Field(default_factory=list)
@@ -301,7 +322,7 @@ class RunRow(BaseModel):
     """Un'esecuzione del layer metriche. Diagnostica, non una metrica."""
 
     snapshot_id: int
-    as_of: datetime
+    as_of: Istante
     params: dict[str, Any] = Field(
         default_factory=dict,
         description="Parametri usati. Due run con parametri diversi non sono confrontabili.",
@@ -323,7 +344,7 @@ class RunRow(BaseModel):
         ),
     )
     code_version: Optional[str] = None
-    created_at: Optional[datetime] = None
+    created_at: Optional[Istante] = None
 
 
 class GuildRow(BaseModel):
@@ -341,11 +362,11 @@ class GuildRow(BaseModel):
     """
 
     guild_id: int
-    first_seen_at: datetime
-    backfilled_at: Optional[datetime] = None
-    left_at: Optional[datetime] = None
-    rejoined_at: Optional[datetime] = None
-    latest_metrics_as_of: Optional[datetime] = Field(
+    first_seen_at: Istante
+    backfilled_at: Optional[Istante] = None
+    left_at: Optional[Istante] = None
+    rejoined_at: Optional[Istante] = None
+    latest_metrics_as_of: Optional[Istante] = Field(
         default=None,
         description="as_of dell'ultima run di metriche. None se non ne esistono ancora.",
     )

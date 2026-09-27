@@ -6,12 +6,13 @@ vista Stato, in dettaglio".
 
 Tre cose che questo modulo fa e nessun altro modulo di vista fa:
 
-- **Le date sono in Europe/Rome e in forma breve.** E' l'unica pagina in cui il
-  lettore e' una persona che vive in un fuso, non qualcuno che confronta una
-  riga con un log. ``main.data_ora`` resta al suo posto per tutte le altre
-  viste, e per i Dettagli tecnici: le due forme rispondono a due domande
-  diverse. Il fuso e' FISSO e non quello del browser — la dashboard si rende sul
-  server e dal client non riceve niente (dashboard.md §1).
+- **Le date sono giorni, in forma breve**: sul calendario di Roma per l'arrivo
+  e l'uscita del bot, sulla settimana ISO in UTC per ``as_of`` (``giorno`` e
+  ``settimana``, qui sotto; le usano anche Elenco, Coorti, Robustezza e
+  Community). ``main.data_ora``, completa e in UTC, resta ai soli Dettagli
+  tecnici. I fusi sono FISSI e non quello del browser — la dashboard si rende sul
+  server e dal client non riceve niente (dashboard.md §1 e §4, "Quale fuso per
+  cosa").
 - **L'orologio passa da ``adesso()``**, una funzione sola. Tre dei quattro
   numeri di questa pagina ("in osservazione da N giorni", "aggiornati a",
   "prossimo aggiornamento") dipendono da che giorno e' oggi: senza un punto solo
@@ -72,38 +73,84 @@ def adesso() -> datetime:
 # --- date ---------------------------------------------------------------------
 
 
-def giorno(valore: datetime) -> date:
-    """Il giorno di calendario a Roma.
+#
+# I fusi a video sono tre, e dashboard.md 4 ("Quale fuso per cosa") dice quali e
+# perche'. Qui ne vivono due, ciascuno in UNA funzione:
+#
+# - ``giorno``: il giorno di Roma, per gli istanti della community mostrati come
+#   giorni (arrivo e uscita del bot) e per "oggi";
+# - ``settimana``: il giorno UTC, per ``as_of`` e per cio' che se ne ricava. Il
+#   job ancora ``as_of`` al lunedi' 00:00 UTC (modello-grafo.md 5.1): e'
+#   l'etichetta di una settimana ISO in UTC, non un istante da convertire.
+#
+# Il terzo, UTC completo con l'orario, e' ``main.data_ora``, solo nei Dettagli
+# tecnici.
+#
+# ``data_breve`` e ``data_estesa`` accettano solo un ``date``, non un
+# ``datetime``: la scelta del fuso la fa chi chiama, passando per una delle due
+# funzioni. Fino al 27/09/2026 convertivano da se' in Roma qualunque datetime, e
+# un ``as_of`` passato cosi' finiva sul calendario sbagliato senza nessun errore.
 
-    Un ``datetime`` senza fuso si tratta come UTC, come fa ``main.data_ora``:
-    tutto lo schema e' TIMESTAMPTZ e l'API serializza con il fuso, ma un modello
-    costruito a mano in un test puo' arrivare nudo.
+
+def con_fuso(valore: datetime) -> datetime:
+    """Il datetime com'e', se porta il fuso; altrimenti un errore.
+
+    Fino al 27/09/2026 un datetime nudo si trattava come UTC, "per i modelli
+    costruiti a mano nei test". Era una tolleranza che non diceva niente: lo
+    schema e' tutto TIMESTAMPTZ e l'API rifiuta gli istanti senza fuso
+    (``api.models.Istante``), quindi un datetime nudo qui e' un difetto a monte,
+    e indovinarne il fuso lo nasconde.
     """
-    if valore.tzinfo is None:
-        valore = valore.replace(tzinfo=timezone.utc)
-    return valore.astimezone(ROMA).date()
+    if valore.tzinfo is None or valore.utcoffset() is None:
+        raise ValueError(f"datetime senza fuso: {valore!r}")
+    return valore
 
 
-def data_breve(valore: Any) -> str:
+def giorno(valore: datetime) -> date:
+    """Il giorno di calendario a Roma di un istante."""
+    return con_fuso(valore).astimezone(ROMA).date()
+
+
+def settimana(as_of: datetime) -> date:
+    """Il giorno UTC di ``as_of``: il lunedi' della settimana ISO che etichetta.
+
+    Anche per le date che si ricavano da ``as_of`` (il prossimo calcolo, il
+    calcolo che rende leggibile una coorte). Oggi il lunedi' 00:00 UTC cade di
+    lunedi' anche a Roma, e ``giorno`` darebbe lo stesso risultato: e' proprio
+    per questo che la differenza non si vedrebbe il giorno in cui smettesse di
+    essere vera.
+    """
+    return con_fuso(as_of).astimezone(timezone.utc).date()
+
+
+def _solo_giorno(valore: Any) -> date:
+    if isinstance(valore, datetime) or not isinstance(valore, date):
+        raise TypeError(
+            f"serve un date, non {type(valore).__name__}: il fuso lo sceglie chi "
+            "chiama, con giorno() o settimana()"
+        )
+    return valore
+
+
+def data_breve(valore: Optional[date]) -> str:
     """``21 set``. Nomi dei mesi scritti qui e non presi dal locale: il container
     gira con il locale C, e un rendering che cambia con la macchina e' una
     differenza fra sviluppo e produzione che nessuno cerca (come ``data_ora``)."""
     if valore is None:
         return "—"
-    g = valore if isinstance(valore, date) and not isinstance(valore, datetime) else giorno(valore)
+    g = _solo_giorno(valore)
     return f"{g.day} {_MESI_BREVI[g.month - 1]}"
 
 
-def data_estesa(valore: Any, *, con_giorno: bool = False) -> str:
+def data_estesa(valore: Optional[date], *, con_giorno: bool = False) -> str:
     """``21 settembre``, o ``lunedì 21 settembre`` con ``con_giorno``.
 
-    Stesso fuso di ``data_breve`` (Roma, per un ``datetime``; un ``date`` e' gia'
-    un giorno di calendario e non si converte). Senza anno, come la forma breve:
-    la vista che la usa mostra al massimo dodici settimane.
+    Senza anno, come la forma breve: le viste che la usano mostrano al massimo
+    dodici settimane.
     """
     if valore is None:
         return "—"
-    g = valore if isinstance(valore, date) and not isinstance(valore, datetime) else giorno(valore)
+    g = _solo_giorno(valore)
     testo = f"{g.day} {MESI[g.month - 1]}"
     return f"{GIORNI[g.weekday()]} {testo}" if con_giorno else testo
 
@@ -541,7 +588,7 @@ def _avvisi(guild: GuildRow, runs: Sequence[RunRow]) -> tuple[Avviso, ...]:
         avvisi.append(
             Avviso(
                 "buco",
-                f"Dal {data_breve(guild.left_at)} al {data_breve(guild.rejoined_at)} il bot "
+                f"Dal {data_breve(giorno(guild.left_at))} al {data_breve(giorno(guild.rejoined_at))} il bot "
                 "non era sul server: chi se n'è andato in quei giorni non ha lasciato traccia.",
             )
         )
@@ -549,7 +596,7 @@ def _avvisi(guild: GuildRow, runs: Sequence[RunRow]) -> tuple[Avviso, ...]:
         avvisi.append(
             Avviso(
                 "uscito",
-                f"Il bot ha lasciato il server il {data_breve(guild.left_at)} e non è "
+                f"Il bot ha lasciato il server il {data_breve(giorno(guild.left_at))} e non è "
                 "rientrato: da quella data non c'è osservazione.",
             )
         )
@@ -557,7 +604,7 @@ def _avvisi(guild: GuildRow, runs: Sequence[RunRow]) -> tuple[Avviso, ...]:
         avvisi.append(
             Avviso(
                 "rientro",
-                f"Risulta un rientro del bot il {data_breve(guild.rejoined_at)} senza una data "
+                f"Risulta un rientro del bot il {data_breve(giorno(guild.rejoined_at))} senza una data "
                 "di uscita: non si sa per quanto tempo il bot sia stato assente.",
             )
         )
@@ -566,7 +613,7 @@ def _avvisi(guild: GuildRow, runs: Sequence[RunRow]) -> tuple[Avviso, ...]:
         avvisi.append(
             Avviso(
                 "parametri",
-                f"Metodo di calcolo aggiornato il {data_breve(cambio)}: confronta i numeri "
+                f"Metodo di calcolo aggiornato il {data_breve(settimana(cambio))}: confronta i numeri "
                 "solo da quella data.",
             )
         )
@@ -614,7 +661,7 @@ def costruisci(
     cadenza = cadenza_osservata(runs)
     prossimo: Optional[date] = None
     if ultima is not None:
-        calcolo = giorno(ultima.as_of)
+        calcolo = settimana(ultima.as_of)
         fatti.append(
             Fatto("Dati aggiornati a", relativo(calcolo, oggi), data_breve(calcolo))
         )
@@ -627,7 +674,7 @@ def costruisci(
     # sommare giorni interi a quelli porterebbe la previsione a cadere sul giorno
     # sbagliato per quattro ore di scarto.
     if ultima is not None and cadenza is not None:
-        prossimo = giorno(ultima.as_of + cadenza)
+        prossimo = settimana(ultima.as_of + cadenza)
         # "in ritardo" e non "ieri": sotto l'etichetta "Prossimo aggiornamento"
         # una forma relativa al passato si legge come un errore di rendering,
         # mentre il fatto da riferire e' che il calcolo atteso non e' arrivato.
@@ -645,7 +692,7 @@ def costruisci(
         fatti=tuple(fatti),
         senza_run=ultima is None,
         calendario=_calendario(
-            inizio, [giorno(r.as_of) for r in runs], oggi, prossimo
+            inizio, [settimana(r.as_of) for r in runs], oggi, prossimo
         ),
         letture=_letture(guild.guild_id, guild.first_seen_at, robustness, communities, cohorts),
         regole=_regole.costruisci(

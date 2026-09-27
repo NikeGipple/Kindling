@@ -23,7 +23,7 @@ import contextlib
 import hashlib
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -216,19 +216,50 @@ def cornice(**contesto) -> dict:
     return contesto
 
 
+# --- le date: tre filtri, e nessuna formattazione nei template -----------------
+#
+# Quale fuso per cosa sta in dashboard.md 4; qui ogni forma ha un filtro solo, e
+# tests/test_orari.py fallisce se un template formatta una data da se'
+# (``strftime``) o se "UTC" compare fuori dai Dettagli tecnici.
+
+
 def data_ora(valore: Optional[datetime]) -> str:
-    """Data leggibile, sempre in UTC e sempre dichiarata tale.
+    """Data e ora complete, sempre in UTC e sempre dichiarata tale. Solo per i
+    Dettagli tecnici, dove si confrontano con i log.
 
     Nomi di giorni e mesi scritti qui e non presi dal locale del sistema: il
     container gira con il locale C, e un rendering che cambia con la macchina e'
     una differenza tra sviluppo e produzione che nessuno cerca.
+
+    Un datetime senza fuso e' un errore (``stato.con_fuso``), non un UTC
+    presunto.
     """
     if valore is None:
         return "—"
-    if valore.tzinfo is None:
-        valore = valore.replace(tzinfo=timezone.utc)
-    v = valore.astimezone(timezone.utc)
+    v = stato.con_fuso(valore).astimezone(timezone.utc)
     return f"{_GIORNI[v.weekday()]} {v.day} {_MESI[v.month - 1]} {v.year}, {v:%H:%M} UTC"
+
+
+def settimana(as_of: Optional[datetime]) -> str:
+    """``as_of`` come etichetta di settimana: ``lunedì 21 settembre``.
+
+    Senza orario e senza fuso dichiarato, perche' non e' un istante da leggere
+    ma il lunedi' della settimana ISO in UTC che il calcolo copre. La stessa
+    forma di Stato e Coorti, dalle stesse funzioni.
+    """
+    if as_of is None:
+        return "—"
+    return stato.data_estesa(stato.settimana(as_of), con_giorno=True)
+
+
+def data_numerica(valore: Optional[date]) -> str:
+    """``07/09/2026``: un giorno di calendario in cifre, per le tabelle dei
+    Dettagli tecnici. Solo ``date``: un istante passerebbe dal fuso di qualcuno."""
+    if valore is None:
+        return "—"
+    if isinstance(valore, datetime) or not isinstance(valore, date):
+        raise TypeError(f"serve un date, non {type(valore).__name__}")
+    return f"{valore.day:02d}/{valore.month:02d}/{valore.year}"
 
 
 def crea_templates() -> Environment:
@@ -242,6 +273,8 @@ def crea_templates() -> Environment:
         undefined=StrictUndefined,
     )
     env.filters["data_ora"] = data_ora
+    env.filters["settimana"] = settimana
+    env.filters["data_numerica"] = data_numerica
     # Globali della cornice, non variabili di contesto: le vogliono tutte e nove
     # le pagine e nessuna rotta ha un'opinione diversa. Con StrictUndefined, una
     # cornice passata dalla rotta sarebbe una riga da ricordarsi in ogni rotta

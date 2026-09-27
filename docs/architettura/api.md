@@ -159,6 +159,38 @@ community, e tenerla nascosta lascerebbe il consumatore con dei numeri il cui
 limite non è deducibile da nessuna parte. Su una guild senza interruzioni sono
 entrambi `null`, che è il caso normale e non chiede niente a chi legge.
 
+### Date e istanti
+
+Due forme, e nessuna terza:
+
+- **ogni istante** (`as_of`, `created_at`, `first_seen_at`, `backfilled_at`,
+  `left_at`, `rejoined_at`, `latest_metrics_as_of`) esce in **ISO 8601, in UTC,
+  con `Z`**: `"2026-09-21T00:00:00Z"`, e con i microsecondi quando ci sono
+  (`"2026-09-07T04:15:06.013734Z"`);
+- **ogni data di calendario** (`cohort_start`) esce come **`YYYY-MM-DD`**:
+  `"2026-09-07"`.
+
+Mai un orario senza offset. Nei modelli (`api/models.py`) ogni istante è di tipo
+`Istante` — `AwareDatetime` di pydantic più una conversione in UTC — e non
+`datetime`: un datetime **senza fuso** è un errore di validazione, sia quando
+l'API costruisce la risposta sia quando la dashboard la rilegge; uno con un altro
+offset (`+02:00`) esce convertito, con `Z`. Fino al 27/09/2026 i campi erano
+`datetime` semplice, e un valore nudo sarebbe uscito `"2026-09-21T00:00:00"`
+senza nessun errore. In produzione non succedeva — asyncpg restituisce i
+`TIMESTAMPTZ` già in UTC e con il fuso — e il vincolo esiste per il giorno in cui
+qualcosa cambia a monte. `tests/test_orari.py` trova i campi temporali di tutti i
+modelli da sé, e fallisce se uno nuovo nasce `datetime`.
+
+`as_of` è un istante nel contratto, ma il suo significato è **il confine di una
+settimana**: il lunedì 00:00 UTC della settimana ISO (`modello-grafo.md` §5.1).
+Un consumatore che lo mostra come giorno lo prende in UTC, non nel proprio fuso
+(la dashboard fa così: `dashboard.md` §4, «Quale fuso per cosa»).
+
+**Fuori dal contratto:** `quality.details`, `params` e `stats` (§3). Il job li
+scrive con `json.dumps(..., default=str)`, quindi un datetime lì dentro avrebbe la
+forma di `str(datetime)` (`"2026-09-07 00:00:00+00:00"`); come il resto del loro
+contenuto, non è una forma su cui contare.
+
 ## 3. Come i flag sopravvivono alla serializzazione
 
 **Ogni riga è `{chiave…, quality: {...}, values: {...}}`.** I valori stanno in un

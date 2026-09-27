@@ -66,7 +66,7 @@
   <tbody>
   {% for g in vista.gruppi %}
     <tr class="riga-coorte" data-coorte="{{ g.cohort_start }}">
-      <td class="colonna-coorte">{{ g.cohort_start.strftime("%d/%m/%Y") }}</td>
+      <td class="colonna-coorte">{{ g.cohort_start | data_numerica }}</td>
     {% if g.soppressa %}
       {#- Soppressione: terminale per tutto il gruppo, e non solo per i valori.
           n, maturità, copertura e "solo sopravvissuti" non sono nascosti dietro

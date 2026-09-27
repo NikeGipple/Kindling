@@ -28,9 +28,9 @@ o si sono ricomposti? Le risposte possono divergere, e nessuna delle due riassum
 ancora nessuno snapshot delle metriche.</p>
 {% else %}
 {% set ultimo = vista.snapshot[-1] %}
-<p>Tabelle: snapshot del <strong>{{ ultimo.as_of | data_ora }}</strong>.
+<p>Tabelle: snapshot del <strong>{{ ultimo.as_of | settimana }}</strong>.
 {% if vista.snapshot | length > 1 %}Serie: {{ vista.snapshot | length }} snapshot, dal
-{{ vista.snapshot[0].as_of | data_ora }}.{% endif %}</p>
+{{ vista.snapshot[0].as_of | settimana }}.{% endif %}</p>
 
 {% macro frase_senza_confronto(colspan) -%}
 <td colspan="{{ colspan }}" class="senza-confronto inizio-stabilita" data-campi-confronto="previous_gap_days node_overlap stability_jaccard">Nessuno snapshot precedente confrontabile: gap, sovrapposizione e stabilità non si misurano su questa riga.</td>
@@ -201,17 +201,17 @@ ancora nessuno snapshot delle metriche.</p>
     {% for snap, r in s.tabella %}
       {% if r is none %}
       <tr>
-        <td>{{ snap.as_of | data_ora }}</td>
+        <td>{{ snap.as_of | settimana }}</td>
         <td colspan="{{ colonne + 1 }}" class="frase-assente">Nessuna interazione di questo tipo in quella settimana.</td>
       </tr>
       {% elif r.quality.suppressed %}
       <tr class="riga-serie" data-snapshot="{{ r.snapshot_id }}" data-layer="{{ r.layer }}">
-        <td>{{ snap.as_of | data_ora }}</td>
+        <td>{{ snap.as_of | settimana }}</td>
         <td colspan="{{ colonne + 1 }}">{{ mostra(cella(r, "modularity_z")) }}</td>
       </tr>
       {% else %}
       <tr class="riga-serie" data-snapshot="{{ r.snapshot_id }}" data-layer="{{ r.layer }}">
-        <td>{{ snap.as_of | data_ora }}</td>
+        <td>{{ snap.as_of | settimana }}</td>
       {% if s.campo == "modularity_z" %}
         <td><span class="cella cella--valore{% if r.quality.significant is false %} cella--dequalificata{% endif %}"><span class="cella__testo">{{ r.quality.n_effective }}</span></span></td>
         <td>{{ mostra(cella(r, "modularity_z", s.decimali["modularity_z"])) }}</td>

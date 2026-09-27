@@ -112,16 +112,18 @@ def ordina(guilds: Sequence[GuildRow], nomi: Mapping[int, str]) -> list[GuildRow
 # --- le date -------------------------------------------------------------------
 
 
-def data(valore: datetime, oggi: date) -> str:
-    """``30 ago``, a Roma; ``3 mar 2025`` se l'anno non e' quello di ``oggi``."""
-    giorno = stato.giorno(valore)
+def data(giorno: date, oggi: date) -> str:
+    """``30 ago``; ``3 mar 2025`` se l'anno non e' quello di ``oggi``.
+
+    Riceve un giorno e non un istante: il fuso lo sceglie chi chiama, con
+    ``stato.giorno`` (Roma) o ``stato.settimana`` (``as_of``, UTC).
+    """
     testo = stato.data_breve(giorno)
     return testo if giorno.year == oggi.year else f"{testo} {giorno.year}"
 
 
-def data_estesa(valore: datetime, oggi: date) -> str:
-    """``12 settembre``, a Roma, con l'anno alle stesse condizioni di ``data``."""
-    giorno = stato.giorno(valore)
+def data_estesa(giorno: date, oggi: date) -> str:
+    """``12 settembre``, con l'anno alle stesse condizioni di ``data``."""
     testo = stato.data_estesa(giorno)
     return testo if giorno.year == oggi.year else f"{testo} {giorno.year}"
 
@@ -198,15 +200,15 @@ def riga(guild: GuildRow, nome: Optional[str], hash_icona: Optional[str], oggi: 
     fuori = uscito(guild)
 
     osserva = Fatto(
-        data(guild.first_seen_at, oggi),
+        data(stato.giorno(guild.first_seen_at), oggi),
         # "fino al 12 set", e "fino all'8 set".
-        "fino " + _con_preposizione("al", data(guild.left_at, oggi)) if fuori
+        "fino " + _con_preposizione("al", data(stato.giorno(guild.left_at), oggi)) if fuori
         else durata(stato.giorno(guild.first_seen_at), oggi),
     )
 
     if guild.latest_metrics_as_of is not None:
-        giorno_calcolo = stato.giorno(guild.latest_metrics_as_of)
-        calcolo = Fatto(data(guild.latest_metrics_as_of, oggi), stato.GIORNI[giorno_calcolo.weekday()])
+        giorno_calcolo = stato.settimana(guild.latest_metrics_as_of)
+        calcolo = Fatto(data(giorno_calcolo, oggi), stato.GIORNI[giorno_calcolo.weekday()])
     elif fuori:
         # "arriva con il primo calcolo" potrebbe essere falso: dopo l'uscita
         # arriva al piu' un calcolo, il lunedi' seguente, poi niente. "nessuno"
@@ -220,7 +222,7 @@ def riga(guild: GuildRow, nome: Optional[str], hash_icona: Optional[str], oggi: 
     nota = None
     if fuori:
         nota = (
-            f"Il bot non è più nel server {_con_preposizione('dal', data_estesa(guild.left_at, oggi))}: "
+            f"Il bot non è più nel server {_con_preposizione('dal', data_estesa(stato.giorno(guild.left_at), oggi))}: "
             "i dati si fermano a quel giorno."
         )
 

@@ -156,11 +156,19 @@ def test_la_durata(dal, atteso):
 
 
 def test_la_data_breve_a_roma_con_l_anno_solo_se_diverso():
-    assert elenco.data(datetime(2026, 8, 30, 10, tzinfo=U), OGGI) == "30 ago"
-    assert elenco.data(datetime(2025, 3, 3, 10, tzinfo=U), OGGI) == "3 mar 2025"
+    assert elenco.data(date(2026, 8, 30), OGGI) == "30 ago"
+    assert elenco.data(date(2025, 3, 3), OGGI) == "3 mar 2025"
     # 23:30 UTC del 31 dicembre e' gia' l'1 gennaio a Roma: il giorno e l'anno
-    # sono quelli di Roma.
-    assert elenco.data(datetime(2025, 12, 31, 23, 30, tzinfo=U), date(2026, 1, 5)) == "1 gen"
+    # sono quelli che sceglie il chiamante, qui Roma.
+    assert elenco.data(stato.giorno(datetime(2025, 12, 31, 23, 30, tzinfo=U)), date(2026, 1, 5)) == "1 gen"
+
+
+def test_la_data_non_sceglie_il_fuso_da_se():
+    """Un istante passato dritto e' un errore: il fuso lo sceglie chi chiama,
+    con ``stato.giorno`` o ``stato.settimana`` (dashboard.md 4, "Quale fuso per
+    cosa")."""
+    with pytest.raises(TypeError):
+        elenco.data(datetime(2026, 8, 30, 10, tzinfo=U), OGGI)
 
 
 # --- 3. i due stati per riga -------------------------------------------------------

@@ -49,7 +49,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from typing import Any, Mapping, Optional, Sequence
 
 from api.models import (
@@ -530,15 +530,6 @@ def _intero(params: Mapping[str, Any], chiave: str) -> Optional[int]:
     return valore
 
 
-def _giorno_utc(istante: datetime) -> date:
-    """La data dell'ancora come la vede il job: ``observability_anchor.date()``
-    su un TIMESTAMPTZ letto in UTC. Non il giorno di Roma — il confronto deve
-    essere quello di ``job.cohorts.is_survivors_only``, al giorno."""
-    if istante.tzinfo is None:
-        istante = istante.replace(tzinfo=timezone.utc)
-    return istante.astimezone(timezone.utc).date()
-
-
 def anteriore_all_ancora(gruppo: Gruppo, ancora: datetime) -> bool:
     """La coorte precede l'arrivo del bot?
 
@@ -549,7 +540,10 @@ def anteriore_all_ancora(gruppo: Gruppo, ancora: datetime) -> bool:
     """
     if not gruppo.soppressa:
         return gruppo.guida.quality.is_survivors_only is True
-    return gruppo.cohort_start < _giorno_utc(ancora)
+    # Il giorno UTC dell'ancora, non quello di Roma: e' la data che vede il job
+    # (``observability_anchor.date()`` su un TIMESTAMPTZ letto in UTC), e il
+    # confronto deve essere il suo, al giorno.
+    return gruppo.cohort_start < _stato.settimana(ancora)
 
 
 def posteriori(vista: Vista, ancora: datetime) -> list[Gruppo]:
@@ -653,7 +647,7 @@ def _cella_presenti(
             if osservati is not None
             else None
         )
-        testo = f"dal {_stato.data_estesa(_stato.giorno(quando))}" if quando else "non ancora"
+        testo = f"dal {_stato.data_estesa(_stato.settimana(quando))}" if quando else "non ancora"
         return CellaVista("presenti", etichetta, testo=testo)
     # Un altro motivo su una coorte posteriore all'ancora non esiste (dashboard.md
     # 4): lo si dice, invece di inventare una barra.
@@ -717,7 +711,7 @@ def _riga(
         quando = None
         if giorni_maturita is not None and q.observation_days is not None:
             istante = calcolo_che_vede(as_of, giorni_maturita - q.observation_days, cadenza)
-            quando = _stato.giorno(istante) if istante else None
+            quando = _stato.settimana(istante) if istante else None
         frase = (
             "in osservazione · leggibile dal calcolo di "
             f"{_stato.data_estesa(quando, con_giorno=True)}"
@@ -803,11 +797,11 @@ def pagina(
     ]
     return Pagina(
         vuota=False,
-        arrivo=_stato.data_estesa(guild.first_seen_at),
+        arrivo=_stato.data_estesa(_stato.giorno(guild.first_seen_at)),
         k=_k(dopo),
         giorni_maturita=giorni_maturita,
         frase_osservazione=_frase_osservazione(giorni_maturita),
-        aggiornati_a=_stato.data_estesa(as_of, con_giorno=True),
+        aggiornati_a=_stato.data_estesa(_stato.settimana(as_of), con_giorno=True),
         orizzonti_presenti=orizzonti_presenti,
         orizzonti_integra=orizzonti_integra,
         ambiti=ambiti,

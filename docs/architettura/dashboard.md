@@ -229,6 +229,53 @@ e soglie di attenzione non hanno tabella, quindi non hanno endpoint: arriveranno
 col job, non con l'API. La dashboard non le mostra e non accenna al fatto che
 esisteranno.
 
+### Quale fuso per cosa
+
+La dashboard mostra **giorni**, quasi mai orari, e i fusi a video sono **tre**,
+tutti fissi: nessuno è quello del browser, perché la dashboard si rende sul
+server e dal client non riceve niente (§1). Deciso il 27/09/2026, dopo un
+censimento di ogni data mostrata; prima la regola era sparsa in tre paragrafi di
+questa sezione e uno di essi (l'uso di `data_ora`) non era più vero.
+
+| Cosa | Fuso | Forma | Funzione |
+|---|---|---|---|
+| Giorni della community: arrivo del bot (`first_seen_at`), uscita e rientro (`left_at`, `rejoined_at`), «oggi», e le parole relative e le durate che ne derivano («ieri», «tra 3 giorni», «4 settimane») | calendario di **Roma** | `21 set`, `lunedì 21 settembre` | `stato.giorno` |
+| `as_of` e ciò che se ne ricava (ultimo calcolo, prossimo calcolo previsto, calcolo che rende leggibile una coorte), e le coorti (`cohort_start`) | **settimana ISO in UTC**: `as_of` è il lunedì 00:00 UTC (`modello-grafo.md` §5.1) | lo stesso, senza orario | `stato.settimana`; `cohort_start` è già un `DATE` |
+| Dettagli tecnici: `as_of` e `created_at` delle run | **UTC**, completo, con «UTC» scritto | `lunedì 21 settembre 2026, 04:15 UTC` | `main.data_ora` |
+
+**Perché tre e non uno.** Il primo è il calendario di chi legge: un
+amministratore vive a Roma, e una data seguita da `UTC` è una data da convertire a
+mente per capire se «lunedì» è ieri o oggi. Il secondo non è un fuso scelto per
+chi legge: `as_of` non è un istante ma l'**etichetta di una settimana**, e
+convertirlo lo sposterebbe (per chi guarda da New York il lunedì 00:00 UTC è
+domenica sera, e «ultimo calcolo: domenica» sarebbe falso). Il terzo è per il
+confronto con i log, che sono in UTC.
+
+**Lo scarto fra il primo e il secondo è accettato, non una coincidenza.** Un
+evento fra le 00:00 e le 02:00 di Roma (le 01:00 d'inverno) è lunedì a Roma e
+domenica in UTC: l'arrivo di un bot a quell'ora si legge «lunedì» in Stato, ma le
+coorti — che il job costruisce sulla settimana UTC (`modello-metriche.md` §5.1) —
+lo contano nella settimana prima. Riguarda solo quelle due ore, e allineare i due
+calendari vorrebbe dire o convertire `as_of` (falso, vedi sopra) o spostare
+l'ancora delle coorti su Roma, che è un cambio di modello con ricalcolo di tutti
+gli snapshot. Oggi `as_of` cade di lunedì in tutti e due i calendari, anche
+attraverso il cambio dell'ora legale.
+
+**Il confine della settimana si spiega una volta sola**, nella pagina Domande e
+nei Dettagli tecnici, non su ogni vista.
+
+**Nel codice, ogni forma ha una funzione e il fuso lo sceglie chi chiama.**
+`stato.data_breve` e `stato.data_estesa` accettano solo un `date`: un `datetime`
+passato dritto è un `TypeError`, perché fino al 27/09/2026 lo convertivano da sé
+in Roma, e un `as_of` finiva sul calendario sbagliato senza nessun errore. Un
+`datetime` **senza fuso** è un `ValueError` (`stato.con_fuso`), non un UTC
+presunto: lo schema è tutto `TIMESTAMPTZ` e l'API rifiuta gli istanti nudi
+(`api.md` §2, «Date e istanti»). Nei template le date passano da tre filtri
+(`settimana`, `data_ora`, `data_numerica`) o da valori già composti in Python;
+`tests/test_orari.py` fallisce se un template usa `strftime`, se `data_ora`
+compare fuori da `dettagli_tecnici.html` o se «UTC» compare a video fuori dai
+Dettagli tecnici.
+
 ### Inventario
 
 Le definizioni stanno in `modello-metriche.md`; qui c'è solo cosa arriva alla
@@ -307,7 +354,8 @@ Fuso Europe/Rome e forma breve (`30 ago`), con le funzioni che Stato usa già
 (`stato.data_breve`, `stato.adesso()`, i nomi dei mesi scritti a mano): stessa
 pagina, stesso modo di scrivere una data. L'anno compare **solo se è diverso da
 quello corrente** (`3 mar 2025`), l'anno corrente si capisce da sé.
-`main.data_ora` (UTC, completa) resta dov'è per le altre pagine.
+«Ultimo calcolo» è il giorno di `as_of` sulla settimana UTC, «Osserva da» e
+l'uscita sono giorni di Roma («Quale fuso per cosa», sopra).
 
 - **Osserva da**: il valore è la data di `first_seen_at`, il dettaglio è da
   quanto: `oggi`; `1 giorno` / `N giorni` sotto la settimana; `1 settimana` /
@@ -567,20 +615,18 @@ una gerarchia di importanza: da quando osserva → come lo fa → quando lo ha f
 6. **Le regole del calcolo**: i valori con cui Kindling misura *questo* server.
 7. **Avvisi**: i fatti che cambiano la lettura di tutto il resto.
 
-**Il fuso è Europe/Rome e le date sono brevi** («21 set»). È la sola pagina in
-cui la scelta cambia rispetto al resto della dashboard, e cambia perché cambia
-il lettore: un amministratore vive in un fuso, non in UTC, e una data seguita da
-`UTC` è una data che deve convertire a mente per capire se «lunedì» è ieri o
-oggi. Il fuso è **fisso**, non quello del browser: la dashboard si rende sul
-server e non riceve niente dal client (§1), quindi un fuso «locale» qui non
-esiste. La forma relativa («oggi», «6 giorni fa») sta sopra e la data breve
-sotto: la prima risponde a «è aggiornato?», la seconda a «aggiornato a quando?».
-I timestamp completi con UTC restano dove servono davvero, nei Dettagli tecnici.
+**Le date sono giorni, e brevi** («21 set»): Roma per l'arrivo, l'uscita e
+«oggi», la settimana UTC per `as_of` e il prossimo calcolo («Quale fuso per
+cosa», all'inizio di questa sezione). La forma relativa («oggi», «6 giorni fa»)
+sta sopra e la data breve sotto: la prima risponde a «è aggiornato?», la seconda
+a «aggiornato a quando?». I timestamp completi con UTC restano dove servono
+davvero, nei Dettagli tecnici.
 
-**`data_ora` non è stata toccata.** Continua a rendere la data completa in UTC, e
-continuano a usarla Robustezza, Community, Coorti, l'elenco dei server e i
-Dettagli tecnici. Le due forme convivono perché rispondono a due domande diverse;
-questa sezione riguarda solo la pagina in cui la domanda è la prima.
+**`data_ora` sta solo nei Dettagli tecnici** (dal 27/09/2026). Fino ad allora la
+usavano anche Robustezza e Community, per l'`as_of` dello snapshot, con l'orario
+e «UTC»: per chi amministra era rumore, e dell'`as_of` l'orario non dice niente
+(è sempre la mezzanotte UTC del lunedì). Ora quelle due viste scrivono l'`as_of`
+come Stato e Coorti, «lunedì 21 settembre», con il filtro `settimana`.
 
 **`zoneinfo` ha bisogno di `tzdata`**, che è entrato in `requirements.txt` con
 questa vista. Non è una dipendenza di comodo: su un'immagine `python:3.12-slim`
@@ -1597,9 +1643,9 @@ numeri esatti sono nei dettagli tecnici», con due rimandi alle Domande
 differenza del mockup: quella pagina resta raggiungibile solo dalle Domande
 («La pagina Dettagli tecnici», sotto), e ci arriva la risposta a `q-barre`.
 
-Le date di questa vista sono in Europe/Rome come in Stato, e per la stessa
-ragione: il lettore è un amministratore, non qualcuno che confronta una riga con
-un log. La forma è estesa («lunedì 21 settembre», «31 agosto») perché qui la
+Le date di questa vista seguono le regole di Stato («Quale fuso per cosa»): il
+giorno di Roma per l'arrivo del bot, la settimana UTC per la coorte, per «Dati
+aggiornati a» e per il calcolo che rende leggibile una coorte. La forma è estesa («lunedì 21 settembre», «31 agosto») perché qui la
 data è il testo stesso della cella, non l'etichetta di un punto su un asse.
 
 **La legenda** («Come si leggono le barre») sta a destra dell'introduzione su

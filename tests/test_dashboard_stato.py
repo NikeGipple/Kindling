@@ -116,13 +116,15 @@ def test_il_giorno_e_quello_di_roma_anche_a_cavallo_della_mezzanotte_utc():
 
     Le 23:30 UTC di lunedi' sono l'1:30 di martedi' a Roma. Un amministratore che
     guarda la pagina a quell'ora deve leggere il giorno in cui si trova lui, non
-    quello in cui si trova il server. ``data_ora`` (le altre viste) continua a
-    dire l'altro, e lo dichiara scrivendo UTC.
+    quello in cui si trova il server. ``settimana`` (per ``as_of``) e
+    ``data_ora`` (Dettagli tecnici) dicono l'altro, e la seconda lo dichiara
+    scrivendo UTC.
     """
     istante = datetime(2026, 9, 21, 23, 30, tzinfo=timezone.utc)
 
     assert stato.giorno(istante) == date(2026, 9, 22)
-    assert stato.data_breve(istante) == "22 set"
+    assert stato.data_breve(stato.giorno(istante)) == "22 set"
+    assert stato.settimana(istante) == date(2026, 9, 21)
     assert data_ora(istante) == "lunedì 21 settembre 2026, 23:30 UTC"
 
     # E il verso opposto: le 00:30 UTC sono ancora le 2:30 dello stesso giorno a
