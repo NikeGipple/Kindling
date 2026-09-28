@@ -30,9 +30,10 @@ dichiara da se' sostituendo ``{% block dopo_marchio %}`` — UN blocco per le du
 cose, perche' sono la stessa decisione e una pagina nuova non possa prenderne
 meta'. Piu' una sesta che guarda gli URL dei documenti: sono assoluti, vengono
 da ``SITO_PUBBLICO`` e stanno nel piede di tutte e quindici le pagine. E una
-settima, dal 28/09/2026: sulle stesse pagine pubbliche il marchio porta alla home
-di kindling.nexus (``SITO_PUBBLICO_URL``), perche' senza sessione "/" rimanda a
-/login; sulle altre resta la radice della dashboard.
+settima, dal 28/09/2026: senza sessione il marchio porta alla home di
+kindling.nexus (``SITO_PUBBLICO_URL``), perche' "/" rimanda a /login; con una
+sessione resta la radice della dashboard, anche su accesso negato
+(server_non_autorizzato). Lo decide la sessione, non il template.
 
 Le undici pagine si raggiungono **dalle rotte**, non rendendo i template a mano: un
 contesto costruito qui sarebbe una copia di quello che passa la rotta, e la copia
@@ -244,19 +245,34 @@ def _href_del_marchio(html: str) -> str:
     return trovato.group(1)
 
 
+# Le pagine che si vedono senza una sessione valida. Non e' PAGINE_PUBBLICHE:
+# negato_server e' una pagina pubblica per la testata, ma chi la vede e' entrato,
+# e il marchio deve riportarlo ai suoi server.
+SENZA_SESSIONE = PAGINE_PUBBLICHE - {"negato_server"}
+
+
 def test_il_marchio_porta_al_sito_pubblico_solo_senza_sessione(pagine):
     """Senza sessione "/" rimanda a /login: il marchio riporterebbe dove si e' gia'.
 
-    Le pagine pubbliche lo mandano alla home di kindling.nexus; tutte le altre
-    restano sulla radice della dashboard. L'atteso viene dalla costante, non da
-    una stringa scritta qui.
+    Lo decide la sessione, non il template: accesso_negato.html si vede anche da
+    dentro (server_non_autorizzato), e li' il marchio resta "/". L'atteso viene
+    dalla costante, non da una stringa scritta qui.
     """
     assert SITO_PUBBLICO["home"] == SITO_PUBBLICO_URL
     for nome, (_, risposta) in pagine.items():
-        atteso = SITO_PUBBLICO_URL if nome in PAGINE_PUBBLICHE else "/"
+        atteso = SITO_PUBBLICO_URL if nome in SENZA_SESSIONE else "/"
         assert _href_del_marchio(risposta.text) == atteso, nome
-    # Non passa perche' non c'e' niente da confrontare: Stato c'e', con sessione.
+    # Non passa perche' non c'e' niente da confrontare: i due lati ci sono.
     assert _href_del_marchio(pagine["stato"][1].text) == "/"
+    assert _href_del_marchio(pagine["accesso"][1].text) == SITO_PUBBLICO_URL
+
+
+def test_server_non_autorizzato_con_sessione_riporta_ai_propri_server(pagine):
+    """Stesso template di accesso negato, ma con una sessione attiva."""
+    _, risposta = pagine["negato_server"]
+    assert risposta.status_code == 404
+    assert 'form class="sessione"' in risposta.text
+    assert _href_del_marchio(risposta.text) == "/"
 
 
 def test_i_documenti_derivano_dalla_radice_del_sito():

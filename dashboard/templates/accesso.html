@@ -2,10 +2,8 @@
 {% block titolo %}Accesso{% endblock %}
 {# Pagina pubblica: si vede senza essere entrati. Il blocco sostituito toglie la
    coda del marchio ("salute sociale della community") e mette al suo posto i
-   collegamenti ai documenti, come sulla landing; il marchio porta alla home di
-   kindling.nexus invece che a "/", che senza sessione rimanda qui. Vedi base.html. #}
+   collegamenti ai documenti, come sulla landing; vedi base.html. #}
 {% block dopo_marchio %}{% include "_testata_pubblica.html" %}{% endblock %}
-{% block logo_href %}{{ sito.home }}{% endblock %}
 {% block contenuto %}
 <h1>Accesso alla dashboard</h1>
 <p>

@@ -467,6 +467,12 @@ def verifica_accesso(request: Request, oauth: OAuthConfig) -> Sessione:
             raise AccessoNegato(Caso.VERIFICA_FALLITA)
         raise AccessoRichiesto(avvia_flusso(request, oauth, silenzioso=True))
 
+    # Da qui la sessione e' valida, anche se il server della rotta non e' fra i
+    # suoi: la pagina di server_non_autorizzato si vede da dentro, e la testata
+    # (marchio verso "/", modulo "Esci") deve dirlo. Per questo si registra PRIMA
+    # del controllo sulla guild, non dopo.
+    request.state.sessione = sessione
+
     guild_id = request.path_params.get("guild_id")
     if guild_id is not None:
         try:
@@ -476,7 +482,6 @@ def verifica_accesso(request: Request, oauth: OAuthConfig) -> Sessione:
         if not autorizzata:
             raise AccessoNegato(Caso.SERVER_NON_AUTORIZZATO)
 
-    request.state.sessione = sessione
     return sessione
 
 

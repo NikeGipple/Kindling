@@ -135,11 +135,11 @@ CSP = "; ".join(
 #
 # La radice del sito e' una costante sola, e i due documenti ne derivano: quando
 # arrivera' la versione inglese di kindling.nexus l'indirizzo cambia qui e in
-# nessun altro posto. La nomina il marchio in testata delle pagine senza sessione
-# (accesso, accesso negato): li' "/" della dashboard rimanda a /login, cioe' dove
-# si e' gia', e senza questo link dalla pagina d'accesso non si torna alla home.
-# Sulle pagine con sessione il marchio resta "/", l'elenco dei server di chi
-# guarda (base.html, block logo_href).
+# nessun altro posto. La nomina il marchio in testata quando non c'e' una
+# sessione: li' "/" della dashboard rimanda a /login, cioe' dove si e' gia', e
+# senza questo link dalla pagina d'accesso non si torna alla home. Con una
+# sessione il marchio resta "/", l'elenco dei server di chi guarda (base.html,
+# block logo_href).
 SITO_PUBBLICO_URL = "https://kindling.nexus/"
 
 SITO_PUBBLICO = {
