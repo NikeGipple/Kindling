@@ -133,13 +133,19 @@ CSP = "; ".join(
 # divergono al primo indirizzo che cambia (CLAUDE.md 7), e la divergenza di un
 # URL non si vede finche' qualcuno non ci clicca sopra.
 #
-# Tre voci e non quattro: la radice del sito non c'e' perche' nessuna pagina la
-# nomina — il marchio in testata punta a "/", che qui e' l'elenco dei server di
-# chi guarda. Una voce che nessuno usa e' una voce di cui nessuno si accorge se
-# sbaglia.
+# La radice del sito e' una costante sola, e i due documenti ne derivano: quando
+# arrivera' la versione inglese di kindling.nexus l'indirizzo cambia qui e in
+# nessun altro posto. La nomina il marchio in testata delle pagine senza sessione
+# (accesso, accesso negato): li' "/" della dashboard rimanda a /login, cioe' dove
+# si e' gia', e senza questo link dalla pagina d'accesso non si torna alla home.
+# Sulle pagine con sessione il marchio resta "/", l'elenco dei server di chi
+# guarda (base.html, block logo_href).
+SITO_PUBBLICO_URL = "https://kindling.nexus/"
+
 SITO_PUBBLICO = {
-    "privacy": "https://kindling.nexus/informativa-privacy.html",
-    "termini": "https://kindling.nexus/termini-di-servizio.html",
+    "home": SITO_PUBBLICO_URL,
+    "privacy": SITO_PUBBLICO_URL + "informativa-privacy.html",
+    "termini": SITO_PUBBLICO_URL + "termini-di-servizio.html",
     "codice": "https://github.com/NikeGipple/Kindling",
 }
 

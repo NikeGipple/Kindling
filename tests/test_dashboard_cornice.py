@@ -29,7 +29,10 @@ stesse pagine portano invece la testata della landing. Il template pubblico lo
 dichiara da se' sostituendo ``{% block dopo_marchio %}`` — UN blocco per le due
 cose, perche' sono la stessa decisione e una pagina nuova non possa prenderne
 meta'. Piu' una sesta che guarda gli URL dei documenti: sono assoluti, vengono
-da ``SITO_PUBBLICO`` e stanno nel piede di tutte e quindici le pagine.
+da ``SITO_PUBBLICO`` e stanno nel piede di tutte e quindici le pagine. E una
+settima, dal 28/09/2026: sulle stesse pagine pubbliche il marchio porta alla home
+di kindling.nexus (``SITO_PUBBLICO_URL``), perche' senza sessione "/" rimanda a
+/login; sulle altre resta la radice della dashboard.
 
 Le undici pagine si raggiungono **dalle rotte**, non rendendo i template a mano: un
 contesto costruito qui sarebbe una copia di quello che passa la rotta, e la copia
@@ -43,12 +46,14 @@ from __future__ import annotations
 import re
 
 import pytest
+from fastapi.testclient import TestClient
 
 from dashboard import qualifica
-from dashboard.main import SITO_PUBBLICO, TEMPLATES_DIR
+from dashboard.main import SITO_PUBBLICO, SITO_PUBBLICO_URL, TEMPLATES_DIR
 from tests.sessione_dashboard import (
     PAGINE_PUBBLICHE,
     TEMPLATE_CON_CORNICE,
+    app_di_test,
     raccogli_pagine,
     senza_variabili_di_database,
 )
@@ -228,3 +233,41 @@ def test_la_frase_non_sopravvive_dentro_il_nome_accessibile_del_marchio(pagine):
             continue
         ancora = risposta.text[risposta.text.index('<a class="marchio"'):]
         assert CODA not in ancora[: ancora.index("</a>")], nome
+
+
+# --- 7. dove porta il marchio --------------------------------------------------
+
+
+def _href_del_marchio(html: str) -> str:
+    trovato = re.search(r'<a class="marchio" href="([^"]*)"', html)
+    assert trovato, "marchio non trovato"
+    return trovato.group(1)
+
+
+def test_il_marchio_porta_al_sito_pubblico_solo_senza_sessione(pagine):
+    """Senza sessione "/" rimanda a /login: il marchio riporterebbe dove si e' gia'.
+
+    Le pagine pubbliche lo mandano alla home di kindling.nexus; tutte le altre
+    restano sulla radice della dashboard. L'atteso viene dalla costante, non da
+    una stringa scritta qui.
+    """
+    assert SITO_PUBBLICO["home"] == SITO_PUBBLICO_URL
+    for nome, (_, risposta) in pagine.items():
+        atteso = SITO_PUBBLICO_URL if nome in PAGINE_PUBBLICHE else "/"
+        assert _href_del_marchio(risposta.text) == atteso, nome
+    # Non passa perche' non c'e' niente da confrontare: Stato c'e', con sessione.
+    assert _href_del_marchio(pagine["stato"][1].text) == "/"
+
+
+def test_i_documenti_derivano_dalla_radice_del_sito():
+    # Per la versione inglese l'indirizzo cambia in un punto solo.
+    for chiave in ("privacy", "termini"):
+        assert SITO_PUBBLICO[chiave].startswith(SITO_PUBBLICO_URL), chiave
+
+
+def test_il_marchio_segue_la_costante_quando_cambia(monkeypatch):
+    altro = "https://kindling.nexus/en/"
+    monkeypatch.setitem(SITO_PUBBLICO, "home", altro)
+    with TestClient(app_di_test(), follow_redirects=False) as c:
+        risposta = c.get("/login")
+    assert _href_del_marchio(risposta.text) == altro

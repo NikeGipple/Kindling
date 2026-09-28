@@ -43,7 +43,12 @@
     testo e lasciare che un filo la superi. -#}
 <header class="sito">
   <div class="contenitore">
-    <a class="marchio" href="/">
+    {#- Dove porta il marchio: di norma la radice della dashboard, cioe' l'elenco
+        dei server. Le pagine senza sessione lo sostituiscono con la home di
+        kindling.nexus (sito.home), con lo stesso meccanismo di dopo_marchio qui
+        sotto e per una ragione simile: senza sessione "/" rimanda a /login, e il
+        marchio riporterebbe dove si e' gia'. -#}
+    <a class="marchio" href="{% block logo_href %}/{% endblock %}">
       {#- Due bastoncini incrociati con una scintilla sopra: la legna da
           accendere, che e' quello che "kindling" vuol dire. In linea, come ogni
           altra cosa di questa pagina, e il colore lo eredita. -#}
