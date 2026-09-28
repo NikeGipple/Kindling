@@ -486,17 +486,22 @@ def test_zero_coorti_leggibili_dice_la_data_della_prima():
     assert _avviso(html) == "La prima coorte sarà leggibile dal calcolo di lunedì 21 settembre."
 
 
-def test_una_coorte_leggibile():
+def test_una_coorte_leggibile_nessun_avviso():
+    # Fino al 28/09/2026 con una coorte leggibile, o con due, compariva un avviso: il
+    # numero lo dice gia' la tabella, e sparire a tre sottintendeva "da tre in su
+    # puoi confrontare" (dashboard.md 4). Resta solo quello con zero.
     vista = _pagina(_ultimo(GUILD_EDGE), GUILD_EDGE)
     assert vista.leggibili == 1
-    assert _avviso(_rendi(vista, GUILD_EDGE)).startswith("Per ora una sola coorte è leggibile.")
+    assert vista.avviso is None
+    assert _avviso(_rendi(vista, GUILD_EDGE)) is None
 
 
-def test_due_coorti_leggibili():
+def test_due_coorti_leggibili_nessun_avviso():
     senza_una = [g for g in _ultimo(GUILD_SCALE) if g.cohort_start != date(2026, 7, 27)]
     vista = _pagina(senza_una, GUILD_SCALE)
     assert vista.leggibili == 2
-    assert _avviso(_rendi(vista)).startswith("Per ora due coorti sono leggibili.")
+    assert vista.avviso is None
+    assert _avviso(_rendi(vista)) is None
 
 
 def test_tre_coorti_leggibili_nessun_avviso():

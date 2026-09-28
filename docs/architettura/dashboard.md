@@ -1717,13 +1717,15 @@ larghezza di una coorte, la settimana ISO di `cohort_start_of`. L'«sempre» ha
 un'eccezione di misura zero — una coorte in cui tutti entrano il lunedì alle
 00:00 matura esattamente al secondo calcolo — che la frase non nomina.
 
-Poi l'avviso giallo, **solo con una o due coorti leggibili** fra tutte le
-posteriori all'ancora (non solo fra le dodici visibili): «Per ora una sola
-coorte è leggibile» / «Per ora due coorti sono leggibili», con la
-precisazione che mostrano com'è andata ai nuovi arrivati di quelle settimane ma
-non sono ancora una tendenza. Con **zero**: «La prima coorte sarà leggibile dal calcolo di
-&lt;data&gt;», la più vicina fra quelle delle coorti in osservazione; senza data,
-niente. Da tre in su, niente. Poi la tabella, con la didascalia «dati aggiornati
+Poi l'avviso giallo, **solo con zero coorti leggibili** fra tutte le
+posteriori all'ancora (non solo fra le dodici visibili): «La prima coorte sarà
+leggibile dal calcolo di &lt;data&gt;», la più vicina fra quelle delle coorti in
+osservazione; senza data, niente. Con una o più coorti leggibili, niente: il
+numero lo mostra già la tabella, e un avviso che spariva a tre sottintendeva
+«da tre in su puoi confrontare», un verdetto che i dati non danno — quante
+coorti bastano lo decide l'amministratore, e l'incertezza vera si legge riga per
+riga (soglia N, `△`, `◐`, maturità). Fino al 28/09/2026 c'era un avviso anche con
+una o due. Poi la tabella, con la didascalia «dati aggiornati
 a &lt;data&gt;», e la nota «Le barre mostrano una proporzione approssimata; i
 numeri esatti sono nei dettagli tecnici», con due rimandi alle Domande
 (`q-barre`, `q-vocale`). **La nota non porta un link ai Dettagli tecnici**, a

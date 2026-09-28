@@ -502,7 +502,6 @@ class Riga:
 @dataclass(frozen=True)
 class Avviso:
     titolo: str
-    testo: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -750,20 +749,12 @@ def _riga(
 
 
 def _avviso(righe: Sequence[Riga], *, riferimento: date) -> Optional[Avviso]:
-    """Con una o due coorti leggibili, un avviso; con zero, la data della prima."""
+    """Con zero coorti leggibili, la data della prima; altrimenti niente.
+
+    Con una o due non c'e' avviso: il numero lo dice gia' la tabella, e quante
+    coorti bastano per un confronto non lo decide la vista (dashboard.md 4).
+    """
     leggibili = sum(1 for r in righe if r.stato == LEGGIBILE)
-    if leggibili == 1:
-        return Avviso(
-            "Per ora una sola coorte è leggibile.",
-            "Mostra com'è andata ai nuovi arrivati di quella settimana, ma non è "
-            "ancora una tendenza: per confrontare le coorti serve più tempo.",
-        )
-    if leggibili == 2:
-        return Avviso(
-            "Per ora due coorti sono leggibili.",
-            "Mostrano com'è andata ai nuovi arrivati di quelle due settimane, ma "
-            "non sono ancora una tendenza: per confrontare le coorti serve più tempo.",
-        )
     if leggibili == 0:
         prossime = [r.leggibile_dal for r in righe if r.leggibile_dal is not None]
         if prossime:
@@ -822,7 +813,7 @@ def pagina(
         ambiti=ambiti,
         righe=tuple(tutte[:COORTI_VISIBILI]),
         # Contate su TUTTE le posteriori, non sulle dodici visibili: l'avviso
-        # dice quante settimane si possono leggere, non quante stanno in pagina.
+        # compare solo se non se ne legge nessuna in tutto, non fra le dodici.
         leggibili=sum(1 for r in tutte if r.stato == LEGGIBILE),
         avviso=_avviso(tutte, riferimento=riferimento),
     )
