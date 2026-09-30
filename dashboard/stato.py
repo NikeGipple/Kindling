@@ -198,6 +198,46 @@ def con_preposizione(preposizione: str, testo_data: str) -> str:
     return f"{preposizione}l'{testo_data}"
 
 
+GIORNI_DI_UNA_SETTIMANA = timedelta(days=7)
+
+
+def settimana_precedente(as_of: datetime, precedente: Optional[datetime]) -> bool:
+    """Il calcolo ``precedente`` e' quello della settimana prima di ``as_of``?
+
+    Sulle etichette di settimana (``settimana``), non sugli istanti: una run
+    anteriore all'ancoraggio al lunedi' (as_of alle 04:15) conta come la settimana
+    che e'. La usano "sett. prima" di Robustezza e le etichette delle settimane
+    (``etichetta_settimana``): una condizione, un posto.
+    """
+    if precedente is None:
+        return False
+    return settimana(as_of) - settimana(precedente) == GIORNI_DI_UNA_SETTIMANA
+
+
+def etichetta_settimana(
+    as_of: datetime, precedente: Optional[datetime], *, riferimento: date
+) -> str:
+    """La settimana che un calcolo copre, per le tabelle storiche delle viste.
+
+    ``as_of`` e' il lunedi' in cui la settimana si CHIUDE: la riga del 7 settembre
+    copre dal 31 agosto al 6. Scritto "7 settembre" si leggeva come la settimana
+    che comincia il 7, cioe' la convenzione di Coorti (la coorte porta il lunedi'
+    d'inizio), e due viste dicevano cose diverse con la stessa forma
+    (30/09/2026, dashboard.md 4).
+
+    L'intervallo, "31 ago – 6 set", solo se il calcolo precedente e' della
+    settimana prima: l'API non espone la finestra del grafo, e senza quella
+    condizione i sette giorni sarebbero un'ipotesi. Altrimenti "chiusa il 7
+    settembre", che e' quello che si sa.
+    """
+    fine = settimana(as_of)
+    if settimana_precedente(as_of, precedente):
+        inizio = fine - GIORNI_DI_UNA_SETTIMANA
+        ultimo = fine - timedelta(days=1)
+        return f"{data_breve(inizio, riferimento=riferimento)} – {data_breve(ultimo, riferimento=riferimento)}"
+    return "chiusa " + con_preposizione("il", data_estesa(fine, riferimento=riferimento))
+
+
 def relativo(quando: date, oggi: date) -> str:
     """"oggi", "ieri", "domani", "tra N giorni", "N giorni fa".
 

@@ -867,3 +867,30 @@ def test_su_telefono_le_etichette_delle_celle_sono_solo_la_frazione(dashboard):
             "1 su 20", "1 su 10", "1 su 5"
         ]
     assert "data-frazioni" not in _riga(html, "voice").html()
+
+
+# --- l'etichetta delle settimane nelle tabelle storiche (30/09/2026) ----------
+
+
+def test_le_settimane_precedenti_dicono_l_intervallo_coperto():
+    """L'as_of e' il lunedi' in cui la settimana si CHIUDE: la riga del 7/09 copre
+    31/08-06/09. "7 settembre" si leggeva con la convenzione di Coorti (il lunedi'
+    d'inizio). L'intervallo solo se il calcolo prima e' della settimana prima;
+    la riga piu' vecchia, senza precedente nella pagina, dice "chiusa il"."""
+    righe = [r for i in range(3) for r in _layer(11 + i, _lunedi(i), "reply", 24)]
+    html = _rendi(righe)
+    storia = next(_albero(html).radice.trova("details", classe="robustezza-storia"))
+    tabella = next(storia.trova("table", classe="robustezza-lettura--storia"))
+    etichette = [_html.unescape(next(tr.trova("th")).testo()).strip()
+                 for tr in tabella.trova("tr", classe="robustezza-riga")]
+    assert etichette == ["14 set – 20 set", "7 set – 13 set", "chiusa il 7 settembre"]
+
+
+def test_un_buco_nella_serie_non_inventa_l_intervallo():
+    righe = _layer(11, _lunedi(0), "reply", 24) + _layer(12, _lunedi(2), "reply", 24)
+    html = _rendi(righe)
+    storia = next(_albero(html).radice.trova("details", classe="robustezza-storia"))
+    tabella = next(storia.trova("table", classe="robustezza-lettura--storia"))
+    etichette = [_html.unescape(next(tr.trova("th")).testo()).strip()
+                 for tr in tabella.trova("tr", classe="robustezza-riga")]
+    assert etichette == ["chiusa il 21 settembre", "chiusa il 7 settembre"]

@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Mapping, Optional, Sequence
 
 from api.models import RobustnessRow, RunRow
@@ -328,8 +328,7 @@ def _prima(
     cosi' una run anteriore all'ancoraggio al lunedi' (as_of alle 04:15) conta
     come la settimana che e'.
     """
-    distanza = _stato.settimana(attuale.as_of) - _stato.settimana(precedente.as_of)
-    if distanza != timedelta(days=7) or not righe:
+    if not _stato.settimana_precedente(attuale.as_of, precedente.as_of) or not righe:
         return None
     if any(r.quality.suppressed for r in righe):
         return None
@@ -385,14 +384,19 @@ def pagina(righe: Sequence[RobustnessRow], runs: Sequence[RunRow]) -> Pagina:
             )
             for s in dal_piu_recente
         }
+        # La settimana coperta, non il lunedi' in cui si chiude (30/09/2026): per
+        # ogni snapshot, il precedente nella pagina decide se l'intervallo si sa.
+        etichette = {
+            s.snapshot_id: _stato.etichetta_settimana(
+                s.as_of, precedente.as_of if precedente else None, riferimento=riferimento
+            )
+            for precedente, s in zip([None, *snapshot[:-1]], snapshot)
+        }
         for i, layer in enumerate(LAYERS):
             storia.append(Storia(
                 layer, NOMI_LAYER.get(layer, layer),
-                tuple(
-                    (_stato.data_estesa(_stato.settimana(s.as_of), riferimento=riferimento),
-                     per_snapshot[s.snapshot_id][i])
-                    for s in dal_piu_recente
-                ),
+                tuple((etichette[s.snapshot_id], per_snapshot[s.snapshot_id][i])
+                      for s in dal_piu_recente),
             ))
 
     soglia = _intero(params, "min_nodes_structural")

@@ -462,3 +462,16 @@ def test_client_communities_ha_la_forma_di_robustness():
     firma = inspect.signature(ApiClient.communities)
     assert list(firma.parameters) == list(inspect.signature(ApiClient.robustness).parameters)
     assert firma.parameters["limit"].default == 12
+
+
+def test_la_tabella_della_serie_dice_la_settimana_coperta(dashboard):
+    """...001: snapshot 12 (as_of 14/09) e 11 (07/09 alle 04:15, prima
+    dell'ancoraggio al lunedi'). La riga del 14/09 copre 7-13 settembre; quella
+    dell'11 non ha un precedente nella pagina, e dice solo quando si chiude."""
+    from html import unescape
+
+    html = dashboard.get(f"/guilds/{GUILD_TODAY}/community").text
+    tabella = next(_albero(html).radice.trova("table", classe="tabella-serie"))
+    assert "snapshot del" not in tabella.html()
+    prime = [unescape(next(tr.trova("td")).testo()).strip() for tr in tabella.trova("tr", classe="riga-serie")]
+    assert prime == ["7 set – 13 set", "chiusa il 7 settembre"]

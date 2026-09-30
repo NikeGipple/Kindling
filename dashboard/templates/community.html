@@ -184,7 +184,8 @@ ancora nessuno snapshot delle metriche.</p>
   <table class="tabella-serie" data-campo-serie="{{ s.campo }}">
     <thead>
       <tr>
-        <th scope="col">snapshot del</th>
+        {#- La settimana coperta, non il lunedi' in cui si chiude (30/09/2026). -#}
+        <th scope="col">settimana</th>
       {% if s.campo == "modularity_z" %}
         <th scope="col">nodi</th>
         <th scope="col">z</th>
@@ -201,17 +202,17 @@ ancora nessuno snapshot delle metriche.</p>
     {% for snap, r in s.tabella %}
       {% if r is none %}
       <tr>
-        <td>{{ snap.as_of | settimana(ultimo.as_of) }}</td>
+        <td>{{ vista.etichette[snap.snapshot_id] }}</td>
         <td colspan="{{ colonne + 1 }}" class="frase-assente">Nessuna interazione di questo tipo in quella settimana.</td>
       </tr>
       {% elif r.quality.suppressed %}
       <tr class="riga-serie" data-snapshot="{{ r.snapshot_id }}" data-layer="{{ r.layer }}">
-        <td>{{ snap.as_of | settimana(ultimo.as_of) }}</td>
+        <td>{{ vista.etichette[snap.snapshot_id] }}</td>
         <td colspan="{{ colonne + 1 }}">{{ mostra(cella(r, "modularity_z")) }}</td>
       </tr>
       {% else %}
       <tr class="riga-serie" data-snapshot="{{ r.snapshot_id }}" data-layer="{{ r.layer }}">
-        <td>{{ snap.as_of | settimana(ultimo.as_of) }}</td>
+        <td>{{ vista.etichette[snap.snapshot_id] }}</td>
       {% if s.campo == "modularity_z" %}
         <td><span class="cella cella--valore{% if r.quality.significant is false %} cella--dequalificata{% endif %}"><span class="cella__testo">{{ r.quality.n_effective }}</span></span></td>
         <td>{{ mostra(cella(r, "modularity_z", s.decimali["modularity_z"])) }}</td>

@@ -31,6 +31,7 @@ from typing import Callable, Optional
 from api.models import CommunityRow, CommunitySizeBucket
 from job.config import MetricParams
 
+from . import stato as _stato
 from .qualifica import formatta, precisione_colonna
 from .robustezza import LAYERS, NOMI_LAYER, Snapshot
 
@@ -207,6 +208,10 @@ class Blocco:
 class Vista:
     snapshot: list[Snapshot]  # dal piu' vecchio al piu' recente
     blocchi: list[Blocco]
+    # La settimana che ogni snapshot copre, per la tabella della serie
+    # (stato.etichetta_settimana, 30/09/2026): "31 ago – 6 set", non il lunedi'
+    # in cui si chiude, che si leggeva con la convenzione opposta di Coorti.
+    etichette: dict[int, str] = field(default_factory=dict)
 
     @property
     def vuota(self) -> bool:
@@ -310,7 +315,14 @@ def costruisci(righe: list[CommunityRow]) -> Vista:
                 decimali=decimali_per_campo([riga] if riga else [], COLONNE_BLOCCO),
             )
         )
-    return Vista(snapshot=snapshot, blocchi=blocchi)
+    riferimento = _stato.settimana(ultimo.as_of)
+    etichette = {
+        s.snapshot_id: _stato.etichetta_settimana(
+            s.as_of, precedente.as_of if precedente else None, riferimento=riferimento
+        )
+        for precedente, s in zip([None, *snapshot[:-1]], snapshot)
+    }
+    return Vista(snapshot=snapshot, blocchi=blocchi, etichette=etichette)
 
 
 def _serie(

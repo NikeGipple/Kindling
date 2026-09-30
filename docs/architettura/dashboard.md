@@ -1265,6 +1265,22 @@ scendendo lungo una colonna, come in Coorti. Nessuna media fra settimane,
 nessuna freccia, nessuna parola di tendenza. Le settimane sono quelle del
 `limit=12`: le altre stanno nei Dettagli tecnici.
 
+**L'etichetta di una settimana è l'intervallo che copre (30/09/2026).** Fino ad
+allora le righe dicevano «7 settembre», cioè l'`as_of`, il lunedì in cui la
+settimana si **chiude**: la riga copriva dal 31/08 al 06/09. Coorti usa la
+convenzione opposta (la coorte porta il lunedì d'**inizio**), e la stessa forma
+diceva due cose diverse in due viste. Ora la riga dice «31 ago – 6 set»
+(`stato.etichetta_settimana`). L'API non espone la finestra del grafo
+(`window_start`/`window_end`), quindi l'intervallo si ricava da `as_of − 7
+giorni` **solo se il calcolo precedente nella pagina è della settimana prima** —
+la stessa condizione di «sett. prima» (`stato.settimana_precedente`). Altrimenti,
+e sempre sulla riga più vecchia della pagina, la riga dice «chiusa il 7
+settembre»: nessuna data inventata. La didascalia della tabella principale
+(«Settimana chiusa lunedì 28 settembre») lo diceva già. La stessa regola vale per
+la tabella della serie di Community, la cui colonna passa da «snapshot del» a
+«settimana»; il resto di Community non cambia qui. La tabella tecnica dei
+Dettagli resta sull'`as_of`: lì la colonna è lo snapshot, e si chiama così.
+
 **I testi, in quest'ordine.** Titolo; introduzione («Se le poche persone che
 tengono insieme il server smettessero di esserci, gli altri resterebbero in
 contatto fra loro? …»); «È una simulazione: nessuno viene tolto davvero, e il
