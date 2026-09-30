@@ -393,6 +393,16 @@ def test_una_frazione_assente_non_ha_fascia():
     assert coorti.fascia(None) is None
 
 
+def test_le_fasce_sono_una_definizione_sola():
+    """Dal 30/09/2026 le usa anche Robustezza: Coorti le importa da fasce.py, e
+    una copia qui sarebbe una soglia che diverge al primo ritocco."""
+    from dashboard import fasce, robustezza
+
+    assert coorti.fascia is fasce.fascia and coorti.FASCE is fasce.FASCE
+    assert "def fascia" not in open(coorti.__file__, encoding="utf-8").read()
+    assert "def fascia" not in open(robustezza.__file__, encoding="utf-8").read()
+
+
 def test_la_parola_della_fascia_sta_nell_aria_label_e_la_larghezza_nella_classe(dashboard):
     viste = 0
     for gid in (GUILD_SCALE, GUILD_MATURE, GUILD_EDGE):
