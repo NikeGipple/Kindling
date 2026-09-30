@@ -18,10 +18,12 @@ Tre cose che questo modulo fa e nessun altro modulo di vista fa:
   "prossimo aggiornamento") dipendono da che giorno e' oggi: senza un punto solo
   da spostare, nessun test potrebbe guardarli, e un test che non li guarda e'
   peggio di nessun test (CLAUDE.md §7).
-- **Lo stato delle tre viste si ricava da ``quality``**, e da nient'altro: due
-  campi tipizzati (``suppressed``, ``significant``) sulle righe dell'ultimo
-  snapshot. Nessuna soglia nuova, nessun conteggio di settimane, nessuna
-  euristica — un giudizio che i dati non sostengono sarebbe un punteggio
+- **Lo stato delle tre viste si ricava dai dati della vista**, e da nient'altro:
+  per Community e Coorti due campi tipizzati (``suppressed``, ``significant``)
+  sulle righe dell'ultimo snapshot; per Robustezza, dal 30/09/2026, gli stati di
+  riga della vista stessa (``robustezza.lettura``: ``n_effective`` contro la
+  soglia dei ``params``). Nessuna soglia nuova, nessun conteggio di settimane,
+  nessuna euristica — un giudizio che i dati non sostengono sarebbe un punteggio
   sintetico travestito, che stato-progetto.md §3 vieta.
 """
 
@@ -45,6 +47,7 @@ from api.models import (
 from . import coorti as _coorti
 from . import domande as _domande
 from . import regole as _regole
+from . import robustezza as _robustezza
 
 # Il fuso della community osservata. Scritto qui e non configurabile: finche' i
 # server osservati sono italiani, una configurazione sarebbe una leva che
@@ -623,43 +626,58 @@ def _qualita_coorti(gruppi: Sequence[CohortGroup], ancora: datetime) -> list[Qua
     ]
 
 
+def _da_qualita(qualita: Sequence[Quality]) -> tuple[str, str]:
+    stato = stato_da_qualita(qualita)
+    return stato, FRASI_STATO[stato]
+
+
 def _letture(
     guild_id: int,
     ancora: datetime,
+    runs: Sequence[RunRow],
     robustness: Sequence[RobustnessRow],
     communities: Sequence[CommunityRow],
     cohorts: Sequence[CohortGroup],
 ) -> tuple[Lettura, ...]:
+    # Robustezza, dal 30/09/2026, dalla stessa funzione degli stati di riga della
+    # vista (robustezza.lettura), con le sue frasi: la vista decide da n_effective
+    # contro la soglia dei params, non da ``significant``, e sopra soglia una
+    # cella con baseline degenere e' leggibile e non significativa. Con
+    # stato_da_qualita le due pagine avrebbero detto cose diverse — lo stesso
+    # difetto trovato il 26/09 con Coorti (dashboard.md 4).
+    #
     # Per Community si guarda il ``quality`` della riga di layer e non quello dei
     # ``sizes[]``: la soppressione di un bucket e' secondaria (api/models.py), e
     # un bucket soppresso accanto a una riga pubblicata non e' "la vista non si
     # legge".
+    lettura_robustezza = _robustezza.lettura(robustness, runs)
     definizioni = (
         (
             "Robustezza",
             "robustezza",
-            "Quanto la rete regge se alcune persone smettono di partecipare.",
-            [r.quality for r in _ultimo_snapshot(robustness)],
-            "q-mancanti",
+            # La domanda della vista, con le stesse parole (dashboard.md 4).
+            "Se le poche persone che tengono insieme il server smettessero di "
+            "esserci, gli altri resterebbero in contatto fra loro?",
+            (lettura_robustezza.stato, lettura_robustezza.frase),
+            "q-robustezza-leggibile",
         ),
         (
             "Community",
             "community",
             "Quali gruppi si formano da soli, e se restano gli stessi di settimana in settimana.",
-            [r.quality for r in _ultimo_snapshot(communities)],
+            _da_qualita([r.quality for r in _ultimo_snapshot(communities)]),
             "q-leggibile",
         ),
         (
             "Coorti",
             "coorti",
             "Chi entra nello stesso periodo: si lega agli altri, e resta?",
-            _qualita_coorti(cohorts, ancora),
+            _da_qualita(_qualita_coorti(cohorts, ancora)),
             "q-segnate",
         ),
     )
     letture = []
-    for nome, percorso, domanda, qualita, ancora in definizioni:
-        stato = stato_da_qualita(qualita)
+    for nome, percorso, domanda, (stato, frase), ancora in definizioni:
         letture.append(
             Lettura(
                 nome=nome,
@@ -667,7 +685,7 @@ def _letture(
                 domanda=domanda,
                 stato=stato,
                 etichetta=ETICHETTE_STATO[stato],
-                frase=FRASI_STATO[stato],
+                frase=frase,
                 ancora=f"/guilds/{guild_id}/domande#{ancora}",
                 # Il testo del rimando E' il testo della domanda, preso dalla
                 # mappa che la pagina Domande usa per renderla: tre link che
@@ -836,7 +854,7 @@ def costruisci(
             inizio, [settimana(r.as_of) for r in runs], oggi, prossimo,
             riferimento=riferimento,
         ),
-        letture=_letture(guild.guild_id, guild.first_seen_at, robustness, communities, cohorts),
+        letture=_letture(guild.guild_id, guild.first_seen_at, runs, robustness, communities, cohorts),
         regole=_regole.costruisci(
             ultima.params if ultima is not None else None,
             ultima.graph_params if ultima is not None else None,

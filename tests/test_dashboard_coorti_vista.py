@@ -701,7 +701,7 @@ def _pillola(gruppi, guild) -> str:
     from dashboard import stato
 
     lettura = next(
-        l for l in stato._letture(guild.guild_id, guild.first_seen_at, [], [], gruppi)
+        l for l in stato._letture(guild.guild_id, guild.first_seen_at, [], [], [], gruppi)
         if l.nome == "Coorti"
     )
     return lettura.stato
