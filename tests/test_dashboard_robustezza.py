@@ -853,3 +853,17 @@ def test_la_scala_mostra_la_stessa_tabella(dashboard):
     """...004 ha due snapshot: la serie c'e', e i quattro blocchi."""
     html = dashboard.get(f"/guilds/{GUILD_SCALE}/dettagli-tecnici").text
     assert html.count('class="blocco"') == 4 and 'class="tabella-serie"' in html
+
+
+def test_su_telefono_le_etichette_delle_celle_sono_solo_la_frazione(dashboard):
+    """Il titolo del gruppo di colonne sta sulla riga (data-frazioni), non
+    nell'etichetta della prima cella: li' andava su tre righe a 320px e
+    disallineava la sua barra da quelle accanto (30/09/2026)."""
+    html = dashboard.get(f"/guilds/{GUILD_TODAY}/robustezza").text
+    for layer in ("reply", "mention", "reaction"):
+        tr = _riga(html, layer)
+        assert _html.unescape(tr.attrs["data-frazioni"]) == "Restano collegati senza le più centrali"
+        assert [td.attrs["data-etichetta"] for td in tr.trova("td", classe="frazione")] == [
+            "1 su 20", "1 su 10", "1 su 5"
+        ]
+    assert "data-frazioni" not in _riga(html, "voice").html()

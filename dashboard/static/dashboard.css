@@ -675,8 +675,11 @@ p.avviso.coorti-avviso { max-width: var(--misura-vista); margin-top: 1.25rem; }
   .robustezza-lettura td.persone { grid-column: 5 / 7; grid-row: 1; padding: 0; }
   .robustezza-lettura td.persone::before { content: attr(data-etichetta); display: block;
                                            color: var(--tenue); font-size: .72rem; }
-  .robustezza-lettura td.collegati { grid-column: 1 / -1; }
-  .robustezza-lettura td.frazione { grid-column: span 2; }
+  .robustezza-lettura td.collegati { grid-column: 1 / -1; grid-row: 2; }
+  .robustezza-riga--leggibile::before { content: attr(data-frazioni); grid-column: 1 / -1;
+                                        grid-row: 3; font-size: .78rem; font-weight: 600;
+                                        margin-top: .3rem; }
+  .robustezza-lettura td.frazione { grid-column: span 2; grid-row: 4; }
   .robustezza-lettura td.collegati::before, .robustezza-lettura td.frazione::before {
     content: attr(data-etichetta); display: block; color: var(--tenue);
     font-size: .72rem; margin-bottom: .3rem; }

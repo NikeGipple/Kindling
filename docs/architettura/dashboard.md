@@ -1255,11 +1255,25 @@ raggiungibile dalle Domande (`q-robustezza-barra` e `q-tecnico` ci portano).
 
 **Su telefono** (sotto i 40rem) ogni riga è una scheda, con il solo CSS sullo
 stesso markup: nome e persone in testa, «Collegati fra loro» a tutta larghezza,
-le celle delle frazioni affiancate, con le etichette da `data-etichetta`. La
-`<thead>` resta per i lettori di schermo, nascosta visivamente. Le schede non
-leggibili sono basse e su fondo grigio. Nessuno scorrimento orizzontale a 320px.
-Nessun JavaScript, nessun `style=""`: larghezze della barra e posizione della
-tacca sono classi (`fascia-0…6`, `tacca-0…6`).
+poi il titolo «Restano collegati senza le più centrali» e le celle delle
+frazioni affiancate, con le etichette da `data-etichetta` («1 su 20»…). Il titolo
+sta sulla riga (`data-frazioni`) e non nell'etichetta della prima cella, come nel
+mockup: lì a 320px andava su tre righe e abbassava la prima barra rispetto alle
+altre due (visto il 30/09/2026). La `<thead>` resta per i lettori di schermo,
+nascosta visivamente. Le schede non leggibili sono basse e su fondo grigio.
+Nessuno scorrimento orizzontale a 320px (misurato via JavaScript su tutte le
+pagine del fixture, `<details>` aperti). Nessun JavaScript, nessun `style=""`:
+larghezze della barra e posizione della tacca sono classi (`fascia-0…6`,
+`tacca-0…6`).
+
+**Contrasti** (WCAG 2.x, misurati il 30/09/2026 sul fondo su cui cadono davvero,
+chiaro / scuro): barra (`--brace`) sul binario (`--grigio-fondo`) 4,66 / 5,89;
+«Collegati fra loro» (`--tenue`) sul binario 4,60 / 5,33; tacca (`--testo`) sul
+binario 14,60 / 13,07. **Dentro la barra** la tacca sta su `--brace`, e lì
+`--testo` darebbe 3,14 / **2,22**, sotto il 3:1 in scuro: la tacca ha un alone di
+`--fondo`, che sulla barra sta a 5,14 / 6,91 e sotto la tacca a 16,10 / 15,32. Il
+testo secondario (`--tenue`) sta a 5,07 / 6,25 sul fondo e a 4,60 / 5,33 sul
+`--grigio-fondo` delle schede non leggibili.
 
 **La pillola di Robustezza in Stato viene dalla stessa funzione**
 (`robustezza.lettura`), non da `stato_da_qualita`: fino al 30/09/2026 Stato

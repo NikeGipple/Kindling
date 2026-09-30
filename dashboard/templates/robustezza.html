@@ -44,7 +44,12 @@
   </thead>
   <tbody>
   {%- for etichetta, r in righe %}
-    <tr class="robustezza-riga robustezza-riga--{{ r.stato }}" data-layer="{{ r.layer }}" data-stato="{{ r.stato }}">
+    {#- Su telefono la <thead> e' nascosta: il titolo del gruppo di colonne lo
+        porta la riga leggibile in data-frazioni, e il foglio lo mette sopra le
+        celle. Nell'etichetta della prima cella andava a capo e disallineava le
+        barre (misurato a 320px il 30/09/2026). -#}
+    <tr class="robustezza-riga robustezza-riga--{{ r.stato }}" data-layer="{{ r.layer }}" data-stato="{{ r.stato }}"
+        {%- if r.stato == "leggibile" %} data-frazioni="Restano collegati senza le più centrali"{% endif %}>
       <th scope="row">{{ etichetta }}</th>
       <td class="persone" data-etichetta="persone attive">
         {%- if r.persone is not none %}{{ r.persone }}{% else %}—{% endif %}
@@ -55,9 +60,7 @@
         <span class="barra misura--presenti fascia-{{ r.collegati.indice }}" role="img" aria-label="{{ r.collegati.parola }}"><span class="barra__pieno"></span></span>
       </td>
       {%- for c in r.celle %}
-      {#- Su telefono l'intestazione del gruppo non c'e': la prima cella la porta
-          nella sua etichetta, come nel mockup. #}
-      <td class="frazione{% if loop.first %} inizio{% endif %}" data-etichetta="{% if loop.first %}Senza le più centrali, {% endif %}{{ c.etichetta }}">
+      <td class="frazione{% if loop.first %} inizio{% endif %}" data-etichetta="{{ c.etichetta }}">
         {%- if c.barra %}
         <span class="barra barra--con-tacca fascia-{{ c.barra.indice }} tacca-{{ c.tacca.indice }}" role="img" aria-label="{{ c.descrizione }}"><span class="barra__pieno"></span><span class="barra__tacca"></span></span>
         <span class="quanti">{{ c.quanti }}</span>
