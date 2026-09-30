@@ -727,7 +727,13 @@ p.avviso { max-width: 68ch; }
    raggiunta da un'ancora sembrerebbe un errore di rendering. */
 .domande { margin-top: 1.5rem; max-width: 46rem; }
 .domande details { border-bottom: 1px solid var(--riga); padding: .75rem; margin: 0 -.75rem; }
-.domande details:first-of-type { border-top: 1px solid var(--riga); }
+/* I gruppi (30/09/2026): un titolo sopra le sue domande. Il filo sopra va alla
+   prima domanda di OGNI gruppo, non solo alla prima della pagina: i <details>
+   sono fratelli dei titoli, e :first-of-type ne troverebbe uno solo. */
+.domande .domande__gruppo { margin: 2rem 0 .5rem; font-size: 1rem; color: var(--tenue);
+                            font-weight: 600; letter-spacing: .02em; }
+.domande .domande__gruppo:first-child { margin-top: 0; }
+.domande .domande__gruppo + details { border-top: 1px solid var(--riga); }
 .domande summary { cursor: pointer; font-weight: 600; }
 .domande details p { margin: .4rem 0 0; color: var(--tenue); max-width: 62ch; }
 .domande details:target { background: var(--grigio-fondo); border-radius: .4rem; }

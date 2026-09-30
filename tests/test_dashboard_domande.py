@@ -245,7 +245,8 @@ def test_code_version_assente_si_dice_invece_di_restare_vuota(dashboard):
 def test_i_dettagli_senza_run_lo_dicono():
     def api(request: httpx.Request) -> httpx.Response:
         # Anche /cohorts, dal 26/09/2026: la pagina porta la tabella delle coorti.
-        if request.url.path.endswith(("/runs", "/cohorts")):
+        # E /robustness dal 30/09/2026, per la tabella che era la vista Robustezza.
+        if request.url.path.endswith(("/runs", "/cohorts", "/robustness")):
             return httpx.Response(200, json=[])
         return httpx.Response(200, json={"guild_id": 5, "first_seen_at": "2026-08-28T00:00:00Z"})
 
@@ -304,3 +305,91 @@ def test_i_parametri_parziali_di_una_run_non_inventano_le_chiavi_mancanti(dashbo
 
     assert aree == ["Soppressione", "Coorti", "Calcolabilità"]
     assert "<code>seed</code>" not in html
+
+
+# --- i gruppi e le domande di Robustezza (30/09/2026) ------------------------
+
+
+def test_ogni_domanda_sta_in_un_gruppo_e_in_uno_solo():
+    """Una domanda nuova senza gruppo sparirebbe dalla pagina senza nessun errore.
+
+    E l'ordine dei gruppi e' l'ordine della mappa: il test degli id sopra lo
+    confronta con la pagina resa.
+    """
+    in_gruppi = [c for _titolo, codici in domande.GRUPPI for c in codici]
+    assert in_gruppi == list(domande.TITOLI)
+    assert len(in_gruppi) == len(set(in_gruppi))
+    costruite = {d.codice for d in domande.costruisci(1, PARAMS_COMPLETI, privacy_url="x")}
+    assert costruite == set(domande.TITOLI)
+
+
+def test_i_gruppi_sono_titoli_sopra_le_loro_domande(dashboard):
+    corpo = _corpo_domande(dashboard.get(f"/guilds/{GUILD_TODAY}/domande").text)
+    titoli = re.findall(r'<h2 class="domande__gruppo">(.*?)</h2>', corpo)
+    assert titoli == [t for t, _c in domande.GRUPPI] == [
+        "In generale", "Robustezza", "Coorti", "Community", "Dati e aggiornamenti"
+    ]
+    # Ogni domanda sta sotto il titolo del suo gruppo.
+    for titolo, codici in domande.GRUPPI:
+        sezione = corpo.split(f'<h2 class="domande__gruppo">{titolo}</h2>', 1)[1]
+        sezione = sezione.split('<h2 class="domande__gruppo">', 1)[0]
+        assert re.findall(r'<details id="([\w-]+)"', sezione) == list(codici)
+
+
+def _robustezza(params) -> dict[str, str]:
+    return {
+        d.codice: " ".join(d.paragrafi)
+        for d in domande.costruisci(1, params, privacy_url="x")
+        if d.codice.startswith("q-robustezza-")
+    }
+
+
+def test_le_domande_di_robustezza_citano_le_soglie_da_params():
+    p = MetricParams()
+    testi = _robustezza(PARAMS_COMPLETI)
+    assert set(testi) == {
+        "q-robustezza-come", "q-robustezza-barra", "q-robustezza-chi",
+        "q-robustezza-leggibile", "q-robustezza-tipi",
+    }
+    assert f"{p.baseline_repetitions} volte" in testi["q-robustezza-come"]
+    assert "tre soglie: una persona su 20, una su 10, una su 5." in testi["q-robustezza-come"]
+    assert f"almeno {p.min_nodes_structural} persone interagiscono" in testi["q-robustezza-leggibile"]
+    assert f"Sotto le {p.min_nodes_structural} persone attive" in testi["q-robustezza-chi"]
+
+    # I valori della run, non quelli del job: la frase li segue.
+    altri = _robustezza({**PARAMS_COMPLETI, "min_nodes_structural": 41,
+                         "baseline_repetitions": 20, "removal_fractions": [0.1, 0.15]})
+    assert "almeno 41 persone" in altri["q-robustezza-leggibile"]
+    assert "20 volte" in altri["q-robustezza-come"]
+    # Una frazione che non e' "una su N" resta una percentuale, non un "1 su 7".
+    assert "due soglie: una persona su 10, il 15% delle persone." in altri["q-robustezza-come"]
+
+
+def test_senza_chiavi_le_frasi_di_robustezza_non_inventano_numeri():
+    testi = _robustezza({})
+    tutto = " ".join(testi.values())
+    assert not re.search(r"\d", tutto), tutto
+    assert "soglie" not in testi["q-robustezza-come"]
+    assert all(testi.values())
+
+
+def test_le_risposte_di_robustezza_non_giudicano_e_non_promettono_protezione():
+    """Decisioni del 29 e 30/09: nessuna parola di giudizio, "leggibile" non vuol
+    dire "concentrato su pochi", e la soglia e' leggibilita', non protezione."""
+    testi = _robustezza(PARAMS_COMPLETI)
+    tutto = " ".join(testi.values()).lower()
+    for parola in ("fragil", "solid", "robusto", "debole"):
+        assert parola not in tutto, parola
+    # Entrambe le letture, non solo l'allarme.
+    assert "passano da poche persone" in testi["q-robustezza-come"]
+    assert "distribuiti" in testi["q-robustezza-come"]
+    assert "non vuol dire che il server dipenda da poche persone" in testi["q-robustezza-leggibile"]
+    assert "non una protezione" in testi["q-robustezza-chi"]
+    # E la barra oltre la tacca non e' negata: succede.
+    assert "Se la barra supera la tacca" in testi["q-robustezza-barra"]
+
+
+def test_la_domanda_sulla_barra_porta_ai_dettagli_tecnici():
+    (barra,) = [d for d in domande.costruisci(7, PARAMS_COMPLETI, privacy_url="x")
+                if d.codice == "q-robustezza-barra"]
+    assert barra.link is not None and barra.link.url == "/guilds/7/dettagli-tecnici#robustezza"

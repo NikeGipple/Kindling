@@ -63,6 +63,26 @@ def nodi_rimossi(n: int) -> str:
     return "1 nodo rimosso" if n == 1 else f"{n} nodi rimossi"
 
 
+# Quanto vicino a un intero deve stare 1 / removal_fraction per scriverlo "1 su
+# N". 1 / 0.05 e' 20.0 esatto in Python, ma una frazione letta da un JSON puo'
+# portare l'errore di rappresentazione: la tolleranza delle fasce.
+_TOLLERANZA_INTERO = 1e-9
+
+
+def intestazione_frazione(removal_fraction: float) -> str:
+    """``0.05`` -> ``1 su 20``, se ``1 / removal_fraction`` e' intero.
+
+    Altrimenti la percentuale: una frazione che non e' "una persona ogni N" non
+    si arrotonda in silenzio a un "1 su 7" (dashboard.md 4). In entrambi i casi
+    la cella porta accanto "senza N persone" (regola 6).
+    """
+    if removal_fraction > 0:
+        inverso = 1 / removal_fraction
+        if abs(inverso - round(inverso)) < _TOLLERANZA_INTERO:
+            return f"1 su {round(inverso)}"
+    return percentuale(removal_fraction)
+
+
 # --- struttura ------------------------------------------------------------
 
 

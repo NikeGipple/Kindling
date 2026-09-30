@@ -599,12 +599,12 @@ def crea_app(
             request,
             "domande.html",
             guild_id=guild_id,
-            domande=domande.costruisci(
+            gruppi=domande.per_gruppo(domande.costruisci(
                 guild_id,
                 ultima.params if ultima is not None else None,
                 privacy_url=SITO_PUBBLICO["privacy"],
                 cadenza_giorni=stato.cadenza_in_giorni(runs),
-            ),
+            )),
             vista_corrente="domande",
         )
 

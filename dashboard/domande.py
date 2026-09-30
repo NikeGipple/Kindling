@@ -38,6 +38,14 @@ TITOLI = {
     "q-mancanti": "Perché alcuni numeri mancano o sono in grigio?",
     "q-voto": "Perché non c'è un punteggio complessivo della community?",
     "q-passato": "Kindling sa cosa è successo prima del suo arrivo nel server?",
+    # Le cinque domande della vista Robustezza (30/09/2026). Tutte con il
+    # prefisso "q-robustezza-", per la stessa ragione di "q-coorte-leggibile".
+    # L'ordine di questa mappa e' quello della pagina, cioe' dei GRUPPI sotto.
+    "q-robustezza-come": "Come fa Kindling a capire se il server dipende da poche persone?",
+    "q-robustezza-barra": "Come si leggono la barra e la tacca?",
+    "q-robustezza-chi": "Posso sapere chi sono le persone più centrali?",
+    "q-robustezza-leggibile": "Quando sarà leggibile Robustezza?",
+    "q-robustezza-tipi": "Perché quattro righe separate e non un risultato unico?",
     # L'id resta "q-segnate" anche se dal 26/09/2026 il titolo e' un altro: un
     # indirizzo che cambia e' un link che atterra in cima alla pagina senza
     # nessun errore, e Stato ci rimanda da prima.
@@ -60,6 +68,27 @@ TITOLI = {
 }
 
 
+# I gruppi della pagina (30/09/2026, dashboard.md 4 "La pagina Domande"), con le
+# assegnazioni del mockup di Robustezza. Un gruppo e' un titolo sopra le sue
+# domande; l'ordine dentro un gruppo e' quello di prima, e gli id non cambiano.
+# Ogni domanda sta in un gruppo e in uno solo: una domanda nuova senza gruppo
+# sparirebbe dalla pagina senza nessun errore, e un test lo verifica.
+GRUPPI = (
+    ("In generale", ("q-persone", "q-mancanti", "q-voto", "q-passato")),
+    ("Robustezza", (
+        "q-robustezza-come", "q-robustezza-barra", "q-robustezza-chi",
+        "q-robustezza-leggibile", "q-robustezza-tipi",
+    )),
+    # q-barre vale anche per Robustezza, ma il mockup la lascia qui come domanda
+    # aperta: spostarla e' una decisione, non una correzione.
+    ("Coorti", ("q-segnate", "q-coorte-leggibile", "q-vocale", "q-barre")),
+    ("Community", ("q-leggibile",)),
+    ("Dati e aggiornamenti", ("q-aggiorna", "q-date", "q-raccoglie", "q-tecnico")),
+)
+
+_NUMERI = {1: "una", 2: "due", 3: "tre", 4: "quattro", 5: "cinque", 6: "sei"}
+
+
 @dataclass(frozen=True)
 class Link:
     url: str
@@ -79,6 +108,41 @@ def _soglia(params: Mapping[str, Any], chiave: str) -> Optional[Any]:
     if isinstance(valore, bool) or not isinstance(valore, (int, float)):
         return None
     return valore
+
+
+def _soglie_di_rimozione(params: Mapping[str, Any]) -> Optional[str]:
+    """``una persona su 20, una su 10, una su 5``, da ``removal_fractions``.
+
+    Con la stessa regola delle intestazioni della vista
+    (``robustezza.intestazione_frazione``): "1 su N" solo se N e' intero,
+    altrimenti la percentuale. ``None`` se la chiave manca o non e' una lista di
+    numeri: la frase che le nominava non compare.
+    """
+    from . import robustezza as _robustezza  # robustezza importa stato, che importa questo modulo
+
+    valore = params.get("removal_fractions")
+    if not isinstance(valore, (list, tuple)) or not valore:
+        return None
+    if any(isinstance(f, bool) or not isinstance(f, (int, float)) for f in valore):
+        return None
+    parti = []
+    for i, f in enumerate(sorted(valore)):
+        intestazione = _robustezza.intestazione_frazione(f)
+        if intestazione.startswith("1 su "):
+            n = intestazione.removeprefix("1 su ")
+            parti.append(f"una persona su {n}" if i == 0 else f"una su {n}")
+        else:
+            parti.append(f"il {intestazione} delle persone")
+    return ", ".join(parti)
+
+
+def per_gruppo(domande: tuple[Domanda, ...]) -> tuple[tuple[str, tuple[Domanda, ...]], ...]:
+    """Le domande nei loro gruppi, nell'ordine di ``GRUPPI``."""
+    per_codice = {d.codice: d for d in domande}
+    return tuple(
+        (titolo, tuple(per_codice[c] for c in codici if c in per_codice))
+        for titolo, codici in GRUPPI
+    )
 
 
 def costruisci(
@@ -105,6 +169,11 @@ def costruisci(
     nodi = _soglia(p, "min_nodes_structural")
     maturita = _soglia(p, "min_observation_days")
     k = _soglia(p, "k_connections")
+    ripetizioni = _soglia(p, "baseline_repetitions")
+    rimozioni = _soglie_di_rimozione(p)
+    quante_soglie = (
+        len(p["removal_fractions"]) if rimozioni is not None else None
+    )
     giorni_cadenza = cadenza_giorni
 
     def con(*paragrafi: Optional[str]) -> tuple[str, ...]:
@@ -159,6 +228,106 @@ def costruisci(
                 "dall'arrivo del bot in avanti (la data è in cima a Stato). Le "
                 "interazioni di prima non sono da nessuna parte, e chi se n'era già "
                 "andato non ha lasciato traccia.",
+            ),
+        ),
+        # Le cinque domande di Robustezza: testi del mockup approvato, con le
+        # soglie da params (dashboard.md 4, "La pagina Domande"). Nessuna spiega
+        # solo il caso "concentrato su pochi": una cella leggibile puo' dire
+        # "distribuiti", e una risposta a senso unico la farebbe leggere come un
+        # allarme.
+        Domanda(
+            "q-robustezza-come",
+            TITOLI["q-robustezza-come"],
+            con(
+                "Per ogni tipo di interazione costruisce la rete della settimana: chi "
+                "ha risposto a chi, chi ha menzionato chi, chi ha reagito ai messaggi "
+                "di chi, chi è stato in vocale con chi. Poi simula l'assenza delle "
+                "persone che più spesso fanno da ponte fra le altre, e conta quanti "
+                "restano collegati fra loro.",
+                "Da sola la simulazione non direbbe molto: qualunque rete si sfalda se "
+                "si toglie abbastanza gente. Per questo Kindling rifà la prova togliendo "
+                "lo stesso numero di persone scelte a caso"
+                + (f", {ripetizioni} volte," if ripetizioni is not None else "")
+                + " e confronta. Se senza le persone centrali si stacca molta più gente "
+                "che senza persone qualunque, i contatti passano da poche persone; se "
+                "se ne stacca quanta a caso, sono distribuiti.",
+                f"La prova si fa a {_NUMERI.get(quante_soglie, str(quante_soglie))} "
+                f"soglie: {rimozioni}."
+                if rimozioni is not None and quante_soglie and quante_soglie > 1
+                else (f"La prova toglie {rimozioni}." if rimozioni is not None else None),
+            ),
+        ),
+        Domanda(
+            "q-robustezza-barra",
+            TITOLI["q-robustezza-barra"],
+            con(
+                "In ogni cella ci sono due prove sulla stessa rete, sulla stessa scala "
+                "da «nessuno» a «tutti». La barra dice quanti restano collegati "
+                "togliendo le persone più centrali. La tacca dice quanti ne "
+                "resterebbero togliendo lo stesso numero di persone qualunque.",
+                "Conta la distanza fra le due. Se la barra arriva alla tacca, togliere "
+                "le persone centrali fa lo stesso danno che togliere gente a caso: i "
+                "contatti sono distribuiti. Se la barra si ferma molto prima della "
+                "tacca, senza quelle poche persone si stacca molta più gente del "
+                "normale: i contatti passano da loro. Se la barra supera la tacca, le "
+                "persone centrali contano meno di persone prese a caso; succede, e non "
+                "è un errore.",
+                "Barra e tacca riportano la proporzione a una di sette fasce, come le "
+                "barre di Coorti: una differenza piccola può non vedersi. I numeri "
+                "esatti sono nei dettagli tecnici.",
+            ),
+            Link(f"/guilds/{guild_id}/dettagli-tecnici#robustezza",
+                 "Dettagli tecnici: la robustezza"),
+        ),
+        Domanda(
+            "q-robustezza-chi",
+            TITOLI["q-robustezza-chi"],
+            con(
+                "No. Kindling le individua solo dentro il calcolo, e lì le dimentica: "
+                "nel database e in questa dashboard arrivano soltanto quanti restano "
+                "collegati, mai chi è stato tolto. Nessun profilo individuale esce da "
+                "Kindling verso gli amministratori.",
+                (
+                    f"Sotto le {nodi} persone attive"
+                    if nodi is not None
+                    else "Sotto una certa soglia di persone attive"
+                )
+                + " la vista non mostra i risultati della prova: dipendono da una o due "
+                "persone, e in un gruppo piccolo «togliendo una persona si stacca metà "
+                "del gruppo» fa pensare subito a qualcuno. È una scelta di leggibilità, "
+                "non una protezione: i numeri esatti restano nei dettagli tecnici.",
+            ),
+        ),
+        Domanda(
+            "q-robustezza-leggibile",
+            TITOLI["q-robustezza-leggibile"],
+            con(
+                (
+                    f"Per ciascun tipo di interazione, quando almeno "
+                    f"{plurale(nodi, 'persona interagisce', 'persone interagiscono')} "
+                    "in quel modo nella stessa settimana."
+                    if nodi is not None
+                    else "Per ciascun tipo di interazione, quando abbastanza persone "
+                    "interagiscono in quel modo nella stessa settimana."
+                )
+                + " Sotto quella soglia la prova più piccola toglierebbe una persona "
+                "sola, e il risultato racconterebbe un caso più che la struttura del "
+                "server.",
+                "I tipi si accendono separatamente: le reazioni possono diventare "
+                "leggibili molto prima del vocale.",
+                "Leggibile non vuol dire che il server dipenda da poche persone: vuol "
+                "dire che ci sono abbastanza persone perché la prova dica com'è.",
+            ),
+        ),
+        Domanda(
+            "q-robustezza-tipi",
+            TITOLI["q-robustezza-tipi"],
+            con(
+                "Perché sono quattro reti diverse: chi ti risponde non è per forza chi "
+                "sta con te in vocale. Un server può reggere bene nelle risposte e "
+                "dipendere da poche persone in vocale, e una media nasconderebbe "
+                "proprio questo. È la stessa ragione per cui non c'è un punteggio "
+                "complessivo.",
             ),
         ),
         Domanda(

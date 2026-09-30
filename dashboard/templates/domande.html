@@ -17,13 +17,18 @@
 <h1>Domande</h1>
 <p class="guida">Quello che la dashboard mostra, quello che non mostra, e perché.</p>
 
+{#- Divise in gruppi dal 30/09/2026 (domande.GRUPPI): un titolo sopra le sue
+    domande, e gli id di sempre. -#}
 <div class="domande">
-  {% for d in domande %}
+  {% for titolo, gruppo in gruppi %}
+  <h2 class="domande__gruppo">{{ titolo }}</h2>
+  {% for d in gruppo %}
   <details id="{{ d.codice }}" open>
     <summary>{{ d.domanda }}</summary>
     {% for p in d.paragrafi %}<p>{{ p }}</p>{% endfor %}
     {% if d.link %}<p><a href="{{ d.link.url }}">{{ d.link.testo }}</a></p>{% endif %}
   </details>
+  {% endfor %}
   {% endfor %}
 </div>
 {% endblock %}
