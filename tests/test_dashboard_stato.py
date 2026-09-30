@@ -185,9 +185,16 @@ def test_i_quattro_stati_vengono_da_due_campi_soli():
 def test_lo_stato_guarda_solo_l_ultimo_snapshot(dashboard):
     """Uno snapshot significativo di dieci settimane fa non rende leggibile oggi."""
     html = dashboard.get(f"/guilds/{GUILD_TODAY}").text
-    # dashboard.md 6: su ...001 nessuna riga e' oggi is_significant = true.
-    assert html.count('class="pillola pillola--con_cautela"') == 3
-    assert "pillola--leggibile" not in html
+    # Su ...001, con min_nodes_structural a 21 (30/09/2026): Robustezza e'
+    # significativa sullo snapshot 12, l'ultimo, quindi si legge. Community ha
+    # una sola riga significativa, reaction@11, su uno snapshot che non e'
+    # l'ultimo: resta "con cautela". E' il caso del titolo dentro una guild sola.
+    pillole = re.findall(r'<h3><a href="[^"]*">(\w+)</a></h3>\s*<span class="pillola pillola--(\w+)"', html)
+    assert dict(pillole) == {
+        "Robustezza": "leggibile",
+        "Community": "con_cautela",
+        "Coorti": "con_cautela",
+    }
 
     # ...002 ha dodici settimane di serie e righe significative: leggibile.
     maturo = dashboard.get(f"/guilds/{GUILD_MATURE}").text

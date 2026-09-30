@@ -235,9 +235,15 @@ class MetricParams:
 
     # --- calcolabilita' (7) -------------------------------------------------
 
-    # Sotto poche decine di nodi la betweenness e' dominata da una manciata di
-    # cammini e il top X% e' 1-2 nodi: la rimozione non e' una statistica.
-    min_nodes_structural: int = 30
+    # Segue la griglia di rimozione, non i dati di un server: e' il piu' piccolo
+    # n per cui la frazione piu' piccola di removal_fractions toglie almeno 2
+    # nodi, ceil(0.05 * n) >= 2 da n = 21 (modello-metriche.md 7.1). Una
+    # rimozione di un solo nodo e' un aneddoto (too_few_nodes_removed); sopra
+    # soglia decidono gli altri controlli (baseline non degenere, e per le
+    # community modularity_z). Se cambia min(removal_fractions) cambia anche
+    # questo valore: tests/test_soglia_strutturale.py fallisce finche' i due
+    # non tornano allineati. Un solo valore per robustezza e community.
+    min_nodes_structural: int = 21
     min_modularity_z: float = 2.0
 
     @property

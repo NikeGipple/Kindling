@@ -38,7 +38,7 @@ from job.suppression import apply_secondary_suppression, suppress
 T0 = datetime(2026, 8, 3, 20, 0, tzinfo=timezone.utc)
 
 # Soglie abbassate: i grafi di prova sono piccoli per costruzione, e con i
-# default (30 nodi, 100 ripetizioni) ogni caso finirebbe indistinguibile dagli
+# default (21 nodi, 100 ripetizioni) ogni caso finirebbe indistinguibile dagli
 # altri sotto lo stesso "non significativa".
 SMALL = MetricParams(
     min_cardinality=3,

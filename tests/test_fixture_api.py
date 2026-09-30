@@ -311,6 +311,17 @@ def test_002_voice_che_riappare_si_confronta_con_una_partizione_vuota():
     assert c.quality.significant is False
 
 
+def test_001_significativita_con_soglia_21():
+    # min_nodes_structural 30 -> 21 (30/09/2026, modello-metriche.md 7.1). Sono
+    # le righe che la droplet deve scrivere dopo il ricalcolo sugli snapshot 11
+    # e 12: se il rerun dice altro, e' questo il test da riconfrontare.
+    s = SCENARIOS[GUILD_TODAY]
+    robustezza = {(r.snapshot_id, r.layer) for r in s["robustness"] if r.quality.significant}
+    assert robustezza == {(sid, layer) for sid in (11, 12) for layer in ("reply", "mention", "reaction")}
+    community = {(c.snapshot_id, c.layer) for c in s["communities"] if c.quality.significant}
+    assert community == {(11, "reaction")}
+
+
 def test_001_rispecchia_la_produzione():
     s = SCENARIOS[GUILD_TODAY]
     assert [r.snapshot_id for r in s["runs"]] == [12, 11]

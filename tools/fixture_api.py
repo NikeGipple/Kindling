@@ -53,7 +53,9 @@ esercita anche il selettore multi-guild del flusso di autorizzazione:
 
 ===================  =========================================================
 ``...001`` oggi      lo stato reale della produzione: due snapshot (7 e 14/09),
-                     niente di significativo, stabilita' solo su ``voice``
+                     robustezza significativa sui tre layer testuali,
+                     community solo su ``reaction``@11 (soglia 21),
+                     stabilita' solo su ``voice``
                      (gap di 6,823 giorni, dopo il rerun del 15/09)
 ``...002`` maturo    dodici settimane di serie: layer grandi significativi,
                      ``voice`` volatile (assente, soppresso), eccesso negativo,
@@ -730,21 +732,25 @@ def _verbatim_robustness(
     Ogni tupla: ``(removal_fraction, n_effective, nodes_removed, giant_before,
     giant_after_targeted, components_after_targeted, giant_after_random_mean,
     giant_after_random_sd, components_after_random_mean, targeted_excess,
-    targeted_z, not_significant_because)``. Tutte pubblicate e non significative
-    su ``...001``; i ``details`` costanti sono quelli che il job scrive oggi.
+    targeted_z, not_significant_because)``. Tutte pubblicate su ``...001``; i
+    ``details`` costanti sono quelli che il job scrive oggi. Come nel job,
+    ``significant`` e' l'assenza di motivi, e la chiave dei motivi c'e' solo se
+    ce n'e' almeno uno.
     """
     out: list[RobustnessRow] = []
     for rf, n, removed, gb, gt, ct, grm, grs, crm, excess, z, motivi in righe:
+        details: dict[str, Any] = {
+            "baseline_degraded": False,
+            "without_reconciled": {"identical": True},
+            "baseline_repetitions_used": 100,
+        }
+        if motivi:
+            details["not_significant_because"] = list(motivi)
         out.append(RobustnessRow(
             snapshot_id=snapshot_id, as_of=as_of, layer=layer, removal_fraction=rf,
             quality=Quality(
-                n_effective=n, suppressed=False, suppression_reason=None, significant=False,
-                details={
-                    "baseline_degraded": False,
-                    "without_reconciled": {"identical": True},
-                    "not_significant_because": list(motivi),
-                    "baseline_repetitions_used": 100,
-                },
+                n_effective=n, suppressed=False, suppression_reason=None,
+                significant=not motivi, details=details,
             ),
             values=RobustnessValues(
                 nodes_removed=removed, giant_before=gb, giant_after_targeted=gt,
@@ -769,11 +775,20 @@ def _verbatim_bucket(bucket: str, conteggi: Optional[tuple[int, int]], motivo: O
 
 
 def _scenario_today() -> dict[str, Any]:
-    """Lo stato reale della produzione: due snapshot, niente di significativo.
+    """Lo stato reale della produzione: due snapshot.
 
     **Robustezza, community, bucket e run sono copiati verbatim dalla droplet**
     (query del 15/09/2026, dopo il rerun delle metriche su entrambi gli snapshot
-    con ``voice_structural_min_sessions = 2``, immagine ``9d0dc98``). Non passano
+    con ``voice_structural_min_sessions = 2``, immagine ``9d0dc98``), **tranne i
+    motivi di non significativita'**: il 30/09/2026 ``min_nodes_structural`` e'
+    sceso da 30 a 21 (modello-metriche.md 7.1), e ``too_few_nodes`` e' stato tolto
+    dalle righe con 21 nodi o piu'. Non e' una stima: la soglia non entra nel
+    calcolo di nessun valore, solo nei motivi, quindi i valori restano quelli
+    della droplet e i motivi sono quelli che il job scrive con 21. Effetto:
+    robustezza significativa su ``reply``/``mention``/``reaction`` in entrambi gli
+    snapshot, community significativa solo su ``reaction``@11 (24 nodi, z 2,50,
+    nessun precedente). Da riconfrontare con le righe vere dopo il ricalcolo
+    sulla droplet. Non passano
     da ``_robustness_layer``/``_partizione``/``_sizes``, che ricavano i valori da
     parametri inventati. Vanno ricopiati se cambia una regola del grafo delle
     metriche (``voice_structural_min_sessions``, ``min_edge_weight``, ...):
@@ -794,22 +809,23 @@ def _scenario_today() -> dict[str, Any]:
 
     solo_nodi = ("too_few_nodes",)
     nodi_e_rimossi = ("too_few_nodes", "too_few_nodes_removed")
+    nessuno = ()
     # (sid, layer) -> righe di metric_robustness, in ordine di removal_fraction.
     robustezza_reale: dict[tuple[int, str], tuple[tuple[Any, ...], ...]] = {
         (11, "mention"): (
-            (0.05, 26, 2, 0.8846153846153846, 0.4230769230769231, 12, 0.8, 0.04070386632407063, 2.44, 0.4260869565217392, 9.260129588726068, solo_nodi),
-            (0.10, 26, 3, 0.8846153846153846, 0.38461538461538464, 12, 0.7496153846153847, 0.0673889619251485, 2.8, 0.412608695652174, 5.416317295485565, solo_nodi),
-            (0.20, 26, 6, 0.8846153846153846, 0.11538461538461539, 16, 0.6342307692307692, 0.07663310731070921, 3.2, 0.5865217391304347, 6.770522194049761, solo_nodi),
+            (0.05, 26, 2, 0.8846153846153846, 0.4230769230769231, 12, 0.8, 0.04070386632407063, 2.44, 0.4260869565217392, 9.260129588726068, nessuno),
+            (0.10, 26, 3, 0.8846153846153846, 0.38461538461538464, 12, 0.7496153846153847, 0.0673889619251485, 2.8, 0.412608695652174, 5.416317295485565, nessuno),
+            (0.20, 26, 6, 0.8846153846153846, 0.11538461538461539, 16, 0.6342307692307692, 0.07663310731070921, 3.2, 0.5865217391304347, 6.770522194049761, nessuno),
         ),
         (11, "reaction"): (
-            (0.05, 24, 2, 1.0, 0.7083333333333334, 6, 0.88625, 0.05829016259675001, 1.73, 0.1779166666666666, 3.0522588845306537, solo_nodi),
-            (0.10, 24, 3, 1.0, 0.4583333333333333, 11, 0.8245833333333333, 0.07506825597784696, 2.21, 0.36625, 4.878893151694937, solo_nodi),
-            (0.20, 24, 5, 1.0, 0.20833333333333334, 15, 0.7004166666666667, 0.09766279144757911, 3.19, 0.4920833333333333, 5.038595825898146, solo_nodi),
+            (0.05, 24, 2, 1.0, 0.7083333333333334, 6, 0.88625, 0.05829016259675001, 1.73, 0.1779166666666666, 3.0522588845306537, nessuno),
+            (0.10, 24, 3, 1.0, 0.4583333333333333, 11, 0.8245833333333333, 0.07506825597784696, 2.21, 0.36625, 4.878893151694937, nessuno),
+            (0.20, 24, 5, 1.0, 0.20833333333333334, 15, 0.7004166666666667, 0.09766279144757911, 3.19, 0.4920833333333333, 5.038595825898146, nessuno),
         ),
         (11, "reply"): (
-            (0.05, 24, 2, 0.7916666666666666, 0.4166666666666667, 10, 0.72375, 0.026780356607035677, 3.13, 0.38789473684210524, 11.466738021429373, solo_nodi),
-            (0.10, 24, 3, 0.7916666666666666, 0.375, 10, 0.6833333333333332, 0.041247895569215286, 3.23, 0.3894736842105262, 7.475128829686355, solo_nodi),
-            (0.20, 24, 5, 0.7916666666666666, 0.16666666666666666, 13, 0.6145833333333334, 0.04836744485934957, 3.25, 0.5657894736842106, 9.260705583459886, solo_nodi),
+            (0.05, 24, 2, 0.7916666666666666, 0.4166666666666667, 10, 0.72375, 0.026780356607035677, 3.13, 0.38789473684210524, 11.466738021429373, nessuno),
+            (0.10, 24, 3, 0.7916666666666666, 0.375, 10, 0.6833333333333332, 0.041247895569215286, 3.23, 0.3894736842105262, 7.475128829686355, nessuno),
+            (0.20, 24, 5, 0.7916666666666666, 0.16666666666666666, 13, 0.6145833333333334, 0.04836744485934957, 3.25, 0.5657894736842106, 9.260705583459886, nessuno),
         ),
         (11, "voice"): (
             (0.05, 9, 1, 1.0, 0.7777777777777778, 2, 0.8755555555555555, 0.03610683735393758, 1.12, 0.09777777777777774, 2.7080128015453204, nodi_e_rimossi),
@@ -817,19 +833,19 @@ def _scenario_today() -> dict[str, Any]:
             (0.20, 9, 2, 1.0, 0.6666666666666666, 2, 0.7577777777777777, 0.04268749491621901, 1.18, 0.09111111111111103, 2.134374745810947, solo_nodi),
         ),
         (12, "mention"): (
-            (0.05, 29, 2, 0.9310344827586207, 0.6551724137931034, 6, 0.8272413793103448, 0.0563442366912839, 2.9, 0.18481481481481482, 3.053887595638675, solo_nodi),
-            (0.10, 29, 3, 0.9310344827586207, 0.27586206896551724, 10, 0.7841379310344827, 0.06572019382455968, 3.23, 0.5459259259259259, 7.733937356085861, solo_nodi),
-            (0.20, 29, 6, 0.9310344827586207, 0.06896551724137931, 20, 0.6424137931034483, 0.08511794991854137, 4.23, 0.6159259259259259, 6.737101591507597, solo_nodi),
+            (0.05, 29, 2, 0.9310344827586207, 0.6551724137931034, 6, 0.8272413793103448, 0.0563442366912839, 2.9, 0.18481481481481482, 3.053887595638675, nessuno),
+            (0.10, 29, 3, 0.9310344827586207, 0.27586206896551724, 10, 0.7841379310344827, 0.06572019382455968, 3.23, 0.5459259259259259, 7.733937356085861, nessuno),
+            (0.20, 29, 6, 0.9310344827586207, 0.06896551724137931, 20, 0.6424137931034483, 0.08511794991854137, 4.23, 0.6159259259259259, 6.737101591507597, nessuno),
         ),
         (12, "reaction"): (
-            (0.05, 25, 2, 1.0, 0.64, 7, 0.8732000000000001, 0.06300603145731369, 2.12, 0.23320000000000007, 3.701232955101958, solo_nodi),
-            (0.10, 25, 3, 1.0, 0.4, 11, 0.8151999999999999, 0.07731080131521079, 2.49, 0.4151999999999999, 5.37053028731588, solo_nodi),
-            (0.20, 25, 5, 1.0, 0.2, 14, 0.7048000000000001, 0.08481131999916049, 3.23, 0.5048000000000001, 5.952035648130426, solo_nodi),
+            (0.05, 25, 2, 1.0, 0.64, 7, 0.8732000000000001, 0.06300603145731369, 2.12, 0.23320000000000007, 3.701232955101958, nessuno),
+            (0.10, 25, 3, 1.0, 0.4, 11, 0.8151999999999999, 0.07731080131521079, 2.49, 0.4151999999999999, 5.37053028731588, nessuno),
+            (0.20, 25, 5, 1.0, 0.2, 14, 0.7048000000000001, 0.08481131999916049, 3.23, 0.5048000000000001, 5.952035648130426, nessuno),
         ),
         (12, "reply"): (
-            (0.05, 23, 2, 0.9130434782608695, 0.6086956521739131, 5, 0.792608695652174, 0.05860863114433297, 2.81, 0.20142857142857146, 3.137985649679244, solo_nodi),
-            (0.10, 23, 3, 0.9130434782608695, 0.34782608695652173, 9, 0.7265217391304348, 0.06457509805819077, 3.33, 0.41476190476190483, 5.864422409899523, solo_nodi),
-            (0.20, 23, 5, 0.9130434782608695, 0.08695652173913043, 14, 0.6069565217391304, 0.1164892881483449, 4.03, 0.5695238095238095, 4.46392975925648, solo_nodi),
+            (0.05, 23, 2, 0.9130434782608695, 0.6086956521739131, 5, 0.792608695652174, 0.05860863114433297, 2.81, 0.20142857142857146, 3.137985649679244, nessuno),
+            (0.10, 23, 3, 0.9130434782608695, 0.34782608695652173, 9, 0.7265217391304348, 0.06457509805819077, 3.33, 0.41476190476190483, 5.864422409899523, nessuno),
+            (0.20, 23, 5, 0.9130434782608695, 0.08695652173913043, 14, 0.6069565217391304, 0.1164892881483449, 4.03, 0.5695238095238095, 4.46392975925648, nessuno),
         ),
         (12, "voice"): (
             (0.05, 15, 1, 1.0, 0.9333333333333333, 1, 0.9293333333333333, 0.015832456116050553, 1.06, -0.0040000000000000036, -0.252645576319956, nodi_e_rimossi),
@@ -845,19 +861,19 @@ def _scenario_today() -> dict[str, Any]:
     sovrapposizione = "node_overlap_below_minimum"
     community_reali: dict[tuple[int, str], tuple[Any, ...]] = {
         (11, "mention"): (26, 4, 0.16389004581424416, 0.18612036651395258, 0.022042254467687428, -1.0085320778914286,
-                          None, None, None, ("too_few_nodes", indistinguibile)),
+                          None, None, None, (indistinguibile,)),
         (11, "reaction"): (24, 3, 0.3149910767400356, 0.2464306960142772, 0.027374280569744697, 2.5045546147260027,
-                           None, None, None, ("too_few_nodes",)),
+                           None, None, None, ()),
         (11, "reply"): (24, 4, 0.17107750472589803, 0.18743856332703213, 0.023810439486219352, -0.6871380350036507,
-                        None, None, None, ("too_few_nodes", indistinguibile)),
+                        None, None, None, (indistinguibile,)),
         (11, "voice"): (9, 3, 0.04475308641975306, 0.04486111111111117, 0.04199473894423033, -0.002572338680365804,
                         None, None, None, ("too_few_nodes", indistinguibile)),
         (12, "mention"): (29, 5, 0.4310941828254848, 0.4260595567867036, 0.026904517695240368, 0.18712939201552214,
-                          0.1956521739130435, None, (1, 0, 0, 0), ("too_few_nodes", indistinguibile, sovrapposizione)),
+                          0.1956521739130435, None, (1, 0, 0, 0), (indistinguibile, sovrapposizione)),
         (12, "reaction"): (25, 4, 0.39554419284149006, 0.35063550036523006, 0.023517126960165585, 1.9096164489960215,
-                           0.3611111111111111, None, (1, 0, 0, 0), ("too_few_nodes", indistinguibile, sovrapposizione)),
+                           0.3611111111111111, None, (1, 0, 0, 0), (indistinguibile, sovrapposizione)),
         (12, "reply"): (23, 5, 0.40368608799048755, 0.41120689655172415, 0.026865452977589896, -0.2799434860640602,
-                        0.23684210526315788, None, (1, 0, 0, 0), ("too_few_nodes", indistinguibile, sovrapposizione)),
+                        0.23684210526315788, None, (1, 0, 0, 0), (indistinguibile, sovrapposizione)),
         (12, "voice"): (15, 2, 0.2221074380165289, 0.07289772727272725, 0.026530225458777885, 5.6241403215981185,
                         0.5, 0.3333333333333333, (0, 0, 1, 0), ("too_few_nodes",)),
     }
@@ -887,9 +903,10 @@ def _scenario_today() -> dict[str, Any]:
             "leiden_objective": PARAMS.leiden_objective,
             "baseline_degraded": False,
             "without_reconciled": {"identical": True},
-            "not_significant_because": list(motivi),
             "baseline_repetitions_used": 100,
         }
+        if motivi:
+            details["not_significant_because"] = list(motivi)
         if sid == 11:
             details["stability_unavailable"] = "no_previous_snapshot"
         elif stability is None:
@@ -899,7 +916,7 @@ def _scenario_today() -> dict[str, Any]:
             snapshot_id=sid, as_of=as_of_per_sid[sid], layer=layer,
             previous_snapshot_id=None if sid == 11 else 11,
             quality=Quality(n_effective=n, suppressed=False, suppression_reason=None,
-                            significant=False, details=details),
+                            significant=not motivi, details=details),
             values=CommunityValues(
                 community_count=count, modularity=mod, modularity_random_mean=mod_mean,
                 modularity_random_sd=mod_sd, modularity_z=z, node_overlap=overlap,
@@ -1024,7 +1041,7 @@ def _scenario_mature() -> dict[str, Any]:
       stato scritto con parametri diversi: ``params_differ``, e
       ``snapshots_used = 1`` sul run dice la stessa cosa. Nessun campo del
       confronto, e ``reply``/``mention``/``reaction`` sono comunque
-      ``is_significant = true`` (n >= 30, z >= 2,0): nessun precedente non e' un
+      ``is_significant = true`` (n >= min_nodes_structural, z >= 2,0): nessun precedente non e' un
       motivo di non significativita' (modello-metriche.md 4.6);
     - **``voice`` che riappare** (i=4, dopo l'assenza di i=5): il precedente c'e'
       e il layer li' era vuoto. Il job confronta con una partizione ``{}``, non
@@ -1051,7 +1068,7 @@ def _scenario_mature() -> dict[str, Any]:
         runs.append(
             RunRow(
                 snapshot_id=sid, as_of=as_of,
-                params={"min_cardinality": 5, "k_connections": 5, "min_nodes_structural": 30},
+                params={"min_cardinality": 5, "k_connections": 5, "min_nodes_structural": PARAMS.min_nodes_structural},
                 graph_params=graph_params(),
                 stats={"durations_ms": {"robustness": 9100 + i * 40, "communities": 5200,
                                         "cohorts": 1400}, "snapshots_used": 12 - i},
@@ -1266,7 +1283,7 @@ def _scenario_edge() -> dict[str, Any]:
         "runs": [
             RunRow(
                 snapshot_id=sid, as_of=as_of,
-                params={"min_cardinality": 5, "k_connections": 5, "min_nodes_structural": 30},
+                params={"min_cardinality": 5, "k_connections": 5, "min_nodes_structural": PARAMS.min_nodes_structural},
                 # graph_params NON passato, quindi i tre valori restano a None:
                 # lo snapshot del grafo non c'e' piu' (o l'ha scritto un codice
                 # che non registrava quei parametri). E' il caso che fa sparire
