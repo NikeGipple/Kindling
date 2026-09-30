@@ -1318,12 +1318,13 @@ tocca `reasons` (da cui deriva `is_significant`) **solo** nel ramo
 `node_overlap < min_node_overlap`; il ramo `previous is None` — che copre gli
 altri quattro casi, indistintamente — scrive `details["stability_unavailable"]`
 ma non aggiunge nessuna `reason`. Una riga sulla sua primissima osservazione
-comparabile, con `n ≥ 30` e `modularity_z ≥ 2,0`, è `is_significant = true`
+comparabile, con `n ≥ min_nodes_structural` e `modularity_z ≥ 2,0`, è `is_significant = true`
 anche senza nessuno snapshot precedente: l'assenza di un confronto non è, di
 per sé, un motivo di non significatività strutturale. Nei dati di produzione
-di oggi questo non si vede ancora perché tutti e quattro i layer hanno anche
-`n < 30` allo snapshot 11 (quindi `is_significant = false` comunque, per
-`too_few_nodes`) — ma lo snapshot successivo a un cambio di parametri, o la
+di allora questo non si vedeva perché tutti e quattro i layer avevano anche
+`n < 30` (la soglia di allora) allo snapshot 11 (quindi `is_significant = false` comunque, per
+`too_few_nodes`); con la soglia a 21 (30/09/2026, `modello-metriche.md` §7.1)
+il primo caso atteso è `reaction`@11, 24 nodi e `modularity_z` 2,50 — ma lo snapshot successivo a un cambio di parametri, o la
 prima riga di un layer nuovo sopra soglia, lo eserciterà, ed è un percorso che
 il fixture deve saper generare (vedi il prompt per Claude Code).
 
@@ -1387,7 +1388,7 @@ nelle coorti, un terzo campione della stessa classe di errore di lettura.
 0,500` (esattamente al minimo — non **sotto**, quindi `stability_jaccard` **si
 calcola**: `0,333`), un `merge` (una community precedente assorbita in una
 nuova). Eppure `quality.significant` è `false`, per l'unico motivo
-`too_few_nodes` (15 < 30). Leggere questa riga come "non ci si può fidare di
+`too_few_nodes` (15 < 21, e prima del 30/09/2026 < 30). Leggere questa riga come "non ci si può fidare di
 niente qui" sarebbe sbagliato quanto leggere `median_reached = false` come
 "meno di metà della coorte" (§5, sul sesto stato): la riga dice con precisione
 *quale* garanzia manca — la dimensione del campione — non che il segnale non
@@ -1501,7 +1502,7 @@ soglia.
 regola 4 già esercitata da Robustezza. Il codice si scrive e si esercita sul
 fixture `…002` (dodici settimane), che varia sia `modularity_z` (`5,5` in
 discesa di `0,1` a settimana su `reply`/`mention`/`reaction`, fisso a `2,6` o
-`1,4` su `voice` a seconda della soglia dei 30 nodi) sia `stability_jaccard`
+`1,4` su `voice` a seconda della soglia `min_nodes_structural`) sia `stability_jaccard`
 (`0,74` in discesa con rumore) apposta per esercitare una serie vera, non
 piatta.
 
@@ -2842,7 +2843,7 @@ La tentazione è trattare il presente come un unico "non ci sono ancora dati". �
 sbagliato, e produrrebbe quattro schermate che dicono la stessa frase generica
 mentre la situazione è diversa in ognuna.
 
-**"Non significativo" non vuol dire "vuoto".** Sotto i 30 nodi i valori di
+**"Non significativo" non vuol dire "vuoto".** Sotto `min_nodes_structural` nodi (21) i valori di
 robustezza e community **vengono calcolati e scritti lo stesso**: scatta solo
 `is_significant = False` con `not_significant_because: ["too_few_nodes"]`. Ci
 sono numeri veri da mostrare. Quello che manca davvero è altro.
@@ -2851,7 +2852,7 @@ sono numeri veri da mostrare. Quello che manca davvero è altro.
 |---|---|---|
 | **Stato** | Piena e corretta | *Il bot osserva dal 28 agosto, l'ultimo calcolo è di lunedì.* Nessun caveat. |
 | **Robustezza** | 12 righe, **tutti i valori popolati**, tutte non significative | *Questi numeri esistono e non sono distinguibili dal rumore.* Il perché resta fuori: sta in `details`, e §5 lo vieta finché non è una colonna. |
-| **Community** | Popolata; stabilità su un solo layer (dati del rerun del 15/09/2026). Lo snapshot 11 non ha precedente su nessuno dei quattro layer: `previous_gap_days` e `stability_jaccard` assenti, `no_previous_snapshot`. Lo snapshot 12 si confronta con l'11 con `previous_gap_days` **6,823** su tutti e quattro i layer, ma `stability_jaccard` c'è solo su `voice` (**0,333**): `mention`, `reaction` e `reply` hanno `node_overlap` sotto il minimo (`node_overlap_below_minimum`), non un precedente mancante. Nodi dall'11 al 12: `voice` 9→15, `mention` 26→29, `reaction` 24→25, `reply` 24→23. **Nessun layer è oggi `is_significant = true`**: tutti e quattro sono ancora sotto i 30 nodi (`too_few_nodes`), `voice`@12 compreso — che pure ha `modularity_z = 5,624` e `stability_jaccard = 0,333`, entrambi ben oltre le rispettive soglie. | *La struttura si vede, e su `voice` anche la stabilità: nessuna delle due letture dipende dal grafo essere "abbastanza grande" secondo la soglia strutturale, che qui non ha ancora acceso niente. Sugli altri tre layer la stabilità non si legge perché tra una settimana e l'altra sono cambiate troppe persone, non perché il grafo sia piccolo — sono due limiti diversi che oggi capitano insieme.* |
+| **Community** | Popolata; stabilità su un solo layer (dati del rerun del 15/09/2026). Lo snapshot 11 non ha precedente su nessuno dei quattro layer: `previous_gap_days` e `stability_jaccard` assenti, `no_previous_snapshot`. Lo snapshot 12 si confronta con l'11 con `previous_gap_days` **6,823** su tutti e quattro i layer, ma `stability_jaccard` c'è solo su `voice` (**0,333**): `mention`, `reaction` e `reply` hanno `node_overlap` sotto il minimo (`node_overlap_below_minimum`), non un precedente mancante. Nodi dall'11 al 12: `voice` 9→15, `mention` 26→29, `reaction` 24→25, `reply` 24→23. **Nessun layer è oggi `is_significant = true`**: tutti e quattro sono ancora sotto i 30 nodi, la soglia di allora (`too_few_nodes`; dal 30/09/2026 è 21, `modello-metriche.md` §7.1), `voice`@12 compreso — che pure ha `modularity_z = 5,624` e `stability_jaccard = 0,333`, entrambi ben oltre le rispettive soglie. | *La struttura si vede, e su `voice` anche la stabilità: nessuna delle due letture dipende dal grafo essere "abbastanza grande" secondo la soglia strutturale, che qui non ha ancora acceso niente. Sugli altri tre layer la stabilità non si legge perché tra una settimana e l'altra sono cambiate troppe persone, non perché il grafo sia piccolo — sono due limiti diversi che oggi capitano insieme.* |
 | **Coorti** | **Aggiornato il 26/09/2026** (snapshot 13, `as_of` 21/09, letto dalle sole tabelle `metric_*`): **25 coorti** — **5 soppresse**, tutte anteriori all'ancora (30/08 secondo la lettura del 26/09; il resto di questo documento e il fixture `…001` dicono 28/08 — per il filtro della vista non cambia niente, la coorte del 24/08 precede entrambe e quella del 31/08 le segue entrambe, ma la data va verificata); **17 «solo sopravvissuti»**; **3 posteriori all'ancora**. La coorte del **31/08** è la **prima `is_significant = true` mai vista in produzione**: `n = 14`, matura a 14 giorni, coperta; `any` `reached_by_14d = 0,083`, `reached_by_28d` NULL; `voice` `reached_by_14d = 0,000`; retention 0,857 a 7 e a 14 giorni, `horizon_not_reached` a 28. Il **07/09** non è matura (8 giorni) e ha `reached_by_14d = reached_by_28d = 1,000` su `any` con 3 eventi su 8 — la coda della curva, ed è la ragione per cui la vista non mostra numeri sulle coorti non mature. Il **14/09** ha 0 giorni di osservazione, retention tutta `horizon_not_reached`. *La stesura del 14/09, sotto, resta come storia.* — **25 coorti** sull'ultimo snapshot (14/09/2026), **50 righe di onboarding**: **12 soppresse** (`n<5`, 6 coorti × 2 `layer_scope`), **34 "solo sopravvissuti"** (17 coorti, anteriori all'ancora del 28/08), **4 né l'uno né l'altro** (2 coorti recenti, con copertura di snapshot). **Nessuna riga è oggi `is_significant = true`**: le uniche coorti non "solo sopravvissuti" non sono ancora mature (`observation_days < 14` dall'ultimo iscritto — la coorte del 31/08 ne ha 7). Retention: aritmeticamente **18** righe soppresse, **51** con `not_computable_reason = before_observability_anchor` (stessa causa di "solo sopravvissuti"), **6** sulle 2 coorti recenti (calcolabilità per orizzonte non verificata su dati reali in questa sessione — nessun accesso al database di produzione da qui). | *Una settimana si legge: quella del 31 agosto, quattordici persone. Dice com'è andata a quel gruppo, non ancora come va di solito. Le due settimane dopo sono in osservazione, con la data del calcolo da cui si leggeranno. Le coorti anteriori all'arrivo del bot non compaiono nella vista: di chi è entrato prima Kindling vede solo chi è rimasto, e quei numeri stanno nei Dettagli tecnici.* |
 
 Sono quattro frasi diverse, e la differenza tra "non attendibile", "non ancora
@@ -2874,8 +2875,9 @@ due verifiche attese (cadenza esatta a 7 giorni, `code_version` sulla run).
 Maturare non basta da solo a renderla significativa: serve anche
 `has_snapshot_coverage = true` sulla sua finestra, che la coorte del 31/08 ha
 già (uno snapshot il 14/09 la copre). La
-significatività strutturale non arriva con nessuna delle due: richiede 30 nodi,
-**e** per le community anche `modularity_z ≥ 2,0`. Superare i 30 nodi non
+significatività strutturale non arriva con nessuna delle due: richiede
+`min_nodes_structural` nodi (21),
+**e** per le community anche `modularity_z ≥ 2,0`. Superare la soglia di nodi non
 accende tutto insieme, e la UI non deve promettere che lo faccia.
 
 ## 7. Si sviluppa contro il fixture, non contro la produzione

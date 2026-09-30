@@ -286,7 +286,7 @@ distribuzione di `interaction_count` delle coppie oggi ammesse su `voice` — qu
 hanno una sola sessione condivisa e quante due o più — per sapere quanto il
 grafo si restringerà e se `targeted_excess` smette davvero di essere
 indistinguibile da zero. Va ripetuta a ogni snapshot finché `n_effective` non
-supera stabilmente 30, perché è il momento in cui una regressione su questo
+supera stabilmente `min_nodes_structural` (§7.1), perché è il momento in cui una regressione su questo
 punto smetterebbe di essere silenziosa e comincerebbe a essere letta come "la
 community vocale è diventata più concentrata" invece che "il bug è tornato".
 
@@ -1255,14 +1255,34 @@ significherebbe non poter più dire quale delle due è scattata.
 
 `is_significant = false` se:
 
-- il grafo ha meno di `min_nodes_structural` nodi (default 30). Sotto poche
-  decine di nodi la betweenness è dominata da una manciata di cammini e il top
-  X% è 1-2 nodi: la rimozione non è una statistica, è un aneddoto;
+- il grafo ha meno di `min_nodes_structural` nodi (default 21);
 - il numero di nodi rimossi è `< 2` (conseguenza tipica del minimo di 1 nodo su
   grafi piccoli);
 - il baseline casuale ha deviazione standard nulla su tutte le R ripetizioni —
   significa che il grafo è così piccolo o così regolare che ogni rimozione
   casuale dà lo stesso risultato, e `targeted_z` non è definibile.
+
+**Da dove viene `min_nodes_structural`: segue la griglia `X`, non i dati di un
+server.** Una rimozione che tocca un solo nodo è un aneddoto, non una
+statistica: è la ragione della seconda condizione (`too_few_nodes_removed`). I
+nodi rimossi sono `ceil(X · n)` (§3.2), quindi la frazione più piccola della
+griglia (oggi 0,05) toglie almeno 2 persone solo da `n` tale che
+`ceil(0,05 · n) ≥ 2`, cioè da `n = 21` in su. 21 è quindi la soglia **più
+piccola coerente con la griglia**: sotto, almeno una cella della griglia
+sarebbe comunque non significativa per `too_few_nodes_removed`; sopra, la
+significatività la decidono le altre due condizioni (nodi rimossi ≥ 2, baseline
+non degenere), non il numero di nodi in sé. Con 21, sopra soglia l'unico motivo
+di non significatività possibile è `degenerate_baseline`.
+
+**Se la frazione più piccola della griglia cambia, cambia anche la soglia**: è
+il più piccolo `n` con `ceil(min(X) · n) ≥ 2`, e un test
+(`tests/test_soglia_strutturale.py`) fallisce se i due valori si separano, in un verso o
+nell'altro. Il valore precedente, 30, era un'euristica («sotto poche decine di
+nodi la betweenness è dominata da una manciata di cammini») senza un legame con
+nessun altro parametro; è stato sostituito il 30/09/2026, quando un server
+medio-piccolo in quattro snapshot non l'aveva mai raggiunto (massimo 29 nodi)
+pur mostrando sui grafi da 23-29 nodi un segnale di robustezza netto e
+ripetuto.
 
 ### 7.2 Community
 
@@ -1303,6 +1323,15 @@ vedere da quale delle due situazioni viene la riga che ha in mano.
 - `modularity_z < min_modularity_z` (default 2.0): la partizione trovata non è
   distinguibile da quella che si troverebbe su un grafo casuale con gli stessi
   gradi.
+
+La soglia di nodi è **la stessa della robustezza** (§7.1), un solo valore per
+entrambe, e qui è un minimo, non un criterio: la sua derivazione viene dalla
+griglia di rimozione, che con le community non ha niente a che fare. La guardia
+vera delle community è `modularity_z`, che confronta la partizione con il
+baseline sullo stesso grafo e quindi tiene già conto della dimensione — è
+proprio per questo che esiste (sopra: la modularità del rumore cresce al
+diminuire dei nodi). Un grafo sopra `min_nodes_structural` con `modularity_z`
+sotto soglia resta non significativo.
 
 La stabilità ha in più le condizioni di §4.6.
 
@@ -1655,7 +1684,7 @@ incomparabili gli snapshot del grafo), e tutti salvati in `metric_runs.params`.
 | Osservazione minima coorte | 14 giorni | Provvisorio |
 | Età massima coorte ricalcolata | 180 giorni | Ingegneria nostra, solo costo |
 | Esclusione rientri sospetti | `true` | Ingegneria nostra (§5.6) |
-| Nodi minimi per significatività | 30 | **Provvisorio** — il numero è un'euristica, il principio no |
+| Nodi minimi per significatività | 21 | Derivato dalla griglia `X` (§7.1) — il più piccolo `n` con `ceil(min(X) · n) ≥ 2`; cambia se cambia la frazione più piccola |
 | `modularity_z` minimo | 2.0 | Convenzione statistica; provvisorio |
 | Estremi dei bucket di dimensione | `< N`, `[N,10)`, `[10,20)`, `[20,50)`, `[50,100)`, `[100,∞)` | Ingegneria nostra — **salvati in `params`**, perché dipendono da `N` (§6.3) |
 | Proiezione layer direzionali | `undirected_sum` | Ingegneria nostra (§2.2) |
