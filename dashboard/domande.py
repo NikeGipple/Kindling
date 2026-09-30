@@ -136,6 +136,29 @@ def _soglie_di_rimozione(params: Mapping[str, Any]) -> Optional[str]:
     return ", ".join(parti)
 
 
+def _ripetizioni(params: Mapping[str, Any]) -> Optional[str]:
+    """``100 volte (20 nelle reti con più di 500 persone attive)``.
+
+    Le ripetizioni del baseline sono due valori, non uno: oltre
+    ``baseline_downgrade_nodes`` il job scende a ``baseline_repetitions_reduced``
+    (``MetricParams.baseline_repetitions_for``). "100 volte" da solo sarebbe falso
+    su una rete grande. Senza tutte e tre le chiavi non si sa se la riduzione
+    valga, e il numero non compare. Quello usato da una riga e' in
+    ``details.baseline_repetitions_used``, che non e' contratto e qui non si legge.
+    """
+    piene = _soglia(params, "baseline_repetitions")
+    ridotte = _soglia(params, "baseline_repetitions_reduced")
+    oltre = _soglia(params, "baseline_downgrade_nodes")
+    if piene is None or ridotte is None or oltre is None:
+        return None
+    if ridotte == piene:
+        return f"{numero(piene)} volte"
+    return (
+        f"{numero(piene)} volte ({numero(ridotte)} nelle reti con più di "
+        f"{plurale(oltre, 'persona attiva', 'persone attive')})"
+    )
+
+
 def _quota(frazione: float) -> str:
     """``0.5`` -> ``metà``, altrimenti la percentuale: ``0.6`` -> ``il 60%``."""
     if abs(frazione - 0.5) < 1e-9:
@@ -178,7 +201,7 @@ def costruisci(
     k = _soglia(p, "k_connections")
     z_minimo = _soglia(p, "min_modularity_z")
     sovrapposizione = _soglia(p, "min_node_overlap")
-    ripetizioni = _soglia(p, "baseline_repetitions")
+    ripetizioni = _ripetizioni(p)
     rimozioni = _soglie_di_rimozione(p)
     quante_soglie = (
         len(p["removal_fractions"]) if rimozioni is not None else None
@@ -256,7 +279,7 @@ def costruisci(
                 "Da sola la simulazione non direbbe molto: qualunque rete si sfalda se "
                 "si toglie abbastanza gente. Per questo Kindling rifà la prova togliendo "
                 "lo stesso numero di persone scelte a caso"
-                + (f", {ripetizioni} volte," if ripetizioni is not None else "")
+                + (f", {ripetizioni}," if ripetizioni is not None else "")
                 + " e confronta. Se senza le persone centrali si stacca molta più gente "
                 "che senza persone qualunque, i contatti passano da poche persone; se "
                 "se ne stacca quanta a caso, sono distribuiti.",

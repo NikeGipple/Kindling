@@ -433,3 +433,28 @@ def test_q_leggibile_senza_una_chiave_la_sua_frase_non_ha_numero(chiave):
     assert frase in completo and frase not in ridotto
     # La condizione resta nominata, senza il numero.
     assert len(re.findall(r"\bquando\b", ridotto.lower())) == len(re.findall(r"\bquando\b", completo.lower()))
+
+
+# --- le ripetizioni del baseline: due valori, non uno (30/09/2026) -------------
+
+
+def test_le_ripetizioni_dicono_anche_la_riduzione_sulle_reti_grandi():
+    """Oltre baseline_downgrade_nodes il job scende a baseline_repetitions_reduced:
+    "100 volte" da solo sarebbe falso su una rete di 600 persone."""
+    p = MetricParams()
+    assert p.baseline_repetitions_for(p.baseline_downgrade_nodes + 1)[0] == p.baseline_repetitions_reduced
+    testo = _robustezza(PARAMS_COMPLETI)["q-robustezza-come"]
+    assert (
+        f"{p.baseline_repetitions} volte ({p.baseline_repetitions_reduced} nelle reti con più "
+        f"di {p.baseline_downgrade_nodes} persone attive)"
+    ) in testo
+
+
+@pytest.mark.parametrize("chiave", [
+    "baseline_repetitions", "baseline_repetitions_reduced", "baseline_downgrade_nodes",
+])
+def test_senza_una_chiave_delle_ripetizioni_nessun_numero_di_volte(chiave):
+    senza = {k: v for k, v in PARAMS_COMPLETI.items() if k != chiave}
+    testo = _robustezza(senza)["q-robustezza-come"]
+    assert "volte" not in testo
+    assert "persone scelte a caso e confronta" in testo

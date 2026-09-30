@@ -1002,8 +1002,16 @@ con i testi del mockup e quattro correzioni:
 
 - le soglie vengono da `params` con la regola di sempre: «una persona su 20, una
   su 10, una su 5» da `removal_fractions` (con la stessa regola «1 su N» della
-  vista), «cento volte» da `baseline_repetitions`, «almeno N persone» da
-  `min_nodes_structural`. Chiave mancante, frase che non la nomina;
+  vista), «100 volte» da `baseline_repetitions`, «almeno N persone» da
+  `min_nodes_structural`. Chiave mancante, frase che non la nomina. **Le
+  ripetizioni hanno due valori** (30/09/2026): oltre `baseline_downgrade_nodes`
+  persone il job scende a `baseline_repetitions_reduced` (`MetricParams.
+  baseline_repetitions_for`), e «100 volte» da solo sarebbe falso su una rete
+  grande. La frase dice entrambi — «100 volte (20 nelle reti con più di 500
+  persone attive)» — e il numero compare solo se ci sono tutte e tre le chiavi:
+  con una sola non si sa se valga. Il numero usato davvero da una riga sta in
+  `details.baseline_repetitions_used`, che non è contrattuale (regola 2) e qui
+  non si legge;
 - `q-robustezza-come` dice che se senza le persone centrali si stacca molta più
   gente, i contatti «passano da poche persone», e **anche il contrario**: se ne
   stacca quanta a caso, sono distribuiti. Una risposta che spiegasse solo il
