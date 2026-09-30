@@ -27,7 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 
-from .regole import plurale
+from .regole import numero, plurale
 
 # Il testo di ogni domanda, in un posto solo. Lo legge anche ``stato.py``, che
 # lo usa come etichetta dei rimandi di "Cosa puoi leggere oggi": un rimando che
@@ -136,6 +136,13 @@ def _soglie_di_rimozione(params: Mapping[str, Any]) -> Optional[str]:
     return ", ".join(parti)
 
 
+def _quota(frazione: float) -> str:
+    """``0.5`` -> ``metà``, altrimenti la percentuale: ``0.6`` -> ``il 60%``."""
+    if abs(frazione - 0.5) < 1e-9:
+        return "metà"
+    return f"il {frazione * 100:g}%"
+
+
 def per_gruppo(domande: tuple[Domanda, ...]) -> tuple[tuple[str, tuple[Domanda, ...]], ...]:
     """Le domande nei loro gruppi, nell'ordine di ``GRUPPI``."""
     per_codice = {d.codice: d for d in domande}
@@ -169,6 +176,8 @@ def costruisci(
     nodi = _soglia(p, "min_nodes_structural")
     maturita = _soglia(p, "min_observation_days")
     k = _soglia(p, "k_connections")
+    z_minimo = _soglia(p, "min_modularity_z")
+    sovrapposizione = _soglia(p, "min_node_overlap")
     ripetizioni = _soglia(p, "baseline_repetitions")
     rimozioni = _soglie_di_rimozione(p)
     quante_soglie = (
@@ -402,9 +411,31 @@ def costruisci(
                 if nodi is not None
                 else "Quando la rete di quel tipo di interazione è abbastanza grande.",
                 "E quando i gruppi che emergono sono più netti di quanto lo sarebbero "
-                "in una rete formata a caso. Kindling lo verifica da solo a ogni "
-                "calcolo: non c'è niente da impostare, e le due condizioni non si "
-                "accendono necessariamente insieme.",
+                "in una rete formata a caso"
+                + (
+                    f": lo scarto deve essere almeno {numero(z_minimo)} volte la "
+                    "variazione tipica del caso."
+                    if z_minimo is not None
+                    else "."
+                ),
+                # La terza condizione del job (job/communities.py,
+                # modello-metriche.md 4.6): fino al 30/09/2026 questa risposta ne
+                # diceva due, e su Arco era proprio la terza a bloccare i layer
+                # testuali (dashboard.md 4, "La pagina Domande").
+                (
+                    f"E, se c'è una settimana precedente con cui confrontarla, quando "
+                    f"almeno {_quota(sovrapposizione)} delle persone è la stessa della "
+                    "settimana prima"
+                    if sovrapposizione is not None
+                    else "E, se c'è una settimana precedente con cui confrontarla, quando "
+                    "abbastanza persone sono le stesse della settimana prima"
+                )
+                + ": se sono cambiate troppe persone, i gruppi delle due settimane non "
+                "si possono confrontare. La prima settimana, senza un precedente, questa "
+                "condizione non si applica.",
+                "Kindling lo verifica da solo a ogni calcolo: non c'è niente da "
+                "impostare, e le tre condizioni non si accendono necessariamente "
+                "insieme.",
             ),
         ),
         Domanda(

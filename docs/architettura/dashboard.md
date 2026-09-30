@@ -798,8 +798,20 @@ sulle righe **dell'ultimo snapshot** di quella vista (il massimo per
 |---|---|---|
 | **in raccolta** | nessuna riga | Il calcolo non c'è ancora |
 | **sotto la soglia** | tutte le righe `suppressed` | I numeri esistono, ma riguardano troppe poche persone |
-| **con cautela** | righe pubblicate, nessuna `significant is True` | I numeri ci sono e non sono distinguibili dal caso |
+| **con cautela** | righe pubblicate, nessuna `significant is True` | I numeri ci sono, ma nessuno è ancora leggibile |
 | **leggibile** | almeno una riga `significant is True` | Almeno una misura regge una conclusione |
+
+**«Con cautela» non nomina una causa (30/09/2026).** Fino ad allora la frase era
+«nessuno di essi è ancora distinguibile dal caso», ricavata da `significant is
+False`, che però ha più motivi: in Community `too_few_nodes`,
+`modularity_indistinguishable_from_random`, `degenerate_baseline` e
+`node_overlap_below_minimum`; in Coorti maturità e copertura, che col caso non
+c'entrano. Sui dati del 28/09 era falsa: `voice` ha `modularity_z = 2,56`, cioè è
+distinguibile dal caso, ed è non leggibile solo perché ha 11 persone. La frase
+dice ora solo ciò che il flag dice; il perché sta nelle viste e
+nelle Domande. Derivarlo qui dai motivi vorrebbe dire leggere `details` (regola
+2) o rifare le condizioni del job in Stato, cioè una seconda copia da tenere
+allineata.
 
 Nessuna soglia nuova, nessun conteggio di settimane, nessun giudizio composto:
 sono le stesse quattro situazioni che §5 e §6 già distinguono, dette in una
@@ -956,6 +968,18 @@ rimando. Tre vincoli sulle risposte:
   far pensare a una persona in particolare davanti a «1 su 14». Porta il link ai
   Dettagli tecnici: è da qui che la vista ci manda, e la pagina resta
   raggiungibile solo dalle Domande.
+
+**`q-leggibile` nomina le tre condizioni del job, non due (30/09/2026).** Una riga
+di Community è significativa se ha almeno `min_nodes_structural` nodi, se
+`modularity_z ≥ min_modularity_z` e, **quando c'è uno snapshot precedente
+confrontabile**, se `node_overlap ≥ min_node_overlap` (`job/communities.py`,
+`modello-metriche.md` §4.6). La risposta ne diceva due; la terza è quella che
+blocca i layer testuali di Arco (`node_overlap` fra 0,19 e 0,47 in 9 casi su 9:
+Menzioni del 21/09, 27 persone e z 2,51, non è leggibile per 0,436). Ora dice, in
+parole semplici, che almeno la frazione `min_node_overlap` delle persone deve
+essere la stessa della settimana prima, e che la prima settimana, senza un
+precedente, la condizione non si applica. Ogni valore viene da `params`; chiave
+mancante, frase che non la nomina con un numero.
 
 **Le domande sono divise in gruppi (30/09/2026, §7-AC)**: «In generale»,
 «Robustezza», «Coorti», «Community», «Dati e aggiornamenti», con le assegnazioni

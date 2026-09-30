@@ -393,3 +393,43 @@ def test_la_domanda_sulla_barra_porta_ai_dettagli_tecnici():
     (barra,) = [d for d in domande.costruisci(7, PARAMS_COMPLETI, privacy_url="x")
                 if d.codice == "q-robustezza-barra"]
     assert barra.link is not None and barra.link.url == "/guilds/7/dettagli-tecnici#robustezza"
+
+
+# --- q-leggibile: le tre condizioni del job (30/09/2026) ----------------------
+
+
+def _leggibile(params) -> str:
+    (d,) = [d for d in domande.costruisci(1, params, privacy_url="x") if d.codice == "q-leggibile"]
+    return " ".join(d.paragrafi)
+
+
+def test_q_leggibile_nomina_le_tre_condizioni_che_il_job_usa():
+    """too_few_nodes, modularity_z e node_overlap (job/communities.py): la risposta
+    ne diceva due, e la terza e' quella che blocca i layer testuali di Arco."""
+    p = MetricParams()
+    testo = _leggibile(PARAMS_COMPLETI)
+    assert f"almeno {p.min_nodes_structural} persone attive" in testo
+    assert f"almeno {p.min_modularity_z:g} volte la variazione tipica del caso" in testo
+    assert "almeno metà delle persone è la stessa della settimana prima" in testo
+    assert "La prima settimana, senza un precedente, questa condizione non si applica." in testo
+    assert "tre condizioni" in testo
+
+    # I valori della run, non quelli del job.
+    altri = _leggibile({**PARAMS_COMPLETI, "min_node_overlap": 0.6, "min_modularity_z": 2.5})
+    assert "almeno il 60% delle persone" in altri
+    assert "almeno 2,5 volte" in altri
+
+
+@pytest.mark.parametrize("chiave", ["min_nodes_structural", "min_modularity_z", "min_node_overlap"])
+def test_q_leggibile_senza_una_chiave_la_sua_frase_non_ha_numero(chiave):
+    senza = {k: v for k, v in PARAMS_COMPLETI.items() if k != chiave}
+    completo, ridotto = _leggibile(PARAMS_COMPLETI), _leggibile(senza)
+    assert completo != ridotto
+    frase = {
+        "min_nodes_structural": "persone attive",
+        "min_modularity_z": "volte la variazione",
+        "min_node_overlap": "delle persone è la stessa",
+    }[chiave]
+    assert frase in completo and frase not in ridotto
+    # La condizione resta nominata, senza il numero.
+    assert len(re.findall(r"\bquando\b", ridotto.lower())) == len(re.findall(r"\bquando\b", completo.lower()))

@@ -800,3 +800,22 @@ def _posizioni(testo: str, ago: str) -> list[int]:
             return trovate
         trovate.append(i)
         da = i + 1
+
+
+def test_con_cautela_non_nomina_una_causa_che_il_flag_non_dice():
+    """voice il 28/09: 11 persone e modularity_z 2,56. E' distinguibile dal caso,
+    ed e' non leggibile solo per le persone (too_few_nodes). La frase della
+    pillola diceva "nessuno e' ancora distinguibile dal caso": falsa qui."""
+    from datetime import datetime, timezone
+
+    from tools.fixture_api import _community_layer, _partizione
+
+    as_of = datetime(2026, 9, 28, tzinfo=timezone.utc)
+    riga = _community_layer(14, as_of, "voice", n=11, dimensioni=_partizione(11), modularity_z=2.56)
+    assert riga.quality.significant is False and riga.values.modularity_z == 2.56
+    guild = GuildRow(guild_id=5, first_seen_at=datetime(2026, 8, 28, tzinfo=timezone.utc))
+    vista = stato.costruisci(guild, [], [], [riga], [], ora=as_of)
+    (community,) = [l for l in vista.letture if l.nome == "Community"]
+    assert community.stato == stato.CON_CAUTELA
+    assert "caso" not in community.frase
+    assert "leggibile" in community.frase

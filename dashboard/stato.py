@@ -556,7 +556,11 @@ ETICHETTE_STATO = {
 FRASI_STATO = {
     IN_RACCOLTA: "Il calcolo non c'è ancora: i numeri arrivano con la prima esecuzione settimanale.",
     SOTTO_SOGLIA: "I numeri esistono, ma riguardano troppe poche persone perché mostrarli sia prudente.",
-    CON_CAUTELA: "I numeri ci sono, e nessuno di essi è ancora distinguibile dal caso.",
+    # Solo cio' che il flag dice (30/09/2026). Era "nessuno di essi e' ancora
+    # distinguibile dal caso": una causa ricavata da significant is False, che di
+    # cause ne ha piu' d'una — voice il 28/09, z 2,56 e 11 persone, e' distinguibile
+    # dal caso ed e' non leggibile per le persone (dashboard.md 4).
+    CON_CAUTELA: "I numeri ci sono, ma nessuno è ancora leggibile.",
     LEGGIBILE: "Almeno una misura è distinguibile dal caso: si può leggere.",
 }
 
