@@ -165,7 +165,11 @@ _MESI = stato.MESI
 # sarebbe proprio il piede che base.html dice di non scrivere. Sono entrati i
 # Dettagli tecnici, che da quel giorno portano la vecchia tabella delle coorti, e
 # con lei soppressioni, non calcolabili ed etichette di riga.
-_VISTE_CON_SIMBOLI = frozenset({"robustezza", "community", "dettagli"})
+#
+# Robustezza e' uscita il 30/09/2026 per la stessa ragione: barre e tacche, e
+# nessuna cella da cella(). La sua vecchia tabella sta nei Dettagli tecnici, che
+# restano nell'insieme.
+_VISTE_CON_SIMBOLI = frozenset({"community", "dettagli"})
 
 
 def _impronta(dati: bytes) -> str:
@@ -638,19 +642,28 @@ def crea_app(
                 guild.first_seen_at,
                 ultima.params if ultima is not None else None,
             ),
+            # La tabella che fino al 30/09/2026 era la vista Robustezza.
+            robustezza=robustezza.tecnica(await api.robustness(guild_id)),
             vista_corrente="dettagli",
         )
 
     @app.get("/guilds/{guild_id}/robustezza", response_class=HTMLResponse, dependencies=protetta)
     async def vista_robustezza(request: Request, guild_id: int):
-        """Vista Robustezza (dashboard.md 4): la connettivita' dipende da pochi connettori?"""
+        """Vista Robustezza (dashboard.md 4): se le poche persone che tengono
+        insieme il server smettessero di esserci, gli altri resterebbero in
+        contatto fra loro?
+
+        Due chiamate: le righe, e le run per i ``params`` con cui ogni snapshot e'
+        stato calcolato — la soglia di lettura e quella di pubblicazione.
+        """
         api: ApiClient = request.app.state.api
         righe = await api.robustness(guild_id)
+        runs = await api.runs(guild_id)
         return pagina(
             request,
             "robustezza.html",
             guild_id=guild_id,
-            vista=robustezza.costruisci(righe),
+            vista=robustezza.pagina(righe, runs),
             vista_corrente="robustezza",
         )
 

@@ -18,6 +18,7 @@
     in due tabelle — dopo e prima dell'arrivo del bot (_coorti_tecnica.html). -#}
 {% extends "base.html" %}
 {% from "_coorti_tecnica.html" import tabella %}
+{% from "_robustezza_tecnica.html" import robustezza_tecnica %}
 {% block titolo %}Dettagli tecnici · {{ nome_server }}{% endblock %}
 {% block contenuto %}
 <h1>Dettagli tecnici</h1>
@@ -76,6 +77,16 @@ con il codice del job, quindi non diventano etichette né condizioni di questa p
 <p>Nessuna esecuzione di metriche è ancora stata registrata per questo server: non
 c'è niente da ispezionare. I dettagli compaiono con il primo calcolo settimanale.</p>
 {% endif %}
+
+{#- Fuori dal blocco di ``ultima``, come le coorti: la robustezza arriva da un
+    altro endpoint, e la sua assenza si dice con una frase propria. E' la tabella
+    che fino al 30/09/2026 era la vista (_robustezza_tecnica.html). -#}
+<h2 id="robustezza">Robustezza — numeri esatti</h2>
+<p class="nota">Un blocco per tipo di interazione: le tre rimozioni dell'ultimo
+snapshot, con la qualificazione di ogni riga, e sotto l'eccesso mirato per
+snapshot. La vista Robustezza mostra le stesse righe come proporzioni approssimate,
+e sotto la soglia di nodi non le mostra.</p>
+{{ robustezza_tecnica(robustezza) }}
 
 {#- Fuori dal blocco di ``ultima``: le coorti arrivano da un altro endpoint, e la
     loro assenza si dice con una frase propria. -#}

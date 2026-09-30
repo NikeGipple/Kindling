@@ -1,169 +1,143 @@
-{#- Vista Robustezza (dashboard.md 4, "La vista Robustezza, in dettaglio").
+{#- Vista Robustezza (dashboard.md 4, "Riscritta il 30/09/2026: la vista per chi
+    amministra il server").
 
-    Le decisioni stanno in dashboard/robustezza.py; qui solo l'aspetto. Tre
-    invarianti di template, verificati sul markup dai test:
+    Le decisioni stanno in dashboard/robustezza.py (pagina); qui solo l'aspetto.
+    Invarianti di template, verificati sul markup dai test:
 
-    - regola 6: una percentuale di rimozione non compare MAI senza i nodi rimossi
-      accanto — nella riga (colonne adiacenti), nella voce di legenda
-      (intervallo sulla serie), nel <title> del punto (la sua riga);
-    - l'etichetta di riga compare una volta per riga, nell'ultima colonna;
-    - nessun totale, media o confronto tra layer: quattro blocchi separati.
+    - una riga per tipo di interazione, in UNO stato. Solo la leggibile porta
+      barre: sotto min_nodes_structural nessun risultato della simulazione;
+    - barra e tacca mostrano la FASCIA, mai il valore: la parola sta
+      nell'aria-label, larghezza e posizione in una classe (fascia-N, tacca-N) —
+      la CSP vieta style="";
+    - regola 6: l'intestazione di una frazione ("1 su 20") non compare mai senza
+      "senza N persone" nella stessa cella;
+    - nessun totale, media o sintesi fra tipi, fra frazioni o fra settimane;
+    - su telefono ogni riga e' una scheda, con il solo CSS su QUESTO markup: le
+      etichette delle celle vengono da data-etichetta.
 
-    quality.details non si legge (regola 2). -#}
+    quality.details non si legge (regola 2). Nessun JavaScript. -#}
 {% extends "base.html" %}
-{% from "_cella.html" import mostra, etichette %}
 {% block titolo %}Robustezza · {{ nome_server }}{% endblock %}
 {% block contenuto %}
+{% set domande = "/guilds/" ~ guild_id ~ "/domande" %}
+{#- Una tabella, due usi: la settimana chiusa (una riga per tipo) e le settimane
+    precedenti (una riga per settimana, un tipo alla volta). Le righe arrivano
+    come coppie (etichetta, riga): la prima colonna e' il tipo o la settimana. -#}
+{% macro tabella(righe, frazioni, caption, prima_colonna, storia=false) -%}
+{%- set n_frazioni = frazioni | length %}
+<div class="scorri robustezza-scorri">
+<table class="robustezza-lettura{% if storia %} robustezza-lettura--storia{% endif %}">
+  <caption>{{ caption }}</caption>
+  <thead>
+    <tr class="robustezza-lettura__gruppi">
+      <th rowspan="2" scope="col">{{ prima_colonna }}</th>
+      <th rowspan="2" scope="col" class="persone">Persone attive</th>
+      <th rowspan="2" scope="col" class="inizio">Collegati fra loro</th>
+      <th colspan="{{ n_frazioni }}" scope="colgroup" class="inizio">Restano collegati senza le più centrali
+        {%- if not storia %} <span class="sottotitolo-colonna">tacca: senza persone qualunque</span>{% endif %}</th>
+    </tr>
+    <tr>
+      {%- for _rf, intestazione in frazioni %}
+      <th scope="col"{% if loop.first %} class="inizio"{% endif %}>{{ intestazione }}</th>
+      {%- endfor %}
+    </tr>
+  </thead>
+  <tbody>
+  {%- for etichetta, r in righe %}
+    <tr class="robustezza-riga robustezza-riga--{{ r.stato }}" data-layer="{{ r.layer }}" data-stato="{{ r.stato }}">
+      <th scope="row">{{ etichetta }}</th>
+      <td class="persone" data-etichetta="persone attive">
+        {%- if r.persone is not none %}{{ r.persone }}{% else %}—{% endif %}
+        {%- if r.prima %}<small>{{ r.prima }}</small>{% endif -%}
+      </td>
+      {%- if r.stato == "leggibile" %}
+      <td class="collegati inizio" data-etichetta="Collegati fra loro">
+        <span class="barra misura--presenti fascia-{{ r.collegati.indice }}" role="img" aria-label="{{ r.collegati.parola }}"><span class="barra__pieno"></span></span>
+      </td>
+      {%- for c in r.celle %}
+      {#- Su telefono l'intestazione del gruppo non c'e': la prima cella la porta
+          nella sua etichetta, come nel mockup. #}
+      <td class="frazione{% if loop.first %} inizio{% endif %}" data-etichetta="{% if loop.first %}Senza le più centrali, {% endif %}{{ c.etichetta }}">
+        {%- if c.barra %}
+        <span class="barra barra--con-tacca fascia-{{ c.barra.indice }} tacca-{{ c.tacca.indice }}" role="img" aria-label="{{ c.descrizione }}"><span class="barra__pieno"></span><span class="barra__tacca"></span></span>
+        <span class="quanti">{{ c.quanti }}</span>
+        {%- else %}
+        <span class="robustezza-attesa">non calcolata</span>
+        {%- endif %}
+      </td>
+      {%- endfor %}
+      {%- else %}
+      <td colspan="{{ 1 + n_frazioni }}" class="robustezza-frase inizio">{{ r.frase }}</td>
+      {%- endif %}
+    </tr>
+  {%- endfor %}
+  </tbody>
+</table>
+</div>
+{%- endmacro %}
+<div class="robustezza-vista">
 <h1>Robustezza</h1>
-<p class="nota">La connettività di questa community dipende da pochi connettori?
-Per ogni tipo di interazione si tolgono dal grafo i nodi più centrali e, a parità di
-numero, nodi presi a caso. L'<strong>eccesso mirato</strong> è quanta componente
-gigante in più si perde con la rimozione mirata: può essere negativo, quando i nodi
-più centrali si rivelano meno critici di nodi qualunque.</p>
 
 {% if vista.vuota %}
+<p class="guida guida--vista">Se le poche persone che tengono insieme il server smettessero
+di esserci, gli altri resterebbero in contatto fra loro?</p>
 <p class="frase-vuota">Il calcolo non è ancora girato per questo server: non esiste
-ancora nessuno snapshot delle metriche.</p>
+ancora nessuna settimana da leggere.</p>
 {% else %}
-{% set ultimo = vista.snapshot[-1] %}
-<p>Tabelle: snapshot del <strong>{{ ultimo.as_of | settimana(ultimo.as_of) }}</strong>.
-{% if vista.snapshot | length > 1 %}Serie: {{ vista.snapshot | length }} snapshot, dal
-{{ vista.snapshot[0].as_of | settimana(ultimo.as_of) }}.{% endif %}</p>
-
-{% for b in vista.blocchi %}
-<section class="blocco" id="layer-{{ b.layer }}" data-layer="{{ b.layer }}" aria-labelledby="titolo-{{ b.layer }}">
-  <h2 id="titolo-{{ b.layer }}">{{ b.nome }} <code>{{ b.layer }}</code></h2>
-
-  {% if b.assente %}
-  <p class="frase-assente">Nessuna interazione di questo tipo in questa settimana.</p>
-  {% else %}
-    {% if b.tutto_soppresso %}
-  <p class="dimensione">Dimensione del grafo: {{ mostra(cella(b.soppressione, "nodes_removed")) }}</p>
-    {% elif b.n_incoerente %}
-  <p class="dimensione">Dimensione del grafo: <em>diversa tra le frazioni</em>, e non dovrebbe esserlo.</p>
-    {% else %}
-  <p class="dimensione">Dimensione del grafo: <strong data-n-effective="{{ b.n_effective }}">{{ b.n_effective }} nodi</strong></p>
-    {% endif %}
-
-  <div class="scorri">
-  <table class="tabella-blocco">
-    <thead>
-      <tr>
-        <th scope="col">rimozione</th>
-        <th scope="col">nodi rimossi</th>
-        <th scope="col">gigante prima</th>
-        <th scope="col">gigante dopo, mirata</th>
-        <th scope="col">gigante dopo, a caso</th>
-        <th scope="col">componenti dopo</th>
-        <th scope="col" class="colonna-risposta">eccesso mirato</th>
-        <th scope="col">z</th>
-        <th scope="col">qualificazione</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for r in b.righe %}
-      <tr class="riga-rimozione" data-snapshot="{{ r.snapshot_id }}" data-layer="{{ r.layer }}" data-frazione="{{ r.removal_fraction }}" data-nodes-removed="{{ r.values.nodes_removed if r.values.nodes_removed is not none else 'soppresso' }}">
-        <td>{{ percentuale(r.removal_fraction) }}</td>
-      {% if r.quality.suppressed %}
-        <td colspan="8">{{ mostra(cella(r, "nodes_removed")) }}</td>
-      {% else %}
-        <td>{{ mostra(cella(r, "nodes_removed")) }}</td>
-        {#- I decimali sono della COLONNA di questa tabella (b.decimali), non del
-            singolo valore: dashboard.md 5, "La precisione di una colonna numerica". -#}
-        <td>{{ mostra(cella(r, "giant_before", b.decimali["giant_before"])) }}</td>
-        <td>{{ mostra(cella(r, "giant_after_targeted", b.decimali["giant_after_targeted"])) }}</td>
-        <td>{{ mostra(cella(r, "giant_after_random_mean", b.decimali["giant_after_random_mean"])) }}</td>
-        <td>{{ mostra(cella(r, "components_after_targeted")) }}</td>
-        <td class="colonna-risposta">{{ mostra(cella(r, "targeted_excess", b.decimali["targeted_excess"])) }}</td>
-        <td>{{ mostra(cella(r, "targeted_z", b.decimali["targeted_z"])) }}</td>
-        <td>{{ etichette(cella(r, "targeted_excess")) }}</td>
-      {% endif %}
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+<div class="coorti-intro">
+  <div>
+    <p class="guida guida--vista">Se le poche persone che tengono insieme il server smettessero
+    di esserci, gli altri resterebbero in contatto fra loro? Per ogni tipo di interazione
+    Kindling ricostruisce chi ha interagito con chi nell'ultima settimana, prova a togliere
+    le persone che più fanno da ponte e guarda quanti restano collegati. Poi rifà la prova
+    togliendo lo stesso numero di persone qualunque, e confronta.</p>
+    <p class="coorti-contesto">È una simulazione: nessuno viene tolto davvero, e il calcolo
+    non conserva chi siano quelle persone.
+    <a href="{{ domande }}#q-robustezza-chi">{{ titoli_domande["q-robustezza-chi"] }}</a></p>
   </div>
-  {% endif %}
+  {#- I testi della legenda sono quelli del mockup approvato (dashboard.md 4).
+      Barra contro tacca e' una differenza di FORMA: si legge anche senza
+      distinguere i colori. -#}
+  <aside class="coorti-legenda robustezza-legenda" aria-labelledby="robustezza-legenda-titolo">
+    <p class="coorti-legenda__titolo" id="robustezza-legenda-titolo">Persone collegate:</p>
+    <ul>
+      <li><span class="barra barra--con-tacca fascia-4" aria-hidden="true"><span class="barra__pieno"></span></span>senza i più centrali</li>
+      <li><span class="barra barra--con-tacca fascia-0 tacca-5" aria-hidden="true"><span class="barra__pieno"></span><span class="barra__tacca"></span></span>escludendo a caso</li>
+    </ul>
+    <p class="robustezza-legenda__sotto">Barre più corte, meno collegati.</p>
+    <p class="coorti-legenda__titolo robustezza-legenda__esempi">Esempi di distribuzione dei contatti</p>
+    <ul>
+      <li><span class="barra barra--con-tacca fascia-5 tacca-5" aria-hidden="true"><span class="barra__pieno"></span><span class="barra__tacca"></span></span>ben distribuiti</li>
+      <li><span class="barra barra--con-tacca fascia-3 tacca-5" aria-hidden="true"><span class="barra__pieno"></span><span class="barra__tacca"></span></span>concentrati su pochi</li>
+    </ul>
+    <p class="robustezza-legenda__sotto"><a href="{{ domande }}#q-robustezza-barra">Come si leggono?</a></p>
+  </aside>
+</div>
 
-  {% if b.grafico %}
-  {% set g = b.grafico %}
-  <figure class="grafico" data-grafico="{{ b.layer }}">
-    <svg viewBox="0 0 {{ g.larghezza }} {{ g.altezza }}" role="img"
-         aria-label="Eccesso mirato per snapshot, {{ b.nome }}">
-      <line class="asse-zero" x1="56" x2="{{ g.larghezza - 16 }}" y1="{{ g.y_zero }}" y2="{{ g.y_zero }}"/>
-      {% for t in g.ticks_y %}
-      <text class="tick-y" x="50" y="{{ t.y }}" text-anchor="end" dominant-baseline="middle" data-valore="{{ t.etichetta }}">{{ t.etichetta }}</text>
-      {% endfor %}
-      {% for x, testo in g.etichette_x %}
-      <text class="tick-x" x="{{ x }}" y="{{ g.altezza - 12 }}" text-anchor="middle">{{ testo }}</text>
-      {% endfor %}
-      {% for s in g.serie %}
-      <g class="serie serie--{{ s.indice }}" data-segmenti="{{ s.segmenti | length }}">
-        {% for seg in s.segmenti %}
-        <line class="segmento{% if seg.dequalificato %} segmento--dequalificato{% endif %}" x1="{{ seg.x1 }}" y1="{{ seg.y1 }}" x2="{{ seg.x2 }}" y2="{{ seg.y2 }}"/>
-        {% endfor %}
-        {% for p in s.punti if p.disegnabile %}
-        <circle class="punto{% if p.dequalificato %} punto--dequalificato{% endif %}" cx="{{ p.x }}" cy="{{ p.y }}" r="{{ 4 if s.indice == 0 else (3.5 if s.indice == 1 else 3) }}" data-snapshot="{{ p.snapshot.snapshot_id }}"><title>{{ p.titolo }}</title></circle>
-        {% endfor %}
-      </g>
-      {% endfor %}
-      {% if g.tutto_non_significativo %}
-      <text class="etichetta-grafico" x="{{ g.larghezza - 16 }}" y="16" text-anchor="end">non significativo</text>
-      {% endif %}
-    </svg>
-    <figcaption>
-      <ul class="legenda">
-      {% for s in g.serie if s.legenda %}
-        <li class="voce-serie voce-serie--{{ s.indice }}"><span class="campione campione--{{ s.indice }}" aria-hidden="true"></span>{{ s.legenda }}</li>
-      {% endfor %}
-      {% if g.misto %}
-        <li class="voce-dequalificato"><span class="campione campione--dequalificato" aria-hidden="true"></span>tratteggio e punti vuoti: non significativo</li>
-      {% endif %}
-      </ul>
-    </figcaption>
-  </figure>
-  {% elif b.tabella_serie and vista.snapshot | length > 1 %}
-  <h3 class="titolo-serie">Eccesso mirato per snapshot</h3>
-  <p class="nota">Meno di tre punti per serie: si mostra la tabella, non una linea.</p>
-  <div class="scorri">
-  <table class="tabella-serie">
-    <thead>
-      <tr>
-        <th scope="col">snapshot del</th>
-        <th scope="col">rimozione</th>
-        <th scope="col">nodi rimossi</th>
-        <th scope="col" class="colonna-risposta">eccesso mirato</th>
-        <th scope="col">qualificazione</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for snap, r in b.tabella_serie %}
-      {% if r is none %}
-      <tr>
-        <td>{{ snap.as_of | settimana(ultimo.as_of) }}</td>
-        <td colspan="4" class="frase-assente">Nessuna interazione di questo tipo in quella settimana.</td>
-      </tr>
-      {% elif r.quality.suppressed %}
-      <tr class="riga-rimozione" data-snapshot="{{ r.snapshot_id }}" data-layer="{{ r.layer }}" data-frazione="{{ r.removal_fraction }}" data-nodes-removed="soppresso">
-        <td>{{ snap.as_of | settimana(ultimo.as_of) }}</td>
-        <td>{{ percentuale(r.removal_fraction) }}</td>
-        <td colspan="3">{{ mostra(cella(r, "nodes_removed")) }}</td>
-      </tr>
-      {% else %}
-      <tr class="riga-rimozione" data-snapshot="{{ r.snapshot_id }}" data-layer="{{ r.layer }}" data-frazione="{{ r.removal_fraction }}" data-nodes-removed="{{ r.values.nodes_removed }}">
-        <td>{{ snap.as_of | settimana(ultimo.as_of) }}</td>
-        <td>{{ percentuale(r.removal_fraction) }}</td>
-        <td>{{ mostra(cella(r, "nodes_removed")) }}</td>
-        <td class="colonna-risposta">{{ mostra(cella(r, "targeted_excess", b.decimali_serie["targeted_excess"])) }}</td>
-        <td>{{ etichette(cella(r, "targeted_excess")) }}</td>
-      </tr>
-      {% endif %}
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  {% endif %}
-</section>
-{% endfor %}
+{% if vista.avviso %}
+<p class="avviso coorti-avviso" role="note"><strong>{{ vista.avviso }}</strong>
+{%- if vista.soglia is not none %} <a href="{{ domande }}#q-robustezza-leggibile">Perché {{ vista.soglia }}?</a>{% endif %}</p>
 {% endif %}
+
+{{ tabella(vista.per_tipo, vista.frazioni, "Settimana chiusa " ~ vista.settimana, "Tipo di interazione") }}
+
+<p class="coorti-nota">Ogni tipo di interazione è una rete a sé: le righe non si sommano
+e non si confrontano fra loro. Le barre mostrano una proporzione approssimata; i numeri
+esatti sono nei dettagli tecnici.
+<a href="{{ domande }}#q-robustezza-tipi">{{ titoli_domande["q-robustezza-tipi"] }}</a>
+· <a href="{{ domande }}#q-robustezza-come">{{ titoli_domande["q-robustezza-come"] }}</a></p>
+
+{% if vista.storia %}
+<details class="robustezza-storia">
+  <summary>Le settimane precedenti</summary>
+  <p class="coorti-nota">Un tipo di interazione alla volta, dalla settimana più recente.
+  Le settimane più vecchie sono nei dettagli tecnici.</p>
+  {% for s in vista.storia %}
+  <h2 class="robustezza-storia__tipo" id="storia-{{ s.layer }}">{{ s.nome }}</h2>
+  {{ tabella(s.righe, vista.frazioni, s.nome ~ ", settimana per settimana", "Settimana", storia=true) }}
+  {% endfor %}
+</details>
+{% endif %}
+{% endif %}
+</div>
 {% endblock %}

@@ -37,7 +37,7 @@ from fastapi.testclient import TestClient
 from pydantic import TypeAdapter
 
 from api.models import CohortGroup
-from dashboard import config, coorti
+from dashboard import config, coorti, robustezza
 from dashboard.client import DEFAULT_COHORTS_LIMIT, ApiClient
 from dashboard.main import cornice, crea_app, crea_templates
 from tests.sessione_dashboard import OAUTH_DI_TEST, client_autenticato
@@ -103,6 +103,9 @@ def _rendi(gruppi: list[CohortGroup], guild_id: int = GUILD_SCALE) -> str:
     return crea_templates().get_template("dettagli_tecnici.html").render(**cornice(
         guild_id=guild_id, ultima=None, storico=[], aree=(),
         coorti=coorti.tecnica(gruppi, scenario["guild"].first_seen_at, params),
+        # Dal 30/09/2026 la pagina porta anche la tabella della robustezza: qui
+        # vuota, perche' questi test guardano le coorti.
+        robustezza=robustezza.tecnica([]),
         vista_corrente="dettagli",
     ))
 

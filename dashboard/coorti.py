@@ -50,7 +50,7 @@ import math
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence
 
 from api.models import (
     CohortGroup,
@@ -68,7 +68,12 @@ from . import stato as _stato
 # il loro nome, cosi' coorti.fascia e coorti.FASCE restano le stesse di prima.
 from .fasce import FASCE, Fascia, fascia  # noqa: F401
 from .qualifica import precisione_colonna
-from .robustezza import Snapshot
+# Il modulo e non il nome: robustezza importa stato, che importa questo modulo, e
+# un ``from .robustezza import Snapshot`` troverebbe robustezza a meta'.
+from . import robustezza as _robustezza
+
+if TYPE_CHECKING:
+    from .robustezza import Snapshot
 
 _PARAMS = MetricParams()
 
@@ -276,7 +281,7 @@ def costruisci(gruppi: list[CohortGroup]) -> Vista:
         return Vista(snapshot=None, gruppi=[])
 
     ultimo = max(gruppi, key=lambda g: (g.as_of, g.snapshot_id))
-    snapshot = Snapshot(ultimo.snapshot_id, ultimo.as_of)
+    snapshot = _robustezza.Snapshot(ultimo.snapshot_id, ultimo.as_of)
     scelti = [g for g in gruppi if g.snapshot_id == snapshot.snapshot_id]
 
     costruiti: list[Gruppo] = []

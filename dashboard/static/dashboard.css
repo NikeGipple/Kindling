@@ -389,19 +389,21 @@ pre { background: var(--grigio-fondo); padding: .75rem; overflow-x: auto; margin
                                  white-space: normal; }
 .qualificazione { display: inline-flex; flex-wrap: wrap; gap: .25rem; }
 
-/* --- vista Robustezza ---------------------------------------------------- */
+/* --- blocchi per layer e grafici ----------------------------------------- */
+/* I blocchi per layer di Community e della tabella tecnica di Robustezza nei
+   Dettagli tecnici (fino al 30/09/2026 la vista Robustezza). Il grafico e le sue
+   classi le usa solo Community da quel giorno: serie--1, serie--2,
+   campione--0/1/2 e asse-zero, che servivano alle tre serie di Robustezza, sono
+   stati tolti (dashboard.md 12.1). */
 .blocco { border-top: 1px solid var(--riga); margin-top: 2rem; }
-.blocco h2 code { color: var(--tenue); font-weight: normal; }
+.blocco h2 code, .blocco h3 code { color: var(--tenue); font-weight: normal; }
 .colonna-risposta { font-weight: 600; }
 .frase-assente, .frase-vuota { color: var(--tenue); font-style: italic; }
 .grafico { margin: 1rem 0 0; }
 .grafico svg { width: 100%; height: auto; max-width: 40rem; display: block; }
-.asse-zero { stroke: var(--grigio); stroke-width: 1; }
 .tick-x, .tick-y { font-size: 11px; fill: var(--tenue); }
 .etichetta-grafico { font-size: 12px; fill: var(--tenue); }
 .serie--0 { --colore: var(--serie-0); }
-.serie--1 { --colore: var(--serie-1); }
-.serie--2 { --colore: var(--serie-2); }
 .segmento { stroke: var(--colore); stroke-width: 2; }
 .punto { fill: var(--colore); stroke: var(--colore); stroke-width: 1.5; }
 /* Non significativo: si disegna, ma dequalificato — punto vuoto, tratto
@@ -410,9 +412,6 @@ pre { background: var(--grigio-fondo); padding: .75rem; overflow-x: auto; margin
 .segmento--dequalificato { stroke-dasharray: 4 3; opacity: .55; }
 .legenda { list-style: none; padding: 0; margin: .5rem 0 0; display: flex; flex-wrap: wrap; gap: .25rem 1.25rem; font-size: .85rem; }
 .campione { display: inline-block; width: 1.25rem; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: .35rem; }
-.campione--0 { border-color: var(--serie-0); }
-.campione--1 { border-color: var(--serie-1); }
-.campione--2 { border-color: var(--serie-2); }
 .campione--dequalificato { border-top: 2px dashed var(--grigio); }
 
 /* --- vista Community ----------------------------------------------------- */
@@ -592,6 +591,99 @@ p.avviso.coorti-avviso { max-width: var(--misura-vista); margin-top: 1.25rem; }
   .coorti-lettura td.coorte__frase { grid-column: 1 / -1; grid-row: 2; }
   .coorte--in_osservazione, .coorte--sotto_soglia, .coorte--non_osservata,
   .coorte--discorde { background: var(--grigio-fondo); padding-block: .6rem; }
+}
+
+/* --- vista Robustezza (riscritta il 30/09/2026) -------------------------- */
+/* Per chi amministra il server: una riga per tipo di interazione, e sulle righe
+   leggibili una barra e una tacca per frazione, sulle sette fasce della .barra di
+   Coorti (dashboard.md 4). Niente style="": larghezza della barra e posizione
+   della tacca sono classi, fascia-N e tacca-N.
+
+   Barra e tacca si distinguono per FORMA, non per colore (la lezione di 12.1): la
+   barra e' un riempimento, la tacca un segmento verticale piu' alto della barra,
+   con un alone del colore del fondo che la stacca anche dentro la barra.
+   Contrasti misurati il 30/09/2026 (WCAG 2.x) sul fondo su cui cadono davvero,
+   chiaro / scuro:
+   - barra (--brace) sul binario (--grigio-fondo): 4,66 / 5,89;
+   - "Collegati fra loro" (--tenue) sul binario: 4,60 / 5,33;
+   - tacca (--testo) sul binario, fuori dalla barra: 14,60 / 13,07;
+   - tacca DENTRO la barra: --testo su --brace sarebbe 3,14 / 2,22, sotto il 3:1
+     in scuro — per questo l'alone. Alone (--fondo) sulla barra 5,14 / 6,91, e
+     tacca sull'alone 16,10 / 15,32: la forma si legge in entrambi i temi. */
+.barra--con-tacca { position: relative; overflow: visible; }
+.barra--con-tacca .barra__pieno { background: var(--brace); border-radius: .3rem 0 0 .3rem; }
+.barra--con-tacca.fascia-6 .barra__pieno { border-radius: .3rem; }
+.barra__tacca { position: absolute; top: -.3rem; bottom: -.3rem; width: 3px; margin-left: -1.5px;
+                background: var(--testo); border-radius: 1px;
+                box-shadow: 0 0 0 1.5px var(--fondo); }
+.tacca-0 .barra__tacca { left: 0; }
+.tacca-1 .barra__tacca { left: 10%; }
+.tacca-2 .barra__tacca { left: 30%; }
+.tacca-3 .barra__tacca { left: 50%; }
+.tacca-4 .barra__tacca { left: 70%; }
+.tacca-5 .barra__tacca { left: 90%; }
+.tacca-6 .barra__tacca { left: 100%; }
+
+.robustezza-legenda .barra { width: 3rem; }
+.robustezza-legenda__sotto { margin: .35rem 0 0; font-size: .75rem; font-style: italic; }
+.robustezza-legenda__esempi { margin-top: .7rem; padding-top: .55rem;
+                              border-top: 1px solid var(--riga); }
+
+.robustezza-scorri { margin-top: 1rem; }
+.robustezza-lettura { font-size: .9rem; }
+.robustezza-lettura caption { caption-side: top; text-align: left; color: var(--tenue);
+                              font-size: .82rem; padding-bottom: .4rem; }
+.robustezza-lettura th, .robustezza-lettura td { padding: .6rem; vertical-align: middle; }
+.robustezza-lettura thead th { font-size: .78rem; }
+.robustezza-lettura__gruppi th { color: var(--testo); font-size: .82rem; }
+.robustezza-lettura__gruppi th[colspan] { border-bottom: none; padding-bottom: 0; }
+.robustezza-lettura tbody th { color: var(--testo); font-size: .9rem; white-space: nowrap; }
+.robustezza-lettura .persone { text-align: right; font-variant-numeric: tabular-nums;
+                               white-space: nowrap; padding-right: 1rem; }
+.robustezza-lettura .persone small { display: block; color: var(--tenue); font-size: .75rem; }
+.robustezza-lettura .inizio { border-left: 1px solid var(--riga); }
+.robustezza-lettura td.collegati, .robustezza-lettura td.frazione { min-width: 6.5rem; }
+.robustezza-lettura .quanti { display: block; margin-top: .4rem; font-size: .75rem;
+                              color: var(--tenue); }
+/* Le righe che non si leggono: --tenue, 5,07:1 su --fondo e 4,60:1 sul
+   --grigio-fondo delle schede su telefono (6,25 e 5,33 in scuro). */
+.robustezza-lettura .robustezza-riga:not(.robustezza-riga--leggibile) th {
+  color: var(--tenue); font-weight: 500; }
+.robustezza-frase { color: var(--tenue); font-size: .85rem; }
+.robustezza-attesa { color: var(--tenue); font-size: .78rem; font-style: italic; }
+.robustezza-storia { margin-top: 1.25rem; }
+.robustezza-storia > summary { cursor: pointer; color: var(--brace); font-size: .92rem; }
+.robustezza-storia > .coorti-nota { max-width: var(--misura-vista); }
+.robustezza-storia__tipo { font-size: .95rem; margin: 1.25rem 0 0; }
+
+/* Su telefono: una scheda per riga, sullo stesso markup. Nome e persone in testa,
+   "Collegati fra loro" a tutta larghezza, le frazioni affiancate. Le etichette
+   vengono da data-etichetta: le parole stanno nel template. */
+@media (max-width: 40rem) {
+  .robustezza-scorri { overflow: visible; }
+  .robustezza-lettura, .robustezza-lettura tbody { display: block; }
+  .robustezza-lettura caption { display: block; }
+  .robustezza-lettura thead { position: absolute; width: 1px; height: 1px; overflow: hidden;
+                              clip: rect(0 0 0 0); clip-path: inset(50%); }
+  .robustezza-lettura tr { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+                           gap: .45rem .6rem; border: 1px solid var(--riga); border-radius: .5rem;
+                           padding: .75rem .85rem; margin-bottom: .6rem; }
+  .robustezza-lettura th, .robustezza-lettura td { border: none; padding: 0; min-width: 0; }
+  .robustezza-lettura td.collegati, .robustezza-lettura td.frazione { min-width: 0; }
+  .robustezza-lettura tbody th { grid-column: 1 / 5; grid-row: 1; font-size: .98rem;
+                                 white-space: normal; }
+  .robustezza-lettura td.persone { grid-column: 5 / 7; grid-row: 1; padding: 0; }
+  .robustezza-lettura td.persone::before { content: attr(data-etichetta); display: block;
+                                           color: var(--tenue); font-size: .72rem; }
+  .robustezza-lettura td.collegati { grid-column: 1 / -1; }
+  .robustezza-lettura td.frazione { grid-column: span 2; }
+  .robustezza-lettura td.collegati::before, .robustezza-lettura td.frazione::before {
+    content: attr(data-etichetta); display: block; color: var(--tenue);
+    font-size: .72rem; margin-bottom: .3rem; }
+  .robustezza-lettura .inizio { border-left: none; }
+  .robustezza-lettura td.robustezza-frase { grid-column: 1 / -1; }
+  .robustezza-lettura .robustezza-riga:not(.robustezza-riga--leggibile) {
+    background: var(--grigio-fondo); padding-block: .6rem; }
 }
 
 /* --- vista Stato, pagina Domande, pagina Dettagli tecnici ---------------- */

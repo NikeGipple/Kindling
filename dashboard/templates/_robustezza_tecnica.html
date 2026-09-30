@@ -1,0 +1,127 @@
+{#- La tabella tecnica della robustezza, nei Dettagli tecnici (dashboard.md 4,
+    "La prima stesura, ora la tabella dei Dettagli tecnici").
+
+    Fino al 30/09/2026 era la vista Robustezza: il markup e' lo stesso, estratto e
+    non riscritto, senza il grafico SVG — la serie e' sempre una tabella. Tre
+    invarianti di template, verificati sul markup dai test:
+
+    - regola 6: una percentuale di rimozione non compare MAI senza i nodi rimossi
+      accanto, nella colonna adiacente;
+    - l'etichetta di riga compare una volta per riga, nell'ultima colonna;
+    - nessun totale, media o confronto tra layer: quattro blocchi separati.
+
+    quality.details non si legge (regola 2). -#}
+{% from "_cella.html" import mostra, etichette %}
+{% macro robustezza_tecnica(vista) -%}
+{% if vista.vuota %}
+<p class="frase-vuota">Il calcolo non è ancora girato per questo server: non esiste
+ancora nessuno snapshot delle metriche.</p>
+{% else %}
+{% set ultimo = vista.snapshot[-1] %}
+<p class="nota">Tabelle: snapshot <code>{{ ultimo.snapshot_id }}</code> del
+{{ ultimo.as_of | settimana(ultimo.as_of) }}.
+{% if vista.snapshot | length > 1 %}Serie: {{ vista.snapshot | length }} snapshot, dal
+{{ vista.snapshot[0].as_of | settimana(ultimo.as_of) }}.{% endif %}
+L'<strong>eccesso mirato</strong> è quanta componente gigante in più si perde con la
+rimozione mirata che con quella casuale, in frazione di quella iniziale: può essere
+negativo.</p>
+
+{% for b in vista.blocchi %}
+<section class="blocco" id="robustezza-{{ b.layer }}" data-layer="{{ b.layer }}" aria-labelledby="titolo-robustezza-{{ b.layer }}">
+  <h3 id="titolo-robustezza-{{ b.layer }}">{{ b.nome }} <code>{{ b.layer }}</code></h3>
+
+  {% if b.assente %}
+  <p class="frase-assente">Nessuna interazione di questo tipo in questa settimana.</p>
+  {% else %}
+    {% if b.tutto_soppresso %}
+  <p class="dimensione">Dimensione del grafo: {{ mostra(cella(b.soppressione, "nodes_removed")) }}</p>
+    {% elif b.n_incoerente %}
+  <p class="dimensione">Dimensione del grafo: <em>diversa tra le frazioni</em>, e non dovrebbe esserlo.</p>
+    {% else %}
+  <p class="dimensione">Dimensione del grafo: <strong data-n-effective="{{ b.n_effective }}">{{ b.n_effective }} nodi</strong></p>
+    {% endif %}
+
+  <div class="scorri">
+  <table class="tabella-blocco">
+    <thead>
+      <tr>
+        <th scope="col">rimozione</th>
+        <th scope="col">nodi rimossi</th>
+        <th scope="col">gigante prima</th>
+        <th scope="col">gigante dopo, mirata</th>
+        <th scope="col">gigante dopo, a caso</th>
+        <th scope="col">componenti dopo</th>
+        <th scope="col" class="colonna-risposta">eccesso mirato</th>
+        <th scope="col">z</th>
+        <th scope="col">qualificazione</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in b.righe %}
+      <tr class="riga-rimozione" data-snapshot="{{ r.snapshot_id }}" data-layer="{{ r.layer }}" data-frazione="{{ r.removal_fraction }}" data-nodes-removed="{{ r.values.nodes_removed if r.values.nodes_removed is not none else 'soppresso' }}">
+        <td>{{ percentuale(r.removal_fraction) }}</td>
+      {% if r.quality.suppressed %}
+        <td colspan="8">{{ mostra(cella(r, "nodes_removed")) }}</td>
+      {% else %}
+        <td>{{ mostra(cella(r, "nodes_removed")) }}</td>
+        {#- I decimali sono della COLONNA di questa tabella (b.decimali), non del
+            singolo valore: dashboard.md 5, "La precisione di una colonna numerica". -#}
+        <td>{{ mostra(cella(r, "giant_before", b.decimali["giant_before"])) }}</td>
+        <td>{{ mostra(cella(r, "giant_after_targeted", b.decimali["giant_after_targeted"])) }}</td>
+        <td>{{ mostra(cella(r, "giant_after_random_mean", b.decimali["giant_after_random_mean"])) }}</td>
+        <td>{{ mostra(cella(r, "components_after_targeted")) }}</td>
+        <td class="colonna-risposta">{{ mostra(cella(r, "targeted_excess", b.decimali["targeted_excess"])) }}</td>
+        <td>{{ mostra(cella(r, "targeted_z", b.decimali["targeted_z"])) }}</td>
+        <td>{{ etichette(cella(r, "targeted_excess")) }}</td>
+      {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+
+  {% if b.tabella_serie %}
+  <h4 class="titolo-serie">Eccesso mirato per snapshot</h4>
+  <div class="scorri">
+  <table class="tabella-serie">
+    <thead>
+      <tr>
+        <th scope="col">snapshot del</th>
+        <th scope="col">rimozione</th>
+        <th scope="col">nodi rimossi</th>
+        <th scope="col" class="colonna-risposta">eccesso mirato</th>
+        <th scope="col">qualificazione</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for snap, r in b.tabella_serie %}
+      {% if r is none %}
+      <tr>
+        <td>{{ snap.as_of | settimana(ultimo.as_of) }}</td>
+        <td colspan="4" class="frase-assente">Nessuna interazione di questo tipo in quella settimana.</td>
+      </tr>
+      {% elif r.quality.suppressed %}
+      <tr class="riga-rimozione" data-snapshot="{{ r.snapshot_id }}" data-layer="{{ r.layer }}" data-frazione="{{ r.removal_fraction }}" data-nodes-removed="soppresso">
+        <td>{{ snap.as_of | settimana(ultimo.as_of) }}</td>
+        <td>{{ percentuale(r.removal_fraction) }}</td>
+        <td colspan="3">{{ mostra(cella(r, "nodes_removed")) }}</td>
+      </tr>
+      {% else %}
+      <tr class="riga-rimozione" data-snapshot="{{ r.snapshot_id }}" data-layer="{{ r.layer }}" data-frazione="{{ r.removal_fraction }}" data-nodes-removed="{{ r.values.nodes_removed }}">
+        <td>{{ snap.as_of | settimana(ultimo.as_of) }}</td>
+        <td>{{ percentuale(r.removal_fraction) }}</td>
+        <td>{{ mostra(cella(r, "nodes_removed")) }}</td>
+        <td class="colonna-risposta">{{ mostra(cella(r, "targeted_excess", b.decimali_serie["targeted_excess"])) }}</td>
+        <td>{{ etichette(cella(r, "targeted_excess")) }}</td>
+      </tr>
+      {% endif %}
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+</section>
+{% endfor %}
+{% endif %}
+{%- endmacro %}

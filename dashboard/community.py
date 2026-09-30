@@ -32,20 +32,40 @@ from api.models import CommunityRow, CommunitySizeBucket
 from job.config import MetricParams
 
 from .qualifica import formatta, precisione_colonna
-from .robustezza import (
-    ALTEZZA,
-    LARGHEZZA,
-    LAYERS,
-    MARGINE_ALTO,
-    MARGINE_BASSO,
-    MARGINE_DX,
-    MARGINE_SX,
-    MIN_PUNTI_LINEA,
-    NOMI_LAYER,
-    Segmento,
-    Snapshot,
-    TickY,
-)
+from .robustezza import LAYERS, NOMI_LAYER, Snapshot
+
+# La geometria del grafico e i suoi pezzi. Fino al 30/09/2026 stavano in
+# robustezza.py, che disegnava tre serie per layer; da quando Robustezza non ha
+# piu' grafici (dashboard.md 4) Community e' l'unica vista che li usa.
+
+# Punti disegnabili sotto i quali non si traccia una linea (regola 4): con due
+# punti l'unica forma possibile e' la retta, e una retta afferma una direzione.
+MIN_PUNTI_LINEA = 3
+
+# Unita' SVG (viewBox): la larghezza reale la decide il CSS.
+LARGHEZZA = 640
+ALTEZZA = 240
+MARGINE_SX = 56
+MARGINE_DX = 16
+MARGINE_ALTO = 28
+MARGINE_BASSO = 36
+
+
+@dataclass
+class Segmento:
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+    # Eredita la qualificazione peggiore dei suoi estremi.
+    dequalificato: bool
+
+
+@dataclass
+class TickY:
+    y: float
+    etichetta: str
+
 
 _PARAMS = MetricParams()
 # La soglia che entra davvero in is_significant: e' per questo che il grafico di
