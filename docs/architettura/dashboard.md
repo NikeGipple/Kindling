@@ -316,7 +316,7 @@ dashboard e quante righe sono.
 | Vista | Endpoint | Righe per snapshot | Campi principali |
 |---|---|---|---|
 | **Stato** | `/guilds/{id}` + `/guilds/{id}/runs` + le tre serie | 1 + 1 + quelle sotto | `first_seen_at`, `backfilled_at`, `left_at`, `rejoined_at`; `as_of` e `params` delle run; `quality.suppressed` e `quality.significant` delle tre viste. `stats` e `code_version` sono passati ai **Dettagli tecnici** |
-| **Robustezza** | `/guilds/{id}/robustness` | 4 layer × 3 frazioni = **12** | `nodes_removed`, `giant_before`, `giant_after_targeted`, `components_after_targeted`, `giant_after_random_mean/sd`, `targeted_excess`, `targeted_z` |
+| **Robustezza** | `/guilds/{id}/robustness` + `/guilds/{id}/runs` (per `params`) | 4 layer × 3 frazioni = **12** | `nodes_removed`, `giant_before`, `giant_after_targeted`, `components_after_targeted`, `giant_after_random_mean/sd`, `targeted_excess`, `targeted_z` |
 | **Community** | `/guilds/{id}/communities` | 4 layer, + 6 classi di dimensione ciascuno | `community_count`, `modularity`, `modularity_z`, `node_overlap`, `stability_jaccard`, `previous_gap_days`, `communities_born/dissolved/merged/split`; `sizes[]` con `bucket`, `community_count`, `member_count` |
 | **Coorti** | `/guilds/{id}` + `/guilds/{id}/runs` + `/guilds/{id}/cohorts?limit=1` | per coorte: 2 onboarding + 3 retention, fino a **25** coorti = **125** righe sull'ultimo snapshot | onboarding: `event_count`, `censored_count`, `censored_by_leave`, `median_days_to_k`, `median_reached`, `p25/p75_days_to_k`, `reached_by_14d/28d` — retention: `retained_fraction`, `is_computable`, `not_computable_reason` |
 
@@ -833,6 +833,16 @@ differenza con gli stati di riga della vista è difensiva: una coorte con righe
 discordi e `significant` vero accende «leggibile» in Stato mentre la vista la
 mostra come discorde, senza barre.
 
+**Per Robustezza, lo stato è quello della vista (30/09/2026).** Dalla riscrittura
+di Robustezza la vista decide da `n_effective` contro `min_nodes_structural`, non
+da `quality.significant`, e sopra soglia una cella con baseline degenere è
+leggibile e non significativa. La pillola viene quindi da `robustezza.lettura`,
+la stessa funzione degli stati di riga, con frasi proprie; la domanda della
+riga diventa quella della vista («Se le poche persone che tengono insieme il
+server smettessero di esserci, gli altri resterebbero in contatto fra loro?»), e
+il rimando va a `q-robustezza-leggibile` (§4, «La vista Robustezza, in
+dettaglio»). Stato passa i `runs` che ha già: nessuna chiamata in più.
+
 **Le regole del calcolo: i valori vengono da `params` della run.** Non da
 `job/config.py`, e la differenza non è di stile — `params` è ciò con cui *quei*
 numeri sono stati calcolati, `job/config.py` è ciò con cui verrebbero calcolati
@@ -947,6 +957,46 @@ rimando. Tre vincoli sulle risposte:
   Dettagli tecnici: è da qui che la vista ci manda, e la pagina resta
   raggiungibile solo dalle Domande.
 
+**Le domande sono divise in gruppi (30/09/2026, §7-AC)**: «In generale»,
+«Robustezza», «Coorti», «Community», «Dati e aggiornamenti», con le assegnazioni
+del mockup di Robustezza. Un gruppo è un titolo `<h2>` sopra i suoi `<details>`;
+**gli `id` non cambiano**, e l'ordine delle domande dentro un gruppo è quello di
+prima. `q-barre` resta in «Coorti» anche se vale per Robustezza: il mockup lo
+lascia come domanda aperta, e spostarla è una decisione, non una svista da
+correggere qui. `q-tecnico` sta in «Dati e aggiornamenti». La mappa gruppo →
+`id` vive in `domande.GRUPPI`, e un test verifica che ogni domanda stia in un
+gruppo e in uno solo: una domanda nuova senza gruppo sparirebbe dalla pagina
+senza nessun errore.
+
+**Le cinque domande della vista Robustezza (30/09/2026).** `q-robustezza-come`
+(«Come fa Kindling a capire se il server dipende da poche persone?»),
+`q-robustezza-barra` («Come si leggono la barra e la tacca?»),
+`q-robustezza-chi` («Posso sapere chi sono le persone più centrali?»),
+`q-robustezza-leggibile` («Quando sarà leggibile Robustezza?») e
+`q-robustezza-tipi` («Perché quattro righe separate e non un risultato unico?»),
+con i testi del mockup e quattro correzioni:
+
+- le soglie vengono da `params` con la regola di sempre: «una persona su 20, una
+  su 10, una su 5» da `removal_fractions` (con la stessa regola «1 su N» della
+  vista), «cento volte» da `baseline_repetitions`, «almeno N persone» da
+  `min_nodes_structural`. Chiave mancante, frase che non la nomina;
+- `q-robustezza-come` dice che se senza le persone centrali si stacca molta più
+  gente, i contatti «passano da poche persone», e **anche il contrario**: se ne
+  stacca quanta a caso, sono distribuiti. Una risposta che spiegasse solo il
+  primo caso farebbe leggere ogni cella leggibile come un allarme (§4,
+  «Leggibile» non vuol dire «concentrato su pochi»);
+- `q-robustezza-chi` non dice «sotto le 30 persone» ma cita la soglia da
+  `params`, e dice esplicitamente che la soglia è **leggibilità, non
+  protezione**;
+- `q-robustezza-leggibile` non dice «il risultato cambia da un calcolo
+  all'altro», che il mockup affermava senza una misura: dice che sotto la soglia
+  la frazione più piccola toglierebbe una persona sola, cioè la derivazione di
+  `modello-metriche.md` §7.1.
+
+`q-robustezza-barra` porta il link ai Dettagli tecnici, come `q-barre`: è da qui
+che la vista ci manda. La pillola di Robustezza in Stato rimanda a
+`q-robustezza-leggibile`, non più a `q-mancanti`.
+
 **`q-segnate` cambia titolo e non `id`.** Diventa «Perché le coorti partono
 dall'arrivo del bot?», con una risposta che dice che di chi è entrato prima
 Kindling vede solo chi è rimasto. L'`id` resta `q-segnate` anche se il nome non
@@ -1003,6 +1053,15 @@ all'arrivo del bot, e sotto, con un titolo e un filo che le marcano, quelle
 sulle soppresse). La precisione delle colonne si calcola per tabella, come vuole
 §5. La pagina ora chiede anche `/guilds/{id}` e `/cohorts?limit=1`.
 
+**«Robustezza — numeri esatti» (30/09/2026).** La tabella che fino al 30/09 era la
+vista Robustezza: un blocco per layer, tre righe per frazione con `cella()` e la
+qualificazione, e sotto la serie per snapshot **sempre in tabella** (da due
+snapshot in su), mai più come grafico. Stessi test di prima sul markup: regola 6
+a colonne adiacenti, precisione per colonna, gruppo dei giganti, etichetta di
+riga una volta per riga. Le date della serie restano le settimane (`settimana`),
+non `data_ora`: sono etichette di settimana anche qui. La pagina ora chiede anche
+`/guilds/{id}/robustness`, e resta fra le pagine con la legenda dei simboli.
+
 Il raggruppamento dei parametri per area è una **mappa di etichette**
 (`dashboard/regole.py`), non un filtro: una chiave che la mappa non conosce
 finisce in un gruppo «altri parametri» e resta visibile. Un raggruppamento che
@@ -1031,6 +1090,198 @@ vieta in più i gestori di evento in linea (`onerror="..."` e simili), che la CS
 bloccherebbe in silenzio. Un secondo script richiede un secondo motivo scritto.
 
 ### La vista Robustezza, in dettaglio
+
+#### Riscritta il 30/09/2026: la vista per chi amministra il server
+
+La prima stesura (tutto quello che segue da «La prima stesura, ora la tabella
+dei Dettagli tecnici», più sotto) era la vista dell'operatore: quattro blocchi,
+nove colonne tecniche (`giant_before`, eccesso mirato, `z`…) e un grafico SVG
+con tre serie per layer. Diceva cose vere, a chi ha scritto il job. Come per
+Stato e Coorti, il destinatario della dashboard è uno solo — l'amministratore
+del server — e a lui quella pagina non rispondeva alla domanda della vista:
+**se le poche persone che tengono insieme il server smettessero di esserci, gli
+altri resterebbero in contatto fra loro?** Mockup approvato:
+`kindling-robustezza-v2.html`, fuori dal repo.
+
+La tabella della prima stesura non è stata cancellata: è **nei Dettagli
+tecnici** («Robustezza — numeri esatti», sotto), con la serie per snapshot in
+tabella. Il grafico SVG, `dominio_y` e le classi `serie--1`, `serie--2`,
+`campione--0/1/2` sono stati tolti; `serie--0`, `segmento`, `punto` e
+`campione--dequalificato` restano perché li usa Community, e con loro la
+geometria del grafico, che si è spostata in `dashboard/community.py`.
+
+**Dati.** `/guilds/{id}/robustness?limit=12` come prima, più `/guilds/{id}/runs`:
+la soglia di lettura e quella di pubblicazione si leggono dai `params` della run
+che ha scritto **quello** snapshot (`run.snapshot_id == snapshot_id`), non
+dall'ultima run e non da `job/config.py`.
+
+**Una tabella, una riga per tipo di interazione**, nell'ordine di `ALL_LAYERS`,
+e una cella per ciascuna frazione di rimozione. La prima stesura rifiutava
+questa forma («una tabella unica offre una colonna che attraversa i quattro
+layer»), e l'argomento non è stato smentito: è stato **pesato e superato** da
+una decisione del 29/09. Una colonna che attraversa i layer esiste, ma porta
+proporzioni ciascuna relativa alla **propria** rete, e non c'è nessuna colonna
+di sintesi, nessun totale, nessuna media, nessun ordinamento per valore. Il
+rischio che l'argomento nominava si disinnesca con una frase sotto la tabella —
+«Ogni tipo di interazione è una rete a sé: le righe non si sommano e non si
+confrontano fra loro» — e con la domanda `q-robustezza-tipi`, invece che con il
+layout. I nomi dei layer sono «In vocale», «Risposte», «Menzioni», «Reazioni».
+
+**Ogni riga in uno stato solo**, deciso in quest'ordine da campi tipizzati e da
+`params` (mai da `details`, regola 2):
+
+| Stato | Condizione | Cosa mostra la riga |
+|---|---|---|
+| **nessuna interazione** | nessuna riga del layer nello snapshot (grafo vuoto: `compute_robustness` restituisce `None`) | «—» e «nessuna interazione di questo tipo in questa settimana» |
+| **sotto la soglia di pubblicazione** | tutte le righe del layer `quality.suppressed` | «—» e «meno di N persone attive: non mostrata», con N = `params["min_nodes_publish"]`; senza la chiave, «troppo poche persone attive: non mostrata» |
+| **in osservazione** | pubblicata e `n_effective < params["min_nodes_structural"]`, **oppure** chiave mancante | persone attive e «in osservazione · si legge da N persone attive in una settimana»; senza la chiave, «in osservazione» e basta |
+| **leggibile** | pubblicata e `n_effective ≥ params["min_nodes_structural"]` | le celle con barra e tacca (sotto) |
+| **discorde** (ramo difensivo) | righe del layer miste fra soppresse e pubblicate, o `n_effective` diverso fra le frazioni | «i dati di questa settimana non concordano fra loro: si leggono solo nei dettagli tecnici», nessuna barra |
+
+**«Leggibile» non vuol dire «significativo», e non vuol dire «concentrato su
+pochi».** La soglia è quella di `modello-metriche.md` §7.1, ma la vista guarda
+`n_effective` contro la soglia e non `quality.significant`: sopra 21 persone
+l'unico motivo di non significatività possibile è `degenerate_baseline`
+(verificato eseguendo `compute_robustness`, sotto), e una cella con baseline
+degenere si mostra come le altre. La significatività della robustezza **non
+guarda `targeted_z`**: una cella leggibile può dire «togliere le persone
+centrali fa lo stesso danno che toglierne a caso», cioè contatti distribuiti.
+Nessun testo della vista, della pillola in Stato o delle Domande fa intendere
+che una cella leggibile segnali fragilità, e nessuna parola di giudizio
+(«fragile», «solida») compare: la lettura sta nella distanza fra barra e tacca,
+e il giudizio resta a chi amministra (decisione del 29/09).
+
+**Perché sotto la soglia non si mostra nessun risultato della simulazione.**
+Con 12 persone «togliendo la persona più centrale metà della rete si stacca»
+(`reaction`@14 in produzione, `giant_after_targeted = 0,5` a tutte e tre le
+frazioni) fa pensare a qualcuno. La ragione è la **leggibilità**, non la
+protezione: i numeri esatti restano nei Dettagli tecnici, e nessun testo
+promette che la soglia protegga qualcuno.
+
+**Senza `min_nodes_structural` nei `params` la riga è in osservazione, senza
+numero.** Non si inventa un valore di ripiego, e non si ripiega su
+`quality.significant`, che è un'altra cosa (sopra). Ramo difensivo: la chiave c'è
+in ogni run del fixture e, secondo la lettura del 28/09, in ogni run di
+produzione. Fallisce mostrando meno, non di più.
+
+**Le colonne.**
+
+- **Persone attive** — `n_effective`, e sotto, in piccolo, «sett. prima N»:
+  l'`n_effective` dello stesso layer nello snapshot precedente. **Solo quando
+  c'è un numero** (decisione del 30/09): nessuna riga se lo snapshot è il primo
+  della pagina, se nel precedente il layer non c'è o è soppresso, o se il
+  precedente non è di sette giorni prima (un buco di osservazione, o una run
+  anteriore all'ancoraggio al lunedì: si confrontano le due `settimana(as_of)`).
+- **Collegati fra loro** — una barra grigia con la fascia di `giant_before`.
+- **Restano collegati senza le più centrali**, una cella per frazione: la
+  **barra** è la fascia di `giant_after_targeted`, la **tacca** quella di
+  `giant_after_random_mean`, e sotto «senza N persone» da `nodes_removed`.
+
+Le fasce sono le sette di Coorti, dalla stessa funzione: `fascia()` e `FASCE`
+stanno in `dashboard/fasce.py`, importate da entrambe le viste, non copiate. La
+parola della fascia sta nell'`aria-label` della barra
+(«senza le 4 più centrali: quasi tutti; senza 4 persone qualunque: quasi tutti»).
+
+**L'intestazione di una frazione è «1 su N»**, con N = `1 / removal_fraction`,
+solo se N è intero (a meno di 10⁻⁹): con la griglia di oggi — 0,05, 0,10, 0,20 —
+lo è sempre, e dà «1 su 20», «1 su 10», «1 su 5». Una frazione futura che non lo
+fosse si scrive in percentuale («15%»), non si arrotonda in silenzio a un «1 su
+7». Le frazioni sono quelle presenti nelle righe, ordinate: non una lista della
+vista. **Regola 6**: l'intestazione non compare mai senza, nella stessa cella,
+«senza N persone»; su una riga che non è leggibile la cella non c'è.
+
+**Barra e tacca si distinguono per forma, non per colore** (§12.1): la barra è
+un riempimento, la tacca un segmento verticale più alto della barra, con un
+contorno del colore del fondo che la rende visibile anche dentro la barra.
+
+**Tre fatti del job, verificati eseguendo `compute_robustness`** (30/09/2026, su
+grafi casuali e costruiti, non sulla formula):
+
+- **sopra la soglia l'unico motivo di non significatività è
+  `degenerate_baseline`**: a 20 nodi il 5% toglie una persona
+  (`too_few_nodes_removed`), a 21 due. Su 900 celle di grafi da 21 a 45 nodi i
+  motivi osservati sono stati solo `()` e `('degenerate_baseline',)` — e il
+  secondo non è raro: 509 celle, tutti i grafi densi (ogni rimozione casuale
+  lascia il resto connesso, quindi la deviazione standard è zero). **Si mostra
+  come ogni altra cella** (decisione del 30/09): la tacca è il valore che ogni
+  rimozione casuale ha dato, quindi esatta e non meno vera. Di solito barra e
+  tacca coincidono; non sempre (un caso a 36 nodi: 0,889 contro 0,944);
+- **barra e tacca non superano mai «Collegati fra loro»**: su 900 celle, nessun
+  `giant_after_*` sopra `giant_before`. Vale per costruzione — le componenti di
+  un sottografo indotto stanno dentro quelle del grafo, e i denominatori sono lo
+  stesso `n` — ma è stato eseguito, non solo dedotto;
+- **la barra può superare la tacca**: eccesso negativo in 192 celle su 900, e in
+  12 di queste anche la fascia della barra è oltre quella della tacca. In
+  produzione succede su `voice`@14 a 5% e 10%. Nessun trattamento speciale nella
+  cella; lo dicono la legenda e `q-robustezza-barra`.
+
+**Legenda laterale**, con i testi del mockup: «Persone collegate:» — barra:
+«senza i più centrali»; tacca: «escludendo a caso»; «Barre più corte, meno
+collegati.» Poi «Esempi di distribuzione dei contatti»: una barra fino alla
+tacca, «ben distribuiti»; una barra a metà con la tacca in fondo, «concentrati
+su pochi»; il link «Come si leggono?» a `q-robustezza-barra`. A destra
+dell'introduzione su schermo largo, sotto di lei sotto i 56rem, come Coorti.
+
+**Avviso in cima solo con zero tipi leggibili nell'ultimo snapshot**, come
+Coorti dal 28/09. Dice «Nell'ultima settimana nessun tipo di interazione è
+leggibile.» e, con la soglia in `params`, «Serve che almeno N persone
+interagiscano in quel modo nella stessa settimana: sotto, il risultato dipende
+da una o due persone.» con il rimando a `q-robustezza-leggibile`. «Nell'ultima
+settimana» e non «per ora», come nel mockup: in produzione dopo il ricalcolo del
+30/09 le settimane del 7, 14 e 21/09 sono leggibili e quella del 28/09 no, e
+«per ora nessun tipo è leggibile» sopra una storia con righe leggibili sarebbe
+falso. In quel caso l'avviso aggiunge «Le settimane precedenti ne hanno: sono
+qui sotto.»
+
+**Le settimane precedenti** stanno in un `<details>` chiuso, «Le settimane
+precedenti», solo se gli snapshot sono almeno due: una tabella per tipo di
+interazione (stesso ordine), una riga per settimana dalla più recente, con le
+stesse colonne e gli stessi stati della tabella principale. Il confronto si fa
+scendendo lungo una colonna, come in Coorti. Nessuna media fra settimane,
+nessuna freccia, nessuna parola di tendenza. Le settimane sono quelle del
+`limit=12`: le altre stanno nei Dettagli tecnici.
+
+**I testi, in quest'ordine.** Titolo; introduzione («Se le poche persone che
+tengono insieme il server smettessero di esserci, gli altri resterebbero in
+contatto fra loro? …»); «È una simulazione: nessuno viene tolto davvero, e il
+calcolo non conserva chi siano quelle persone.» con il rimando a
+`q-robustezza-chi`; l'avviso; la tabella con la didascalia «Settimana chiusa
+&lt;data&gt;» (`stato.settimana`, forma estesa); sotto, la frase «Ogni tipo di
+interazione è una rete a sé: le righe non si sommano e non si confrontano fra
+loro. Le barre mostrano una proporzione approssimata; i numeri esatti sono nei
+dettagli tecnici.» con i rimandi a `q-robustezza-tipi` e `q-robustezza-come`.
+**Nessun link diretto ai Dettagli tecnici**, come in Coorti: la pagina resta
+raggiungibile dalle Domande (`q-robustezza-barra` e `q-tecnico` ci portano).
+
+**Su telefono** (sotto i 40rem) ogni riga è una scheda, con il solo CSS sullo
+stesso markup: nome e persone in testa, «Collegati fra loro» a tutta larghezza,
+le celle delle frazioni affiancate, con le etichette da `data-etichetta`. La
+`<thead>` resta per i lettori di schermo, nascosta visivamente. Le schede non
+leggibili sono basse e su fondo grigio. Nessuno scorrimento orizzontale a 320px.
+Nessun JavaScript, nessun `style=""`: larghezze della barra e posizione della
+tacca sono classi (`fascia-0…6`, `tacca-0…6`).
+
+**La pillola di Robustezza in Stato viene dalla stessa funzione**
+(`robustezza.lettura`), non da `stato_da_qualita`: fino al 30/09/2026 Stato
+diceva «con cautela» o «leggibile» da `quality.significant`, mentre la vista
+decide da `n_effective` contro la soglia. Le due cose coincidono solo finché
+nessuna cella sopra soglia ha la baseline degenere — che sul job è frequente
+(sopra). È lo stesso difetto trovato il 26/09 fra la pillola e la vista Coorti.
+La corrispondenza è: nessuna riga → «in raccolta»; ogni layer presente
+soppresso → «sotto la soglia»; almeno un layer leggibile nell'ultimo snapshot →
+«leggibile»; altrimenti «con cautela». Le frasi sono della vista, non quelle
+generiche di Stato («distinguibile dal caso» qui sarebbe falso, vedi sopra).
+«Con cautela» con tutti i tipi in osservazione è accettato (decisione del
+30/09): la frase dice che l'ultima settimana non ha abbastanza persone attive, e
+se una settimana precedente ne aveva lo aggiunge, così non contraddice la vista
+che la mostra.
+
+#### La prima stesura, ora la tabella dei Dettagli tecnici
+
+Quello che segue descrive la vista fino al 30/09/2026. La tabella dei blocchi e
+la tabella della serie sono oggi nei Dettagli tecnici, identiche; il grafico SVG
+non c'è più. Le regole sulle celle (precisione di colonna, regola 6, `z`
+assente, layer assente) valgono ancora, per quella tabella.
 
 **La domanda a cui risponde.** Una sola: *la connettività di questa community
 dipende da pochi connettori?* Il numero che la risponde è `targeted_excess`
@@ -2851,7 +3102,7 @@ sono numeri veri da mostrare. Quello che manca davvero è altro.
 | Vista | Stato reale | Cosa deve dire la UI |
 |---|---|---|
 | **Stato** | Piena e corretta | *Il bot osserva dal 28 agosto, l'ultimo calcolo è di lunedì.* Nessun caveat. |
-| **Robustezza** | 12 righe, **tutti i valori popolati**, tutte non significative | *Questi numeri esistono e non sono distinguibili dal rumore.* Il perché resta fuori: sta in `details`, e §5 lo vieta finché non è una colonna. |
+| **Robustezza** | 12 righe, **tutti i valori popolati**, tutte non significative | *Questi numeri esistono e non sono distinguibili dal rumore.* Il perché resta fuori: sta in `details`, e §5 lo vieta finché non è una colonna. **Superato il 30/09/2026**: la vista dice «in osservazione» sotto `min_nodes_structural` e non mostra numeri della simulazione (§4, «La vista Robustezza, in dettaglio»); questa frase resta per la tabella dei Dettagli tecnici. |
 | **Community** | Popolata; stabilità su un solo layer (dati del rerun del 15/09/2026). Lo snapshot 11 non ha precedente su nessuno dei quattro layer: `previous_gap_days` e `stability_jaccard` assenti, `no_previous_snapshot`. Lo snapshot 12 si confronta con l'11 con `previous_gap_days` **6,823** su tutti e quattro i layer, ma `stability_jaccard` c'è solo su `voice` (**0,333**): `mention`, `reaction` e `reply` hanno `node_overlap` sotto il minimo (`node_overlap_below_minimum`), non un precedente mancante. Nodi dall'11 al 12: `voice` 9→15, `mention` 26→29, `reaction` 24→25, `reply` 24→23. **Nessun layer è oggi `is_significant = true`**: tutti e quattro sono ancora sotto i 30 nodi, la soglia di allora (`too_few_nodes`; dal 30/09/2026 è 21, `modello-metriche.md` §7.1), `voice`@12 compreso — che pure ha `modularity_z = 5,624` e `stability_jaccard = 0,333`, entrambi ben oltre le rispettive soglie. | *La struttura si vede, e su `voice` anche la stabilità: nessuna delle due letture dipende dal grafo essere "abbastanza grande" secondo la soglia strutturale, che qui non ha ancora acceso niente. Sugli altri tre layer la stabilità non si legge perché tra una settimana e l'altra sono cambiate troppe persone, non perché il grafo sia piccolo — sono due limiti diversi che oggi capitano insieme.* |
 | **Coorti** | **Aggiornato il 26/09/2026** (snapshot 13, `as_of` 21/09, letto dalle sole tabelle `metric_*`): **25 coorti** — **5 soppresse**, tutte anteriori all'ancora (30/08 secondo la lettura del 26/09; il resto di questo documento e il fixture `…001` dicono 28/08 — per il filtro della vista non cambia niente, la coorte del 24/08 precede entrambe e quella del 31/08 le segue entrambe, ma la data va verificata); **17 «solo sopravvissuti»**; **3 posteriori all'ancora**. La coorte del **31/08** è la **prima `is_significant = true` mai vista in produzione**: `n = 14`, matura a 14 giorni, coperta; `any` `reached_by_14d = 0,083`, `reached_by_28d` NULL; `voice` `reached_by_14d = 0,000`; retention 0,857 a 7 e a 14 giorni, `horizon_not_reached` a 28. Il **07/09** non è matura (8 giorni) e ha `reached_by_14d = reached_by_28d = 1,000` su `any` con 3 eventi su 8 — la coda della curva, ed è la ragione per cui la vista non mostra numeri sulle coorti non mature. Il **14/09** ha 0 giorni di osservazione, retention tutta `horizon_not_reached`. *La stesura del 14/09, sotto, resta come storia.* — **25 coorti** sull'ultimo snapshot (14/09/2026), **50 righe di onboarding**: **12 soppresse** (`n<5`, 6 coorti × 2 `layer_scope`), **34 "solo sopravvissuti"** (17 coorti, anteriori all'ancora del 28/08), **4 né l'uno né l'altro** (2 coorti recenti, con copertura di snapshot). **Nessuna riga è oggi `is_significant = true`**: le uniche coorti non "solo sopravvissuti" non sono ancora mature (`observation_days < 14` dall'ultimo iscritto — la coorte del 31/08 ne ha 7). Retention: aritmeticamente **18** righe soppresse, **51** con `not_computable_reason = before_observability_anchor` (stessa causa di "solo sopravvissuti"), **6** sulle 2 coorti recenti (calcolabilità per orizzonte non verificata su dati reali in questa sessione — nessun accesso al database di produzione da qui). | *Una settimana si legge: quella del 31 agosto, quattordici persone. Dice com'è andata a quel gruppo, non ancora come va di solito. Le due settimane dopo sono in osservazione, con la data del calcolo da cui si leggeranno. Le coorti anteriori all'arrivo del bot non compaiono nella vista: di chi è entrato prima Kindling vede solo chi è rimasto, e quei numeri stanno nei Dettagli tecnici.* |
 
@@ -3127,6 +3378,15 @@ può dire quale sia quale.
 Dove morde: la serie di Robustezza (§4), che porta tre soglie di rimozione nello
 stesso grafico più i tre campioni di legenda che le nominano. Community disegna
 una serie sola per grafico e non è toccata.
+
+**Dal 30/09/2026 non morde più da nessuna parte.** La vista Robustezza è stata
+riscritta senza grafici (§4): una tabella con barra e tacca, che si distinguono
+per forma e non per colore, e nei Dettagli tecnici la serie è una tabella. Oggi
+`--serie-1` e `--serie-2` non li usa nessuna regola del foglio, e `--serie-0` solo
+Community, dove la serie è una. **La voce resta aperta** per la tavolozza: i tre
+valori chiari restano quelli misurati sopra, e chi li riusasse per un grafico a
+più serie ritroverebbe il difetto intero. Si chiude rifacendo i colori, o
+togliendo i due inutilizzati con una decisione esplicita.
 
 Il tema scuro lo evita separando le tre anche in luminanza — 8,29:1, 5,14:1 e
 14,05:1 sul fondo — e la coppia che conta, ambra/verde, resta a 2,50:1 in
